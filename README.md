@@ -1,4 +1,4 @@
-# Unconscious v1.7.0
+# Unconscious v1.7.1
 
 '上一代' 轻量级响应式框架，直接操作真实 DOM，提供细粒度更新和高性能。专注于最小化运行时开销，支持现代函数组件和丰富的 JSX 扩展语法。
 - Svelte家的Vue风味的React

@@ -764,6 +764,8 @@ if (import.meta.env.DEV) {
 		for (const [listener, owners] of updated) {
 			try {
 				const cleaner = listener();
+				if (!updated.has(cleaner)) continue;
+
 				for (const owner of owners) {
 					owner.set(listener, cleaner);
 				}
