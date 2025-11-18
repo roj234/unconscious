@@ -18,7 +18,7 @@ const setContext = (pass, name, v) => pass.set('unconscious/babel-jsx/'+name, v)
  */
 function intellijCompat(s) {
 	if (s === "dangerouslySetInnerHTML") return ID_DANGEROUSLY_SET_INNERHTML;
-	if (s.startsWith("on")) return s.toLowerCase();
+	//if (s.startsWith("on")) return s.toLowerCase();
 	return s === "className" ? "class" : s/*.toLowerCase()*/;
 }
 
@@ -29,9 +29,11 @@ function escapeText(unsafe) {
 	return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 }
 
+const HTML_VOID = new Set("area,base,br,col,embed,hr,img,input,link,meta,source,track,wbr".split(","));
+
 function generateStaticHTML(node) {
 	if (t.isJSXText(node)) {
-		return escapeText(node.value);
+		return escapeText(node.value.trim());
 	}
 	if (t.isJSXElement(node)) {
 		let tagName = node.openingElement.name.name;
@@ -44,8 +46,7 @@ function generateStaticHTML(node) {
 		let attrs = node.openingElement.attributes
 			.filter(attr => {
 				if (!t.isJSXAttribute(attr) || attr.name.name === "ref") return false;
-				const val = attr.value;
-				return val && (t.isStringLiteral(val) || t.isNumericLiteral(val) || t.isBooleanLiteral(val));
+				return attr.value;
 			})
 			.map(attr => {
 				let name = attr.name.name;
@@ -53,13 +54,16 @@ function generateStaticHTML(node) {
 					name = attr.name.namespace.name + ":" + name;
 				}
 				name = intellijCompat(name);
-				const val = attr.value;
+				let val = attr.value;
+				if (val.expression) val = val.expression;
 				let valStr = "";
 				if (val) {
 					if (t.isStringLiteral(val)) {
 						valStr = val.value;
 					} else if (t.isNumericLiteral(val) || t.isBooleanLiteral(val)) {
 						valStr = val.value.toString();
+					} else {
+						console.log("Unsupported literal converting HTML", val);
 					}
 				}
 				return valStr ? `${name}="${escapeAttr(valStr)}"` : name;
@@ -67,13 +71,16 @@ function generateStaticHTML(node) {
 			.join(" ");
 
 		const childrenHtml = node.children.map(child => generateStaticHTML(child)).join("");
-		return `<${tagName}${attrs ? " " + attrs : ""}>${childrenHtml}</${tagName}>`;
+		return `<${tagName}${attrs ? " " + attrs : ""}>${childrenHtml}` + (HTML_VOID.has(tagName)?"":`</${tagName}>`);
 	}
 	return "";
 }
 
 function isStaticJSX(path, isChild) {
 	const { node } = path.get("openingElement");
+
+	if (path.scope.bindings[node.name.name])
+		return false;
 
 	function isStaticAttribute(val) {
 		if (t.isJSXExpressionContainer(val))
@@ -85,7 +92,11 @@ function isStaticJSX(path, isChild) {
 	let result = true;
 
 	if (node.attributes && !node.attributes.every(attr => {
-		const name = attr.name.name;
+		const name = attr.name?.name;
+
+		// may JSXSpreadAttribute
+		if (name == null) return false;
+
 		if (name === "ref") {
 			result = attr.value;
 			return !isChild;
@@ -132,13 +143,20 @@ function transformJsxChildrenArguments(args, file, i) {
 		if (t.isJSXSpreadChild(x)) {
 			args[i] = t.spreadElement(x.expression);
 		}
-		if (t.isConditionalExpression(x)) {
-			if (x.test?.callee?.name !== "AS_IS") {
+
+		if (!file.opts.micro) {
+			/*if (t.isConditionalExpression(x)) {
+				if (x.test?.callee?.name !== "AS_IS") {
+					args[i] = t.callExpression(getContext(file, 'id/computed')(), [
+						t.arrowFunctionExpression([], x)
+					]);
+				} else {
+					x.test = x.test.arguments[0];
+				}
+			} else */if (t.isArrowFunctionExpression(x)) {
 				args[i] = t.callExpression(getContext(file, 'id/computed')(), [
-					t.arrowFunctionExpression([], x)
+					x
 				]);
-			} else {
-				x.test = x.test.arguments[0];
 			}
 		}
 	}
@@ -248,7 +266,7 @@ function createPlugin(_, options) {
 					if (path.scope === this.rootScope) return;
 
 					const resultOrRef = isStaticJSX(path);
-					if (resultOrRef) {
+					if (resultOrRef && path.node.children.length) {
 						const html = generateStaticHTML(path.node);
 						if (html) {
 							let factory = this.existingStaticHtml.get(html);
@@ -265,7 +283,7 @@ function createPlugin(_, options) {
 							let replaceNode = t.callExpression(factory, []);
 
 							if (t.isJSXExpressionContainer(resultOrRef)) {
-								replaceNode = t.assignmentExpression("=", resultOrRef.expression, callExpr);
+								replaceNode = t.assignmentExpression("=", resultOrRef.expression, replaceNode);
 							}
 
 							path.replaceWith(t.inherits(replaceNode, path.node));
@@ -399,8 +417,8 @@ function createPlugin(_, options) {
 function componentHMR(componentId, path, state) {
 	const {node} = path;
 
-	const name = componentId === "default" ? node.id.name : componentId;
-	if (!isFirstCharUpperCase(name) || name.length === 1) return;
+	const name = componentId === "default" ? node.id?.name : componentId;
+	if (!name || !isFirstCharUpperCase(name) || name.length === 1) return;
 
 	let components = getContext(state, "knownComponents");
 	if (components == null) {
@@ -486,6 +504,8 @@ function unwatchOnDispose(path, pass) {
 	const cleanupCalls = [];
 	const dependenciesMap = new Map();
 	let returnStatement = null;
+	const rootScope = body.scope;
+
 
 	// 第一步：查找所有 $watchWithCleanup 调用
 	body.traverse({
@@ -506,7 +526,7 @@ function unwatchOnDispose(path, pass) {
 			callPath.replaceWith(
 				t.callExpression(
 					getContext(pass, 'id/watch')(),
-					[listArg, callbackId]
+					callPath.node.arguments
 				)
 			);
 
@@ -526,7 +546,7 @@ function unwatchOnDispose(path, pass) {
 		},
 
 		ReturnStatement(retPath) {
-			if (!returnStatement) {
+			if (!returnStatement && retPath.scope === rootScope) {
 				returnStatement = retPath;
 			}
 		}
@@ -666,18 +686,14 @@ function accumulateAttribute(pass, array, attribute, ctx) {
 		if (namespace === "class") namespace = ID_CLASSLIST;
 		else if (namespace === "style") namespace = ID_STYLELIST;
 		else namespace += ":";
-		// abc:def = ...
-		key = t.stringLiteral(namespace+key.name.name);
+
+		namespace += key.name.name;
+
+		key = namespace.includes(":") ? t.stringLiteral(namespace) : t.identifier(namespace);
 	} else {
 		if (key.name === "ref") {
 			ctx.ref = value;
 			return;
-		}
-
-		// FIXME add robust!
-		// Preserve original case for ID_NAMESPACE and other special identifiers
-		if (ctx.isHTMLElement && key.name !== ID_NAMESPACE && key.name !== ID_CLASSLIST && key.name !== ID_STYLELIST && key.name !== ID_EVENTHANDLER) {
-			key.name = intellijCompat(key.name);
 		}
 
 		if (key._uc_names) {
@@ -711,19 +727,46 @@ function accumulateAttribute(pass, array, attribute, ctx) {
 			}
 
 			if (eventProperties.length) {
-				value = t.arrayExpression([value, t.objectExpression(eventProperties)]);
+				eventProperties.push(t.objectProperty(
+					t.identifier("f"),
+					value
+				));
+				value = t.objectExpression(eventProperties);
 			}
 
 			key = t.identifier(key.name);
 		}
 
-		if (ctx.isHTMLElement && key.name.startsWith("on")) key.name = ID_EVENTHANDLER+key.name.substring(2);
+		if (ctx.isHTMLElement && key.name.startsWith("on")) {
+			key.name = ID_EVENTHANDLER+key.name.substring(2).toLowerCase();
+			for (let arrayElement of array) {
+				if (arrayElement.key.name === key.name) {
+					if (!t.isArrayExpression(arrayElement.value)) {
+						arrayElement.value = t.arrayExpression([arrayElement.value]);
+					}
+					arrayElement.value.elements.push(value);
+					return;
+				}
+			}
+		}
 		if (key.name.includes("-")) {
 			// aria-xxx
 			key = t.stringLiteral(key.name);
 		} else {
+			// FIXME add robust!
+			// Preserve original case for ID_NAMESPACE and other special identifiers
+			const first = key.name[0];
+			if (ctx.isHTMLElement && first !== ID_EVENTHANDLER) {
+				key.name = intellijCompat(key.name);
+			}
+
 			key.type = "Identifier";
 		}
+	}
+
+	const first = (key.name?.name ?? key.name ?? key.value)?.[0];
+	if (first !== ID_EVENTHANDLER && t.isArrowFunctionExpression(value)) {
+		value = t.callExpression(getContext(pass, 'id/computed')(), [value]);
 	}
 
 	array.push(t.inherits(t.objectProperty(key, value), attribute));

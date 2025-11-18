@@ -1,4 +1,4 @@
-import {debugSymbol, PASSIVE_EVENT} from "../runtime_shared.js";
+import {debugSymbol} from "../runtime_shared.js";
 
 /**
  * 项目渲染出元素的索引，因为实际有它所以{@link ITEM_KEY}才可以重复
@@ -32,7 +32,7 @@ class VirtualList {
 	_startHeight = 0;
 	_totalHeight = 0;
 
-	_updatePending = false;
+	_dirty = false;
 
 	_recycle = [];
 
@@ -43,11 +43,11 @@ class VirtualList {
 	 * @param {HTMLElement} config.element - 父元素
 	 * @param {Array<T>} config.data - 数据源
 	 * @param {number} config.itemHeight - 每项的高度
-	 * @param {function(item: T): any} [config.keyFunc=item => item] - 生成唯一索引的函数
-	 * @param {function(data: T, index: number, recycle: Array<HTMLElement>): HTMLElement} config.renderer - 渲染函数
+	 * @param {(item: T) => any} [config.keyFunc=item => item] - 生成唯一索引的函数
+	 * @param {(data: T, index: number, recycle: Array<HTMLElement>) => HTMLElement} config.renderer - 渲染函数
 	 * @param {number} [config.height=element.offsetHeight] - 总高度
-	 * @param {boolean} [config.visible=auto] - 当前是否可见
 	 * @param {boolean} [config.fixed=false] - 元素高度是否固定
+	 * @param {(el: HTMLElement) => number} [config.heightOf=el => el.offsetHeight] - 元素外边距什么的加起来的高度
 	 * @returns {VirtualList<T>}
 	 */
 	constructor(config) {
@@ -55,33 +55,23 @@ class VirtualList {
 		const container = this.dom = <div className="_vl"></div>;
 		wrapper.appendChild(container);
 
-		if (!(this.itemHeight = config.itemHeight)) throw "默认高度不能为0";
+		if (!(this.itemHeight = config.itemHeight)) throw "元素默认高度不能为0";
 		this.renderer = config.renderer;
-		this.height = config.height ?? wrapper.offsetHeight;
 
-		this._visible = config.visible ?? window.getComputedStyle(wrapper).display !== "none";
-		(this._observer = new IntersectionObserver(entries => {
-			if((this._visible = entries[entries.length-1].isIntersecting) && this._updatePending) {
-				this._updatePending = false;
-				this.repaint();
-			}
-		})).observe(wrapper);
-
+		this.heightOf = config.heightOf ?? (el => el.offsetHeight);
 		this.render = (config.fixed ? this._updateFixed : this._update).bind(this);
 		this.keyFunc = config.keyFunc ?? (item => item[ITEM_KEY] ?? item);
 
-		// 头疼医头，脚疼医脚，解决丢失滚动目标的问题；完美的解决方案是对列表项使用绝对定位，使得浏览器基于父元素定位，但是这会引入每次滚动更新offset的开销
-		wrapper.addEventListener('wheel', this._handleMouseWheel, PASSIVE_EVENT);
-		wrapper.addEventListener('mousedown', this._handleMiddleClick);
 		wrapper.addEventListener('scroll', this.render);
 
-		if ((this.items = config.data)) {
-			if (this._visible && this.height) {
-				this.render();
-			} else {
-				this._updatePending = true;
+		this._dirty = (this.items = config.data) ? 3 : 0;
+
+		(this._observer = new IntersectionObserver(entries => {
+			if((this._visible = entries[entries.length-1].isIntersecting) && this._dirty) {
+				this.repaint(true);
+				this._dirty = false;
 			}
-		}
+		})).observe(wrapper);
 	}
 
 	// 鼠标事件处理
@@ -108,15 +98,15 @@ class VirtualList {
 	 * @param {boolean=false} itemHeightUnchanged 子元素高度未变化
 	 */
 	repaint(itemHeightUnchanged) {
-		if (!this._visible) {this._updatePending = true;return;}
 		if (!itemHeightUnchanged) {
 			this._start = 0;
 			this._startHeight = 0;
 			this._totalHeight = 0;
 		}
 
+		if (!this._visible) {this._dirty = true;return;}
+
 		this.dom.style.height = "99999px";
-		this.height = this._wrapper.offsetHeight;
 		this.render();
 	}
 
@@ -141,7 +131,7 @@ class VirtualList {
 		if (i < this._start || i >= this._end) return;
 
 		this.getValue(i)[INDEX] = -1;
-		if (!this._visible) {this._updatePending = true;return;}
+		if (!this._visible) {this._dirty = true;return;}
 		this.render();
 	}
 
@@ -209,59 +199,59 @@ class VirtualList {
 	destroy() {
 		this._observer.disconnect();
 		this._wrapper.removeEventListener('scroll', this.render);
-		this._wrapper.removeEventListener('wheel', this._handleMouseWheel);
-		this._wrapper.removeEventListener('mousedown', this._handleMiddleClick);
 	}
 
 	_updateFixed() {
+		const viewHeight = this._wrapper.offsetHeight;
+
 		const items = this.items;
 		const itemHeight = this.itemHeight;
 
 		const startIndex = Math.floor(this._wrapper.scrollTop / itemHeight);
-		const endIndex = Math.min(items.length, startIndex + Math.ceil(this.height / itemHeight) + 1);
+		const endIndex = Math.min(items.length, startIndex + Math.ceil(viewHeight / itemHeight) + 1);
 
 		const container = this.dom;
-		container.style = `padding-top: ${startIndex * itemHeight}px; padding-bottom: ${(items.length - endIndex) * itemHeight}px`;
+		container.style = `padding-top:${startIndex * itemHeight}px;padding-bottom:${(items.length - endIndex) * itemHeight}px`;
 
 		this._renderList(container, startIndex, endIndex, items);
 	}
 
 	_update() {
-		if (!this._visible) {console.warn("渲染不可见的列表");return}
 		const items = this.items;
 
 		let i = this._start;
-		let height = this._startHeight;
+		let offset = this._startHeight;
 
 		//进入视口
 		const viewStart = this._wrapper.scrollTop;
-		if (height < viewStart) {
+		if (offset < viewStart) {
 			while(i < items.length) {
 				const h = items[i][ITEM_HEIGHT] ?? this.itemHeight;
-				if ((height + h) >= viewStart) break;
+				if ((offset + h) >= viewStart) break;
 				i++;
-				height += h;
+				offset += h;
 			}
-		} else if (height !== viewStart) {
+		} else if (offset !== viewStart) {
 			while (i > 0) {
 				const h = items[--i][ITEM_HEIGHT] ?? this.itemHeight;
-				if ((height -= h) < viewStart) break;
+				if ((offset -= h) < viewStart) break;
 			}
 		}
 		const startIndex = this._start = i;
-		const startHeight = this._startHeight = height;
+		const startHeight = this._startHeight = offset;
 
+		const viewHeight = this._wrapper.offsetHeight;
 		//离开视口
-		const viewEnd = viewStart + this.height;
+		const viewEnd = viewStart + viewHeight;
 		while(i < items.length) {
 			const h = items[i++][ITEM_HEIGHT] ?? this.itemHeight;
-			if ((height += h) > viewEnd) break;
+			if ((offset += h) > viewEnd) break;
 		}
 
 		//总高度
 		let totalHeight = this._totalHeight;
 		if (!totalHeight) {
-			totalHeight = height;
+			totalHeight = offset;
 			let j = i;
 			while(j < items.length) totalHeight += items[j++][ITEM_HEIGHT] ?? this.itemHeight;
 			this._totalHeight = totalHeight;
@@ -270,7 +260,7 @@ class VirtualList {
 		// 未渲染的元素的高度由padding-top和padding-bottom代替，保证滚动条位置正确
 		// 这里如果把设置padding的操作放在渲染元素之后，部分浏览器滚动到最后一个元素时会有问题
 		const container = this.dom;
-		container.style = `padding-top: ${startHeight}px; padding-bottom: ${totalHeight-height}px`;
+		container.style = `padding-top: ${startHeight}px; padding-bottom: ${totalHeight-offset}px`;
 		this._renderList(container, startIndex, Math.min(i+1, items.length)/*多渲染一个，防止滚动太快跟不上*/, items);
 
 		i = startIndex;
@@ -278,7 +268,7 @@ class VirtualList {
 		for(const el of container.children) {
 			if (!el[ITEM_KEY]) continue;
 
-			const h = el.offsetHeight;
+			const h = this.heightOf(el);
 			let item;
 			if (h !== this.itemHeight && h !== (item=items[i])[ITEM_HEIGHT]) {
 				item[ITEM_HEIGHT] = h;
@@ -296,14 +286,8 @@ class VirtualList {
 		for (const item of Array.from(container.children)) {
 			const i = item[INDEX];
 			if (i < startIndex || i >= endIndex || item[ITEM_KEY] !== this.keyFunc(items[i], i)) {
-				if (item === this._hoveringElement) {
-					item.style.visibility = 'hidden';
-					item.style.position = 'fixed';
-					delete item[ITEM_KEY];
-				} else {
-					recycle.push(item);
-					item.remove();
-				}
+				recycle.push(item);
+				item.remove();
 			} else {
 				reuse[i] = item;
 			}

@@ -4,12 +4,11 @@ import {
 	ID_EVENTHANDLER,
 	ID_NAMESPACE,
 	ID_STYLELIST,
-	isPureObject,
-	VERSION
+	isPureObject
 } from "./constant.js";
-import {debugSymbol} from "./runtime_shared.js";
+import {AS_IS, debugSymbol} from "./runtime_shared.js";
 
-export {_left, _right, _middle, _button, _children, _prevent, _stop, _delegate} from './runtime_shared.js';
+export * from './runtime_shared.js';
 
 /**
  * 响应式对象
@@ -60,7 +59,7 @@ export function createElement(type, props, ...children) {
 	// 设置属性
 	if (props) {
 		let weakSelf;
-		for (const [key, value] of Object.entries(props)) {
+		for (let [key, value] of Object.entries(props)) {
 			if (key === ID_NAMESPACE) continue;
 
 			if (isReactive(value)) {
@@ -132,11 +131,7 @@ export function appendChildren(parent, children) {
 						for (const el of value) {
 							if (el == null) continue;
 							const newChild = createChildNode(el);
-							if (childNode.parentNode) {
-								parent.insertBefore(newChild, childNode);
-							} else {
-								parent.appendChild(newChild);
-							}
+							parent.insertBefore(newChild, childNode.parentNode && childNode);
 							$disposable(newChild, listenerKey);
 							elements.push(newChild);
 						}
@@ -191,9 +186,8 @@ export function appendChildren(parent, children) {
 
 					if (childNode.parentNode) {
 						childNode.replaceWith(newChild);
-						$dispose(childNode);
+						$dispose(childNode, listenerKey);
 					} else {
-						if (parent == null) throw LAZY_DISPOSE_FALLBACK;
 						parent.appendChild(newChild);
 					}
 
@@ -221,9 +215,9 @@ function fireAppended(parent, child) {
 	if (child instanceof DocumentFragment) {
 		Object.defineProperty(child, "parentElement", {
 			value: parent
-		})
+		});
+		child._appended && child._appended(parent);
 	}
-	child.dispatchEvent(new CustomEvent("append", {detail:parent}));
 }
 
 /**
@@ -253,14 +247,27 @@ function setAttribute(element, key, value) {
 			element.style[key.substring(ID_STYLELIST.length)] = value;
 		return;
 		case ID_CLASSLIST:
-			element.classList.toggle(key.substring(ID_CLASSLIST.length), value);
+			element.classList.toggle(key.substring(ID_CLASSLIST.length), !!value);
 		return;
 		case ID_EVENTHANDLER:
-			let attrib; // once, capture, passive等
-			if (Array.isArray(value))
-				[value, attrib] = value;
+			const name = key.substring(ID_EVENTHANDLER.length);
 
-			element.addEventListener(key.substring(ID_EVENTHANDLER.length), value, attrib);
+			function listen(value) {
+				let attrib; // once, capture, passive等
+				if (typeof (value) === "object") {
+					attrib = value;
+					value = attrib.f;
+				}
+				element.addEventListener(name, value, attrib);
+				return attrib;
+			}
+
+			if (Array.isArray(value)) {
+				for (let v of value) listen(v);
+			} else {
+				listen(value);
+			}
+
 		return;
 		case "s":
 			if (key === "style" && isPureObject(value)) {
@@ -272,11 +279,17 @@ function setAttribute(element, key, value) {
 			}
 		break;
 	}
-	element.setAttribute(key, value);
+
+	if (key in element && typeof element[key] !== "object" && value !== undefined) {
+		element[key] = value;
+	} else if (value == null) {
+		element.removeAttribute(key);
+	} else {
+		element.setAttribute(key, Array.isArray(value) ? value.filter(t => t).join(" ") : value);
+	}
 }
 
 //endregion
-export * from './runtime_shared';
 //region 行为
 /**
  * 响应式 CSS 类动态绑定装饰器
@@ -289,7 +302,8 @@ export * from './runtime_shared';
 function _classesBehaviour(element, properties) {
 	const ref = new WeakRef(element);
 	for (const key in properties) {
-		const value = properties[key];
+		let value = properties[key];
+		if (typeof value === "function") value = $computed(value);
 		const update = () => {ref.deref().classList.toggle(key, unconscious(value))};
 		if (!isReactive(value)) update();
 		else $watchOn(value, update, element);
@@ -315,7 +329,8 @@ function _classesBehaviour(element, properties) {
 function _stylesBehaviour(element, properties) {
 	const ref = new WeakRef(element);
 	for (const key in properties) {
-		const value = properties[key];
+		let value = properties[key];
+		if (typeof value === "function") value = $computed(value);
 		const update = () => {ref.deref().style[key] = unconscious(value)};
 		if (!isReactive(value)) update();
 		else $watchOn(value, update, element);
@@ -520,6 +535,7 @@ function getArray(deep) {
 
 		const array = target.value;
 		let value = array?.[prop];
+		//if (isReactive(value)) return value;
 
 		if (typeof value === "function") {
 			// 无法知道什么是不是数组，可能的类型太多了
@@ -616,8 +632,7 @@ const DevComputeProxy = {
 /**
  * 创建计算属性（自动捕获依赖）
  * @template T
- * @param {(oldValue: T|undefined) => T|undefined} callback - 计算函数（接收旧值作为参数，可通过 this 访问可写上下文）
- * @param {boolean} [lazy=false] - 是否延迟计算直到访问时
+ * @param {(oldValue: T|undefined) => T|undefined} callback - 计算函数（接收旧值作为参数，初始调用时为undefined）
  * @param {Array<Reactive<any>>|undefined} [dependencies=undefined] - 如果你的处理函数很复杂, 第一次调用不会访问所有的依赖, 那么可从这个数组指定
  * @returns {Readonly<Reactive<T>>} 只读的响应式计算属性
  *
@@ -631,7 +646,7 @@ const DevComputeProxy = {
  *   - 生产环境返回的计算属性无写保护
  * - 我只能期待你在开发环境把各种分支都测试到了（
  */
-function $computed(callback, lazy, dependencies) {
+function $computed(callback, dependencies) {
 	const prevCapture = dependCapture;
 	if (!dependencies) dependCapture = new Set();
 
@@ -642,78 +657,35 @@ function $computed(callback, lazy, dependencies) {
 		dependCapture = prevCapture;
 	}
 
-	if (lazy) holder[$DIRTY] = false;
+	if (!dependencies) return holder.value;
 
 	let proxy;
 
 	const doUpdate = () => $update(proxy);
 
-	if (import.meta.env.DEV) {
-		const WritableProxyForLazyCompute = new Proxy(holder, ShallowProxy);
+	const updateValue = () => {
+		const oldValue = holder.value;
+		const newValue = callback(oldValue);
+		if (newValue === undefined || oldValue === newValue) return;
+		holder.value = newValue;
 
-		const updateValue = () => {
-			const oldValue = holder.value;
-			const newValue = callback.call(WritableProxyForLazyCompute, oldValue);
-			if (newValue === undefined) return;
-			holder.value = newValue;
-
-			$unwatch(oldValue, doUpdate);
-			if (isReactive(newValue)) {
+		$unwatch(oldValue, doUpdate);
+		if (isReactive(newValue)) {
+			if (import.meta.env.DEV) {
 				if (import.meta.hot && newValue.__ === "DevHotReload") {
 
 				} else {
 					_devError("不建议在计算属性中返回响应式属性 (不过好像也没有什么实际上问题)", newValue)
 				}
-				$watch(newValue, doUpdate);
-			} else {
-				$update(proxy);
 			}
-		};
+			$watch(newValue, doUpdate);
+		} else {
+			$update(proxy);
+		}
+	};
+	$watch(dependencies, updateValue, false);
 
-		proxy = new Proxy(holder, lazy ? {
-			...proxyCommons,
-			...proxyCommonsReadonly,
-			get: (target, prop, proxy) => {
-				if (target[$DIRTY]) {
-					target[$DIRTY] = false;
-					updateValue();
-				}
-				return ShallowProxy.get(target, prop, proxy);
-			}
-		} : DevComputeProxy);
-
-		$watch(dependencies, lazy ? () => holder[$DIRTY] = true : updateValue, false);
-	} else {
-		const updateValue = () => {
-			const oldValue = holder.value;
-			const newValue = callback.call(proxy, oldValue);
-			if (newValue === undefined) return;
-			holder.value = newValue;
-
-			$unwatch(oldValue, doUpdate);
-			if (isReactive(newValue)) {
-				$watch(newValue, doUpdate);
-			} else {
-				$update(proxy);
-			}
-		};
-
-		proxy = new Proxy(holder, lazy ? {
-			...proxyCommons,
-			...proxyCommonsReadonly,
-			get: (target, prop, proxy) => {
-				if (target[$DIRTY]) {
-					target[$DIRTY] = false;
-					updateValue();
-				}
-				return ShallowProxy.get(target, prop, proxy);
-			}
-		} : ShallowProxy);
-
-		$watch(dependencies, lazy ? () => holder[$DIRTY] = true : updateValue, false);
-	}
-
-	return proxy;
+	return proxy = import.meta.env.DEV ? new Proxy(holder, DevComputeProxy) : new Proxy(holder, ShallowProxy);
 }
 
 /**
@@ -730,54 +702,24 @@ let updatePending;
  */
 let batchUpdate;
 if (import.meta.env.DEV) {
-	let allUpdated;
-	let cyclicDepend = new Map();
-	/**
-	 * @type {Map}
-	 */
-	const cyclicChecker = {
-		set(k, v) {
-			cyclicDepend.set(k, v);
-			// 把新的也加入总列表
-			allUpdated.set(k, v);
-		},
-		get(k) {
-			let x = cyclicDepend.get(k);
-			if (!x && allUpdated.has(k)) {
-				throw new Error("循环依赖");
-			}
-			return x;
-		},
-		delete(k) {
-			cyclicDepend.delete(k);
-		}
-	};
+	let depth = 0;
 	batchUpdate = () => {
 		let updated = updatePending;
-
-		// 如果是不在递归
-		if (!allUpdated) allUpdated = new Map(updated);
-		else cyclicDepend = new Map();
-
-		updatePending = cyclicChecker;
+		updatePending = new Map;
 
 		for (const [listener, owners] of updated) {
 			try {
 				const cleaner = listener();
+
 				for (const owner of owners) {
+					if (!owner.has(listener)) continue;
 					owner.set(listener, cleaner);
 				}
 			} catch (e) {
 				if (e !== LAZY_DISPOSE_FALLBACK) {
-					if (import.meta.env.DEV) {
-						_devError("事件派发失败", e, listener);
-					} else {
-						console.error("事件派发失败", e, listener);
-					}
+					_devError("事件派发失败", e, listener);
 				} else {
-					if (import.meta.env.DEV) {
-						_devError("响应式元素被外部移除，并且未取消%O的监听器，应使用$dispose(%O)", owners, listener);
-					}
+					_devError("响应式元素被外部移除，并且未取消%O的监听器，应使用$dispose(%O)", owners, listener);
 				}
 
 				for (const owner of owners) {
@@ -786,12 +728,15 @@ if (import.meta.env.DEV) {
 			}
 		}
 
-		if (cyclicDepend.size) {
-			// 如果递归，那么不清空【已经更新过的变量】
-			updatePending = cyclicDepend;
+		if (updatePending.size) {
+			depth ++;
+			if (depth === 10) _devError("警告：递归更新可能影响性能", updatePending);
+			if (depth >= 100) throw new Error("循环依赖");
+
 			queueMicrotask(batchUpdate);
 		} else {
-			updatePending = allUpdated = null;
+			depth = 0;
+			updatePending = null;
 		}
 	};
 } else {
@@ -800,9 +745,21 @@ if (import.meta.env.DEV) {
 		updatePending = null;
 
 		for (const [listener, owners] of updated) {
-			const cleaner = listener();
-			for (const owner of owners) {
-				owner.set(listener, cleaner);
+			try {
+				const cleaner = listener();
+
+				for (const owner of owners) {
+					if (!owner.has(listener)) continue;
+					owner.set(listener, cleaner);
+				}
+			} catch (e) {
+				if (e !== LAZY_DISPOSE_FALLBACK) {
+					console.error("事件派发失败", e, listener);
+				}
+
+				for (const owner of owners) {
+					owner.delete(listener);
+				}
 			}
 		}
 	};
@@ -810,28 +767,30 @@ if (import.meta.env.DEV) {
 
 /**
  * 强制触发响应式变量更新
- * @param {Reactive<any>|Array<Reactive<any>>} objects - 要更新的响应式变量或数组
+ * @param {Reactive<any>|Array<Reactive<any>>} object - 要更新的响应式变量或数组
  * @note 提供多个变量时，多个变量共有的监听器只触发一次
  */
-function $update(objects) {
-	if (!Array.isArray(objects))
-		objects = [objects];
+function $update(object) {
+	if (Array.isArray(object)) {
+		for (const obj of object) {
+			$update(obj);
+		}
+		return;
+	}
 
 	if (!updatePending) {
 		updatePending = new Map();
 		queueMicrotask(batchUpdate);
 	}
 
-	for (const object of objects) {
-		const listeners = isReactive(object);
-		for (const [listener, cleanup] of listeners) {
-			if (typeof cleanup === "function") cleanup();
-			let owners = updatePending.get(listener);
-			if (!owners) {
-				updatePending.set(listener, owners = new Set());
-			}
-			owners.add(listeners);
+	const listeners = isReactive(object);
+	for (const [listener, cleanup] of listeners) {
+		if (typeof cleanup === "function") cleanup();
+		let owners = updatePending.get(listener);
+		if (!owners) {
+			updatePending.set(listener, owners = new Set());
 		}
+		owners.add(listeners);
 	}
 }
 //endregion
@@ -1138,6 +1097,7 @@ if (import.meta.hot) {
 					}
 
 					if (!proxy.value?.isConnected) return;
+					delete proxy.value[$DISPOSABLE];
 
 					this.reloadingState = stateRepo;
 					stateRepo.prevStates = stateRepo.states;
@@ -1187,20 +1147,27 @@ if (import.meta.hot) {
 //region foreach列表
 /**
  * 创建按需更新的列表，复用现有DOM元素
- * @template T
+ * @template T item type
+ * @template {T|any} K key type
+ * @template {Renderable} E element type
  * @param {Reactive<T[]>} list - 响应式列表
- * @param {(item: T, index: number) => Renderable} renderItem - 生成列表项元素的函数 (item, index) => Element
- * @param {(item: T, index: number) => any} [keyFunc] - 生成唯一标识的函数 (item, index) => any (默认使用item)
+ * @param {(item: T, index: number) => E} renderItem - 生成列表项元素的函数
+ * @param {(item: T, index: number) => K} [keyFunc=item => item] - 生成唯一标识的函数
+ * @param {Map<K, E>} currentKeys
+ * @param {(key: K, node: Renderable) => void} morphChild
  * @returns {DocumentFragment} 包含动态列表的文档片段
  */
-function $foreach(list, renderItem, keyFunc = (item) => item, currentKeys) {
+function $foreach(list, renderItem, keyFunc = AS_IS, {currentKeys = new Map, morphChild = AS_IS} = {}) {
+	if (!isReactive(list)) {
+		//if (import.meta.env.DEV) _devError("不应对非响应式数组使用$foreach; 以Array.prototype.map代替");
+		return list && list.map(renderItem);
+	}
+
 	let parent = document.createDocumentFragment();
 	let offset = 0;
-	if (!currentKeys) currentKeys = new Map();
-	//const currentKeys = new Map(); // key到DOM节点的映射
 
 	const callback = () => {
-		const newItems = unconscious(list);
+		const newItems = unconscious(list) || [];
 		const newKeys = newItems.map(keyFunc).map(unconscious);
 		const newKeySet = new Set(newKeys);
 
@@ -1209,54 +1176,66 @@ function $foreach(list, renderItem, keyFunc = (item) => item, currentKeys) {
 			if (!newKeySet.has(key)) {
 				$dispose(unconscious(node));
 				currentKeys.delete(key);
+			} else {
+				morphChild(key, node);
+				if (key === newKeys[0]) {
+					offset = Array.prototype.indexOf.call(parent.childNodes, unconscious(node).previousSibling)+1;
+				}
 			}
 		}
 
 		// 处理新增/移动
-		newItems.forEach((item, newIndex) => {
-			const key = newKeys[newIndex];
+		newItems.forEach((item, index) => {
+			const key = newKeys[index];
 
 			let node = currentKeys.get(key);
-			if (!node || !node.isConnected) {
+			if (!node?.isConnected) {
 				// 创建新元素
-				node = renderItem(unconscious(item), newIndex);
-
+				node = renderItem(item, index);
+				if (!isReactive(node))
+					node = createChildNode(node);
 				currentKeys.set(key, node);
 			}
 
 			// 调整位置
 			const nodeList = parent.childNodes;
-			if (nodeList[newIndex+offset] !== unconscious(node)) {
-				const referenceNode = newIndex < nodeList.length-offset
-					? nodeList[newIndex+offset]
+			if (nodeList[index+offset] !== unconscious(node)) {
+				const referenceNode = index < nodeList.length-offset
+					? nodeList[index+offset]
 					: null;
 
 				if (isReactive(node)) {
 					const reactiveNode = node;
 					$watch(reactiveNode, () => {
-						let orig = reactiveNode.value;
-						parent.replaceChild(orig, node);
+						let orig = createChildNode(reactiveNode.value);
+						node.replaceWith(orig);
+						$dispose(node);
 						node = orig;
 					}, false);
-					node = unconscious(node);
+					node = createChildNode(unconscious(node));
 				}
 				parent.insertBefore(node, referenceNode);
 			}
 		});
 	};
 
-	parent.addEventListener("append", e => {
-		parent = e.detail;
-		offset = parent.childElementCount;
-		if (!import.meta.env.DEV || isReactive(list)) {
-			$watch(list, callback);
-			$disposable(parent, [list, callback]);
-		} else {
-			_devError("不应对非响应式数组使用$foreach; 以Array.prototype.map代替");
-			callback();
-		}
-	}, {once:true});
-	return parent;
+	const fragment = parent;
+	fragment._appended = e => {
+		parent = e;
+		offset = parent.childNodes.length;
+		$watch(list, callback);
+		$disposable(parent, [list, callback]);
+
+		delete fragment._appended;
+		/*fragment._appended = e => {
+			if (parent === e) return;
+			parent = e;
+			console.log("change parent to", e);
+			for (const node of currentKeys.values()) $dispose(node);
+			currentKeys.clear();
+		};*/
+	};
+	return fragment;
 }
 
 /**
@@ -1391,7 +1370,9 @@ let dirtyStore;
 
 function _doSaveStore() {
 	for(const [k, v] of dirtyStore) {
-		localStorage.setItem(k, v[STORE_SER](v.value));
+		const value = v[STORE_SER](v.value);
+		if (value == null) localStorage.removeItem(k);
+		else localStorage.setItem(k, value);
 	}
 	dirtyStore.clear();
 }
@@ -1525,15 +1506,25 @@ export function $store(key, initializer, options = {}) {
  * 2. 保留旧数据，避免界面闪烁
  * 3. 自动管理 loading 和 error
  */
-export function $asyncState(fetcher, value) {
+export function $asyncState(fetcher, value, initialValue) {
 	/**
 	 * @type {ReactivePromise}
 	 */
 	const state = {
-		value: null,
+		value: initialValue,
 		[$LISTENERS]: new Map()
 	};
 	const proxy = new Proxy(state, ShallowProxy);
+
+	const success = data => {
+		state.loading = false;
+		proxy.value = data;
+	};
+	const failure = error => {
+		state.loading = false;
+		state.error = error || true;
+		$update(proxy);
+	};
 
 	const callback = () => {
 		state.loading = true;
@@ -1542,17 +1533,19 @@ export function $asyncState(fetcher, value) {
 		// 这保证了加载新数据时, 旧数据依然可用, 从而不会给用户展示很多次Loading
 		$update(proxy);
 
-		fetcher(unconscious(value)).then(data => {
-			state.loading = false;
-			proxy.value = data;
-		}).catch(error => {
-			state.loading = false;
-			state.error = error || true;
-			$update(proxy);
-		});
+		try {
+			const data = fetcher(unconscious(value));
+			if (data instanceof Promise) {
+				data.then(success).catch(failure);
+			} else {
+				success(data);
+			}
+		} catch (e) {
+			failure(e);
+		}
 	};
 
-	if (isReactive(value)) $watch(value, callback);
+	if (isReactive(value)) $watch(value, callback, initialValue === undefined);
 	// 类似初始化的场景
 	else callback();
 
@@ -1594,30 +1587,190 @@ export function $asyncComponent(loader, loading, error) {
 }
 //endregion
 
-export function kloneNode(str) {
-	let cached = null;
+/**
+ * 在调用时执行并自动捕获依赖的$watch
+ * @param {function(): void} callback
+ * @param {Reactive<any>[]} dependencies=
+ */
+export function $effect(callback, dependencies) {
+	const prevCapture = dependCapture;
+	if (!dependencies) dependCapture = new Set();
 
-	return () => {
-		if (!cached) {
-			const frag = document.createElement("template");
-			frag.innerHTML = str;
-			const nodes = frag.content.childNodes;
-			cached = nodes.length > 1 ? Array.from(nodes) : nodes[0];
-			str = undefined;
+	callback();
+
+	if (!dependencies) {
+		dependencies = [...dependCapture];
+		dependCapture = prevCapture;
+	}
+
+	$watch(dependencies, callback);
+}
+
+/**
+ *
+ * @template T
+ * @param {Reactive<T>} ref
+ * @return {[function(): T, function(T | function(T): T): void]}
+ */
+export function createSignal(ref) {
+	return [
+		() => ref.value,
+		(newValue) => {
+			if (typeof newValue === 'function') {
+				newValue = newValue(ref.value);
+			}
+			return ref.value = newValue;
 		}
+	];
+}
 
-		if (cached.length) {
-			return cached.map(node => node.cloneNode(true));
-		} else {
-			return cached.cloneNode(true);
+/**
+ *
+ * @template T
+ * @param {function(T): T} fn
+ * @param {T} value=
+ * @param {{}} options
+ */
+export function createEffect(fn, value, options) {
+	const prevCapture = dependCapture;
+	dependCapture = new Set();
+
+	const callback = () => value = fn(value);
+
+	callback();
+
+	const dependencies = [...dependCapture];
+	dependCapture = prevCapture;
+
+	$watch(dependencies, callback);
+}
+
+/**
+ *
+ * @template T
+ * @param {function(T): T} fn
+ * @param {T} value
+ * @param {{equals: function(T, T): boolean}} options
+ * @return {function(): T}
+ */
+export function createMemo(fn, value, options = { equals: () => false }) {
+	const {equals} = options;
+
+	const state = $computed(oldValue => {
+		if (oldValue === undefined) return value === undefined ? fn() : value;
+		const newValue = fn(oldValue);
+		if (equals(oldValue, newValue)) return undefined;
+		return newValue;
+	});
+	return () => state.value;
+}
+
+export function createResource(arg1, arg2) {
+	let fetcher, source;
+	if (arguments.length === 2) {
+		fetcher = arg2;
+		source = arg1;
+	} else {
+		fetcher = arg1;
+	}
+
+	const inputState = $state(source);
+
+	const realFetcher = (source) => {
+		fetcher(source, {
+			value: state.value,
+			refetching: info
+		})
+	};
+
+	const state = $asyncState(realFetcher, inputState);
+	let info;
+
+	const getData = () => state.value;
+
+	// TODO depend capture
+	Object.defineProperty(getData, "loading", {
+		get: () => state.loading,
+	});
+	Object.defineProperty(getData, "error", {
+		get: () => state.error,
+	});
+
+	return [
+		getData,
+		{
+			mutate: (value) => state.value = value,
+			refetch: (info1) => {
+				info = info1 ?? true;
+				$update(inputState);
+			}
+		}
+	]
+}
+
+const CURRENT_VALUE = /* #__PURE__ */debugSymbol("ContextCurrentValue");
+
+// TODO 实现callableChildren转换器
+
+export function createContext() {
+	const currentValue = [];
+
+	const comp = ({value}, callableChildren) => {
+		currentValue.unshift(value);
+		try {
+			callableChildren();
+		} finally {
+			callableChildren.shift();
 		}
 	};
+
+	Object.defineProperty(comp, CURRENT_VALUE, {
+		get: () => currentValue[0]
+	})
+
+	return comp;
 }
+
+export function useContext(context) {
+	return context[CURRENT_VALUE];
+}
+
+export function ErrorBoundary({fallback}, callableChildren) {
+	const state = $state(null);
+	const reset = () => {
+		try {
+			state.value = callableChildren();
+		} catch (e) {
+			fallback({error: e, reset});
+		}
+	}
+	reset();
+	return state;
+}
+
+// 这个应该能直接用
+export function For({each, fallback}, [renderItem]) {
+	if (!fallback) return $foreach(each, renderItem);
+
+	let template = null;
+	return $computed(oldValue => {
+		const value = unconscious(each);
+
+		if (value.length && !template)
+			template = $foreach(each, renderItem);
+
+		return value.length ? template : fallback
+	});
+}
+
+// 感觉没有必要实现 Portal
+// Show能直接实现，用 { ? : } 就行
+// Suspense可以做，但是感觉又要一层依赖捕获上下文来抓Promise
 
 
 console.log(
 	'%cUnconscious'+
-	'%cv'+VERSION+
+	'%cv'+UC_VERSION+
 	'%cby Roj234',
 
 	'color: #fff; background-color: #007BFF; font-size: 18px; padding: 5px 10px;',

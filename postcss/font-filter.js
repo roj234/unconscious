@@ -13,7 +13,7 @@ const plugin = (opts) => {
 
 					const woff2Only = srcDecl.value
 						.split(',')
-						.filter(item => item.includes("format('woff2')")) // 只保留 woff2
+						.filter(item => /format\((['"])woff2\1\)/.test(item)) // 只保留 woff2
 						.join(',');
 
 					if (woff2Only) {
