@@ -50,7 +50,7 @@ function findPackageJson(startDir) {
  * @param {import('vite').FilterPattern} options.exclude=undefined
  * @param {boolean} options.micro=false
  * @param {Object} options
- * @property {"unconscious"|"unconscious@micro"} options.modulePath
+ * @property {"unconscious"|string} options.modulePath
  * @return {import('vite').Plugin}
  */
 export default (options = {}) => {
@@ -62,12 +62,7 @@ export default (options = {}) => {
   } = options;
 
   let theLibrary;
-  if (micro) {
-    options.modulePath = "unconscious@micro";
-    theLibrary = {'unconscious@micro': scriptPath+'/runtime_micro.js'};
-  } else {
-    theLibrary = {'unconscious': scriptPath+'/runtime.js'};
-  }
+  theLibrary = micro ? {'unconscious': scriptPath + '/runtime_micro.js'} : {'unconscious': scriptPath + '/runtime.js'};
 
   const config = {
     parseOptions: {},
@@ -115,7 +110,6 @@ export default (options = {}) => {
       return {
         resolve: {
           alias: {
-            'unconscious@shared': scriptPath+'/runtime_shared.js',
             'unconscious/ext': scriptPath+'/ext',
             ...theLibrary,
           }

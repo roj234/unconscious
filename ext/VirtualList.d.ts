@@ -43,6 +43,10 @@ declare module 'unconscious/ext/VirtualList.js' {
          * 元素高度是否固定（影响渲染模式）
          */
         fixed?: boolean;
+        /**
+         * 元素外边距什么的加起来的高度
+         */
+        heightOf?: (el: HTMLElement) => number;
     }
 
     /**

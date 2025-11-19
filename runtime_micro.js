@@ -7,6 +7,8 @@ import {
 	isPureObject
 } from "./constant.js";
 
+export * from './runtime_shared.js';
+
 /**
  * 创建 DOM 元素
  * @param {string} type - 元素标签类型
@@ -98,5 +100,3 @@ function setAttribute(element, key, value) {
 	}
 	element.setAttribute(key, value);
 }
-
-export {_left, _right, _middle, _button, _children, _prevent, _stop, _delegate, debugSymbol} from './runtime_shared.js';

@@ -9,7 +9,7 @@ import {
 } from "./constant.js";
 import {debugSymbol} from "./runtime_shared.js";
 
-export {_left, _right, _middle, _button, _children, _prevent, _stop, _delegate} from './runtime_shared.js';
+export * from './runtime_shared.js';
 
 /**
  * 响应式对象
@@ -276,7 +276,6 @@ function setAttribute(element, key, value) {
 }
 
 //endregion
-export * from './runtime_shared';
 //region 行为
 /**
  * 响应式 CSS 类动态绑定装饰器
@@ -616,8 +615,7 @@ const DevComputeProxy = {
 /**
  * 创建计算属性（自动捕获依赖）
  * @template T
- * @param {(oldValue: T|undefined) => T|undefined} callback - 计算函数（接收旧值作为参数，可通过 this 访问可写上下文）
- * @param {boolean} [lazy=false] - 是否延迟计算直到访问时
+ * @param {(oldValue: T|undefined) => T|undefined} callback - 计算函数（接收旧值作为参数，初始调用时为undefined）
  * @param {Array<Reactive<any>>|undefined} [dependencies=undefined] - 如果你的处理函数很复杂, 第一次调用不会访问所有的依赖, 那么可从这个数组指定
  * @returns {Readonly<Reactive<T>>} 只读的响应式计算属性
  *
@@ -631,7 +629,7 @@ const DevComputeProxy = {
  *   - 生产环境返回的计算属性无写保护
  * - 我只能期待你在开发环境把各种分支都测试到了（
  */
-function $computed(callback, lazy, dependencies) {
+function $computed(callback, dependencies) {
 	const prevCapture = dependCapture;
 	if (!dependencies) dependCapture = new Set();
 
@@ -642,75 +640,36 @@ function $computed(callback, lazy, dependencies) {
 		dependCapture = prevCapture;
 	}
 
-	if (lazy) holder[$DIRTY] = false;
-
 	let proxy;
 
 	const doUpdate = () => $update(proxy);
 
-	if (import.meta.env.DEV) {
-		const WritableProxyForLazyCompute = new Proxy(holder, ShallowProxy);
+	const updateValue = () => {
+		const oldValue = holder.value;
+		const newValue = callback(oldValue);
+		if (newValue === undefined) return;
+		holder.value = newValue;
 
-		const updateValue = () => {
-			const oldValue = holder.value;
-			const newValue = callback.call(WritableProxyForLazyCompute, oldValue);
-			if (newValue === undefined) return;
-			holder.value = newValue;
-
-			$unwatch(oldValue, doUpdate);
-			if (isReactive(newValue)) {
+		$unwatch(oldValue, doUpdate);
+		if (isReactive(newValue)) {
+			if (import.meta.env.DEV) {
 				if (import.meta.hot && newValue.__ === "DevHotReload") {
 
 				} else {
 					_devError("不建议在计算属性中返回响应式属性 (不过好像也没有什么实际上问题)", newValue)
 				}
-				$watch(newValue, doUpdate);
-			} else {
-				$update(proxy);
 			}
-		};
+			$watch(newValue, doUpdate);
+		} else {
+			$update(proxy);
+		}
+	};
+	$watch(dependencies, updateValue, false);
 
-		proxy = new Proxy(holder, lazy ? {
-			...proxyCommons,
-			...proxyCommonsReadonly,
-			get: (target, prop, proxy) => {
-				if (target[$DIRTY]) {
-					target[$DIRTY] = false;
-					updateValue();
-				}
-				return ShallowProxy.get(target, prop, proxy);
-			}
-		} : DevComputeProxy);
-
-		$watch(dependencies, lazy ? () => holder[$DIRTY] = true : updateValue, false);
+	if (import.meta.env.DEV) {
+		proxy = new Proxy(holder, DevComputeProxy);
 	} else {
-		const updateValue = () => {
-			const oldValue = holder.value;
-			const newValue = callback.call(proxy, oldValue);
-			if (newValue === undefined) return;
-			holder.value = newValue;
-
-			$unwatch(oldValue, doUpdate);
-			if (isReactive(newValue)) {
-				$watch(newValue, doUpdate);
-			} else {
-				$update(proxy);
-			}
-		};
-
-		proxy = new Proxy(holder, lazy ? {
-			...proxyCommons,
-			...proxyCommonsReadonly,
-			get: (target, prop, proxy) => {
-				if (target[$DIRTY]) {
-					target[$DIRTY] = false;
-					updateValue();
-				}
-				return ShallowProxy.get(target, prop, proxy);
-			}
-		} : ShallowProxy);
-
-		$watch(dependencies, lazy ? () => holder[$DIRTY] = true : updateValue, false);
+		proxy = new Proxy(holder, ShallowProxy);
 	}
 
 	return proxy;
@@ -812,28 +771,30 @@ if (import.meta.env.DEV) {
 
 /**
  * 强制触发响应式变量更新
- * @param {Reactive<any>|Array<Reactive<any>>} objects - 要更新的响应式变量或数组
+ * @param {Reactive<any>|Array<Reactive<any>>} object - 要更新的响应式变量或数组
  * @note 提供多个变量时，多个变量共有的监听器只触发一次
  */
-function $update(objects) {
-	if (!Array.isArray(objects))
-		objects = [objects];
+function $update(object) {
+	if (Array.isArray(object)) {
+		for (const obj of object) {
+			$update(obj);
+		}
+		return;
+	}
 
 	if (!updatePending) {
 		updatePending = new Map();
 		queueMicrotask(batchUpdate);
 	}
 
-	for (const object of objects) {
-		const listeners = isReactive(object);
-		for (const [listener, cleanup] of listeners) {
-			if (typeof cleanup === "function") cleanup();
-			let owners = updatePending.get(listener);
-			if (!owners) {
-				updatePending.set(listener, owners = new Set());
-			}
-			owners.add(listeners);
+	const listeners = isReactive(object);
+	for (const [listener, cleanup] of listeners) {
+		if (typeof cleanup === "function") cleanup();
+		let owners = updatePending.get(listener);
+		if (!owners) {
+			updatePending.set(listener, owners = new Set());
 		}
+		owners.add(listeners);
 	}
 }
 //endregion
@@ -1189,10 +1150,13 @@ if (import.meta.hot) {
 //region foreach列表
 /**
  * 创建按需更新的列表，复用现有DOM元素
- * @template T
+ * @template T item type
+ * @template {T|any} K key type
+ * @template {Renderable} E element type
  * @param {Reactive<T[]>} list - 响应式列表
- * @param {(item: T, index: number) => Renderable} renderItem - 生成列表项元素的函数 (item, index) => Element
- * @param {(item: T, index: number) => any} [keyFunc] - 生成唯一标识的函数 (item, index) => any (默认使用item)
+ * @param {(item: T, index: number) => E} renderItem - 生成列表项元素的函数
+ * @param {(item: T, index: number) => K} [keyFunc=item => item] - 生成唯一标识的函数
+ * @param {Map<K, E>} [currentKeys=new Map]
  * @returns {DocumentFragment} 包含动态列表的文档片段
  */
 function $foreach(list, renderItem, keyFunc = (item) => item, currentKeys) {
@@ -1596,25 +1560,187 @@ export function $asyncComponent(loader, loading, error) {
 }
 //endregion
 
-export function kloneNode(str) {
-	let cached = null;
+/**
+ * 在调用时执行并自动捕获依赖的$watch
+ * @param {function(): void} callback
+ * @param {Reactive<any>[]} dependencies=
+ */
+export function $capturedWatch(callback, dependencies) {
+	const prevCapture = dependCapture;
+	if (!dependencies) dependCapture = new Set();
 
-	return () => {
-		if (!cached) {
-			const frag = document.createElement("template");
-			frag.innerHTML = str;
-			const nodes = frag.content.childNodes;
-			cached = nodes.length > 1 ? Array.from(nodes) : nodes[0];
-			str = undefined;
+	callback();
+
+	if (!dependencies) {
+		dependencies = [...dependCapture];
+		dependCapture = prevCapture;
+	}
+
+	$watch(dependencies, callback);
+}
+
+/**
+ *
+ * @template T
+ * @param {T} value
+ * @return {[function(): T, function(T | function(T): T): void]}
+ */
+export function createSignal(value) {
+	const state = $state(value);
+
+	return [
+		() => state.value,
+		(newValue) => {
+			if (typeof newValue === 'function') {
+				newValue = newValue(state.value);
+			}
+			return state.value = newValue;
 		}
+	];
+}
 
-		if (cached.length) {
-			return cached.map(node => node.cloneNode(true));
-		} else {
-			return cached.cloneNode(true);
+/**
+ *
+ * @template T
+ * @param {function(T): T} fn
+ * @param {T} value=
+ * @param {{}} options
+ */
+export function createEffect(fn, value, options) {
+	const prevCapture = dependCapture;
+	dependCapture = new Set();
+
+	const callback = () => value = fn(value);
+
+	callback();
+
+	const dependencies = [...dependCapture];
+	dependCapture = prevCapture;
+
+	$watch(dependencies, callback);
+}
+
+/**
+ *
+ * @template T
+ * @param {function(T): T} fn
+ * @param {T} value
+ * @param {{equals: function(T, T): boolean}} options
+ * @return {function(): T}
+ */
+export function createMemo(fn, value, options = { equals: () => false }) {
+	const {equals} = options;
+
+	const state = $computed(oldValue => {
+		if (oldValue === undefined) return value === undefined ? fn() : value;
+		const newValue = fn(oldValue);
+		if (equals(oldValue, newValue)) return undefined;
+		return newValue;
+	});
+	return () => state.value;
+}
+
+export function createResource(arg1, arg2) {
+	let fetcher, source;
+	if (arguments.length === 2) {
+		fetcher = arg2;
+		source = arg1;
+	} else {
+		fetcher = arg1;
+	}
+
+	const inputState = $state(source);
+
+	const realFetcher = (source) => {
+		fetcher(source, {
+			value: state.value,
+			refetching: info
+		})
+	};
+
+	const state = $asyncState(realFetcher, inputState);
+	let info;
+
+	const getData = () => state.value;
+
+	// TODO depend capture
+	Object.defineProperty(getData, "loading", {
+		get: () => state.loading,
+	});
+	Object.defineProperty(getData, "error", {
+		get: () => state.error,
+	});
+
+	return [
+		getData,
+		{
+			mutate: (value) => state.value = value,
+			refetch: (info1) => {
+				info = info1 ?? true;
+				$update(inputState);
+			}
+		}
+	]
+}
+
+const CURRENT_VALUE = /* #__PURE__ */debugSymbol("ContextCurrentValue");
+
+// TODO 实现callableChildren转换器
+
+export function createContext() {
+	const currentValue = [];
+
+	const comp = ({value}, callableChildren) => {
+		currentValue.unshift(value);
+		try {
+			callableChildren();
+		} finally {
+			callableChildren.shift();
 		}
 	};
+
+	Object.defineProperty(comp, CURRENT_VALUE, {
+		get: () => currentValue[0]
+	})
+
+	return comp;
 }
+
+export function useContext(context) {
+	return context[CURRENT_VALUE];
+}
+
+export function ErrorBoundary({fallback}, callableChildren) {
+	const state = $state(null);
+	const reset = () => {
+		try {
+			state.value = callableChildren();
+		} catch (e) {
+			fallback({error: e, reset});
+		}
+	}
+	reset();
+	return state;
+}
+
+// 这个应该能直接用
+export function For({each, fallback}, [renderItem]) {
+	if (!fallback) return $foreach(each, renderItem);
+
+	let template = null;
+	return $computed(oldValue => {
+		const value = unconscious(each);
+
+		if (value.length && !template)
+			template = $foreach(each, renderItem);
+
+		return value.length ? template : fallback
+	});
+}
+
+// 感觉没有必要实现 Portal
+// Show能直接实现，用 { ? : } 就行
+// Suspense可以做，但是感觉又要一层依赖捕获上下文来抓Promise
 
 
 console.log(

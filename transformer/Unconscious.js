@@ -85,7 +85,11 @@ function isStaticJSX(path, isChild) {
 	let result = true;
 
 	if (node.attributes && !node.attributes.every(attr => {
-		const name = attr.name.name;
+		const name = attr.name?.name;
+
+		// may JSXSpreadAttribute
+		if (name == null) return false;
+
 		if (name === "ref") {
 			result = attr.value;
 			return !isChild;

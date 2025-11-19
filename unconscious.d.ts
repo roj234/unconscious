@@ -7,7 +7,7 @@ export declare namespace JSX {
  * persist state的前缀，通常为项目名称
  * @default 'default'
  */
-declare const UC_PERSIST_STORE: string;
+export declare const UC_PERSIST_STORE: string;
 /**
  * persist state修改时是否立即保存，如果关闭会在下列任一条件满足时保存:
  * a. 标签页关闭时beforeunload
@@ -15,21 +15,16 @@ declare const UC_PERSIST_STORE: string;
  * c. 一分钟没有新修改后
  * @default false
  */
-declare const UC_IMMEDIATE_STORE: boolean;
+export declare const UC_IMMEDIATE_STORE: boolean;
 
 /**
  * 是否允许响应式变量的值为多个DOM根节点（Fragment/Array） —— 警告，可能影响性能！
  * @default false
  */
-declare const UC_REACTIVE_FRAGMENT: boolean;
+export declare const UC_REACTIVE_FRAGMENT: boolean;
 
-declare module 'unconscious@micro' {
-    export function createElement(type: string, props?: object, ...children: JSX.Element[]): Element;
-    export function createFragment(...children: JSX.Element[] | JSX.Element[][]): JSX.Element[];
-    export function appendChildren(parent: Element, children: JSX.Element[]): void;
-}
-
-declare module 'unconscious@shared' {
+declare module 'unconscious' {
+    //region micro模块包含的部分
     export const PASSIVE_EVENT: {passive: true};
     export const ONCE_EVENT: {once: true};
 
@@ -46,9 +41,7 @@ declare module 'unconscious@shared' {
      * @type {function(T): T}
      */
     export const AS_IS: Function;
-}
 
-declare module 'unconscious' {
     export type Renderable = string | JSX.Element | Readonly<Reactive<string | JSX.Element>>;
     export type Fragment = Array<Renderable>;
 
@@ -71,11 +64,13 @@ declare module 'unconscious' {
     /**
      * 往父元素中插入子元素
      */
-    export function appendChild(parent: Element, child: Renderable): void;
+    export function appendChildren(parent: Element, children: Fragment): void;
+    //endregion
+
     /**
      * 往父元素中插入子元素
      */
-    export function appendChildren(parent: Element, children: Fragment): void;
+    export function appendChild(parent: Element, child: Renderable): void;
 
     export function isReactive(object: any): object is Reactive<any>;
     export function unconscious<T>(object: T | Reactive<T>): T;
@@ -102,7 +97,6 @@ declare module 'unconscious' {
 
     export function $computed<T>(
         callback: (oldValue?: T) => T | undefined,
-        lazy?: boolean,
         dependencies?: Reactive<any>[]
     ): Readonly<Reactive<T>>;
 
@@ -130,18 +124,17 @@ declare module 'unconscious' {
 
     /**
      * 创建按需更新的列表，复用现有DOM元素
-     * @template T
-     * @param {Reactive<T[]>} list - 响应式列表
-     * @param {(item: T, index: number) => Renderable} renderItem - 生成列表项元素的函数 (item, index) => Element
-     * @param {(item: T, index: number) => any} [keyFunc] - 生成唯一标识的函数 (item, index) => any (默认使用item)
-     * @param {Map<T, Node>} currentKeys
+     * @param list - 响应式列表
+     * @param renderItem - 生成列表项元素的函数
+     * @param [keyFunc=item => item] - 生成唯一标识的函数
+     * @param currentKeys
      * @returns {DocumentFragment} 包含动态列表的文档片段
      */
-    export function $foreach<T, S extends Renderable>(
+    export function $foreach<T, K, E extends Renderable>(
         list: Reactive<T[]>,
-        renderItem: (item: T, index: number) => S,
-        keyFunc?: (item: T, index: number) => any,
-        currentKeys?: any//Map<T, S>
+        renderItem: (item: T, index: number) => E,
+        keyFunc?: (item: T, index: number) => K,
+        currentKeys?: any//Map<K, E>
     ): DocumentFragment;
 
     export function $forElse<T>(
@@ -269,4 +262,56 @@ declare module 'unconscious' {
         loading?: Renderable | (() => Renderable),
         error?: Renderable | ((error: Error) => Renderable)
     ): Component;
+
+
+    export function createSignal<T>(
+        initialValue: T,
+    ): [get: () => T, set: (value: T | ((oldValue: T) => T)) => T];
+
+    export function createEffect<T>(
+        fn: (oldValue: T) => T | void,
+        value?: T,
+        options?: Partial<{}>
+    ): void;
+
+    export function createMemo<T>(
+        fn: (oldValue: T) => T,
+        value?: T,
+        options?: Partial<{
+            equals: (prev: T, next: T) => boolean;
+        }>
+    ): () => T;
+
+    export function createResource<T, N>(
+        fetchData: (source: undefined, _: {
+            value: T,
+            refetching: true | N
+        }) => Promise<T>,
+    ): [
+        data: (() => T) & {
+            loading: boolean;
+            error: false | Error;
+        },
+        _: {
+            mutate: (value: T) => T;
+            refetch: (info: N) => void;
+        }
+    ];
+
+    export function createResource<T, N, S>(
+        source: S,
+        fetchData: (source: S, _: {
+            value: T,
+            refetching: true | N
+        }) => Promise<T>,
+    ): [
+        data: (() => T) & {
+            loading: boolean;
+            error: false | Error;
+        },
+        _: {
+            mutate: (value: T) => T;
+            refetch: (info: N) => void;
+        }
+    ];
 }
