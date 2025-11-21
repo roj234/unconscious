@@ -269,7 +269,7 @@ function createPlugin(_, options) {
 							let replaceNode = t.callExpression(factory, []);
 
 							if (t.isJSXExpressionContainer(resultOrRef)) {
-								replaceNode = t.assignmentExpression("=", resultOrRef.expression, callExpr);
+								replaceNode = t.assignmentExpression("=", resultOrRef.expression, replaceNode);
 							}
 
 							path.replaceWith(t.inherits(replaceNode, path.node));
