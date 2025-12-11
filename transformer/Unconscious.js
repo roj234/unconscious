@@ -510,7 +510,7 @@ function unwatchOnDispose(path, pass) {
 			callPath.replaceWith(
 				t.callExpression(
 					getContext(pass, 'id/watch')(),
-					[listArg, callbackId]
+					callPath.node.arguments
 				)
 			);
 

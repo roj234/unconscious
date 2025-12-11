@@ -723,9 +723,9 @@ if (import.meta.env.DEV) {
 		for (const [listener, owners] of updated) {
 			try {
 				const cleaner = listener();
-				if (!updated.has(cleaner)) continue;
 
 				for (const owner of owners) {
+					if (!owner.has(listener)) continue;
 					owner.set(listener, cleaner);
 				}
 			} catch (e) {
@@ -763,6 +763,7 @@ if (import.meta.env.DEV) {
 		for (const [listener, owners] of updated) {
 			const cleaner = listener();
 			for (const owner of owners) {
+				if (!owner.has(listener)) continue;
 				owner.set(listener, cleaner);
 			}
 		}
