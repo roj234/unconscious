@@ -272,7 +272,14 @@ function setAttribute(element, key, value) {
 			}
 		break;
 	}
-	element.setAttribute(key, value);
+
+	if (key in element && typeof element[key] !== "object") {
+		element[key] = value;
+	} else if (value == null) {
+		element.removeAttribute(key);
+	} else {
+		element.setAttribute(key, value);
+	}
 }
 
 //endregion
@@ -689,36 +696,10 @@ let updatePending;
  */
 let batchUpdate;
 if (import.meta.env.DEV) {
-	let allUpdated;
-	let cyclicDepend = new Map();
-	/**
-	 * @type {Map}
-	 */
-	const cyclicChecker = {
-		set(k, v) {
-			cyclicDepend.set(k, v);
-			// 把新的也加入总列表
-			allUpdated.set(k, v);
-		},
-		get(k) {
-			let x = cyclicDepend.get(k);
-			if (!x && allUpdated.has(k)) {
-				throw new Error("循环依赖");
-			}
-			return x;
-		},
-		delete(k) {
-			cyclicDepend.delete(k);
-		}
-	};
+	let depth = 0;
 	batchUpdate = () => {
 		let updated = updatePending;
-
-		// 如果是不在递归
-		if (!allUpdated) allUpdated = new Map(updated);
-		else cyclicDepend = new Map();
-
-		updatePending = cyclicChecker;
+		updatePending = new Map;
 
 		for (const [listener, owners] of updated) {
 			try {
@@ -730,15 +711,9 @@ if (import.meta.env.DEV) {
 				}
 			} catch (e) {
 				if (e !== LAZY_DISPOSE_FALLBACK) {
-					if (import.meta.env.DEV) {
-						_devError("事件派发失败", e, listener);
-					} else {
-						console.error("事件派发失败", e, listener);
-					}
+					_devError("事件派发失败", e, listener);
 				} else {
-					if (import.meta.env.DEV) {
-						_devError("响应式元素被外部移除，并且未取消%O的监听器，应使用$dispose(%O)", owners, listener);
-					}
+					_devError("响应式元素被外部移除，并且未取消%O的监听器，应使用$dispose(%O)", owners, listener);
 				}
 
 				for (const owner of owners) {
@@ -747,12 +722,14 @@ if (import.meta.env.DEV) {
 			}
 		}
 
-		if (cyclicDepend.size) {
-			// 如果递归，那么不清空【已经更新过的变量】
-			updatePending = cyclicDepend;
+		if (updatePending.size) {
 			queueMicrotask(batchUpdate);
+
+			depth ++;
+			if (depth == 10) _devError("警告：递归更新可能影响性能", updatePending);
+			if (depth == 100) throw new Error("循环依赖");
 		} else {
-			updatePending = allUpdated = null;
+			updatePending = null;
 		}
 	};
 } else {
@@ -761,10 +738,21 @@ if (import.meta.env.DEV) {
 		updatePending = null;
 
 		for (const [listener, owners] of updated) {
-			const cleaner = listener();
-			for (const owner of owners) {
-				if (!owner.has(listener)) continue;
-				owner.set(listener, cleaner);
+			try {
+				const cleaner = listener();
+
+				for (const owner of owners) {
+					if (!owner.has(listener)) continue;
+					owner.set(listener, cleaner);
+				}
+			} catch (e) {
+				if (e !== LAZY_DISPOSE_FALLBACK) {
+					console.error("事件派发失败", e, listener);
+				}
+
+				for (const owner of owners) {
+					owner.delete(listener);
+				}
 			}
 		}
 	};

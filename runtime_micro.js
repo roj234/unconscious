@@ -79,17 +79,17 @@ function setAttribute(element, key, value) {
 			element.innerHTML = value;
 		return;
 		case ID_STYLELIST:
-			element.style[key.substring(ID_STYLELIST.length)] = value;
+			element.style[key.substring(1)] = value;
 		return;
 		case ID_CLASSLIST:
-			element.classList.toggle(key.substring(ID_CLASSLIST.length), value);
+			element.classList.toggle(key.substring(1), value);
 		return;
 		case ID_EVENTHANDLER:
 			let attrib; // once, capture, passive等
 			if (Array.isArray(value))
 				[value, attrib] = value;
 
-			element.addEventListener(key.substring(ID_EVENTHANDLER.length), value, attrib);
+			element.addEventListener(key.substring(1), value, attrib);
 		return;
 		case "s":
 			if (key === "style" && isPureObject(value)) {
@@ -98,5 +98,12 @@ function setAttribute(element, key, value) {
 			}
 		break;
 	}
-	element.setAttribute(key, value);
+
+	if (key in element && typeof element[key] !== "object") {
+		element[key] = value;
+	} else if (value == null) {
+		element.removeAttribute(key);
+	} else {
+		element.setAttribute(key, value);
+	}
 }

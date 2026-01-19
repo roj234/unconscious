@@ -136,7 +136,7 @@ function transformJsxChildrenArguments(args, file, i) {
 		if (t.isJSXSpreadChild(x)) {
 			args[i] = t.spreadElement(x.expression);
 		}
-		if (t.isConditionalExpression(x)) {
+		if (t.isConditionalExpression(x) && !file.opts.micro) {
 			if (x.test?.callee?.name !== "AS_IS") {
 				args[i] = t.callExpression(getContext(file, 'id/computed')(), [
 					t.arrowFunctionExpression([], x)
@@ -490,6 +490,8 @@ function unwatchOnDispose(path, pass) {
 	const cleanupCalls = [];
 	const dependenciesMap = new Map();
 	let returnStatement = null;
+	const rootScope = body.scope;
+
 
 	// 第一步：查找所有 $watchWithCleanup 调用
 	body.traverse({
@@ -530,7 +532,7 @@ function unwatchOnDispose(path, pass) {
 		},
 
 		ReturnStatement(retPath) {
-			if (!returnStatement) {
+			if (!returnStatement && retPath.scope === rootScope) {
 				returnStatement = retPath;
 			}
 		}

@@ -232,7 +232,7 @@ export default function Filter(props) {
 				};
 
 				row = <div className='input-warp'>
-					<textarea className='text-input' type='text' placeholder={item.placeholder || ''} onInput={handler} onChange={handler}>{state[item.id]}</textarea>
+					<textarea className='text-input' placeholder={item.placeholder || ''} onInput={handler} onChange={handler}>{state[item.id]}</textarea>
 				</div>;
 			}
 				break;
