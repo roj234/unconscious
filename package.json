@@ -1,6 +1,6 @@
 {
 	"name": "unconscious",
-	"version": "1.8.0",
+	"version": "1.9.0",
 	"description": "Unconscious Web Framework",
 	"types": "unconscious.d.ts",
 	"type": "module",

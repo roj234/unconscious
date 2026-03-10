@@ -263,9 +263,15 @@ declare module 'unconscious' {
         error?: Renderable | ((error: Error) => Renderable)
     ): Component;
 
+    /**
+     * 在调用时执行并自动捕获依赖的$watch
+     * @param {function(): void} callback
+     * @param {Reactive<any>[]} dependencies=
+     */
+    export function $effect(callback: () => void, dependencies: Reactive<any>[]): void;
 
     export function createSignal<T>(
-        initialValue: T,
+        ref: Reactive<T>,
     ): [get: () => T, set: (value: T | ((oldValue: T) => T)) => T];
 
     export function createEffect<T>(

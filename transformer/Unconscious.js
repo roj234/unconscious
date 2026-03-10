@@ -18,7 +18,7 @@ const setContext = (pass, name, v) => pass.set('unconscious/babel-jsx/'+name, v)
  */
 function intellijCompat(s) {
 	if (s === "dangerouslySetInnerHTML") return ID_DANGEROUSLY_SET_INNERHTML;
-	if (s.startsWith("on")) return s.toLowerCase();
+	//if (s.startsWith("on")) return s.toLowerCase();
 	return s === "className" ? "class" : s/*.toLowerCase()*/;
 }
 
@@ -28,6 +28,8 @@ function escapeAttr(unsafe) {
 function escapeText(unsafe) {
 	return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 }
+
+const HTML_VOID = new Set("area,base,br,col,embed,hr,img,input,link,meta,source,track,wbr".split(","));
 
 function generateStaticHTML(node) {
 	if (t.isJSXText(node)) {
@@ -67,13 +69,16 @@ function generateStaticHTML(node) {
 			.join(" ");
 
 		const childrenHtml = node.children.map(child => generateStaticHTML(child)).join("");
-		return `<${tagName}${attrs ? " " + attrs : ""}>${childrenHtml}</${tagName}>`;
+		return `<${tagName}${attrs ? " " + attrs : ""}>${childrenHtml}` + (HTML_VOID.has(tagName)?"":`</${tagName}>`);
 	}
 	return "";
 }
 
 function isStaticJSX(path, isChild) {
 	const { node } = path.get("openingElement");
+
+	if (path.scope.bindings[node.name.name])
+		return false;
 
 	function isStaticAttribute(val) {
 		if (t.isJSXExpressionContainer(val))
@@ -136,13 +141,20 @@ function transformJsxChildrenArguments(args, file, i) {
 		if (t.isJSXSpreadChild(x)) {
 			args[i] = t.spreadElement(x.expression);
 		}
-		if (t.isConditionalExpression(x) && !file.opts.micro) {
-			if (x.test?.callee?.name !== "AS_IS") {
+
+		if (!file.opts.micro) {
+			/*if (t.isConditionalExpression(x)) {
+				if (x.test?.callee?.name !== "AS_IS") {
+					args[i] = t.callExpression(getContext(file, 'id/computed')(), [
+						t.arrowFunctionExpression([], x)
+					]);
+				} else {
+					x.test = x.test.arguments[0];
+				}
+			} else */if (t.isArrowFunctionExpression(x)) {
 				args[i] = t.callExpression(getContext(file, 'id/computed')(), [
-					t.arrowFunctionExpression([], x)
+					x
 				]);
-			} else {
-				x.test = x.test.arguments[0];
 			}
 		}
 	}
@@ -680,12 +692,6 @@ function accumulateAttribute(pass, array, attribute, ctx) {
 			return;
 		}
 
-		// FIXME add robust!
-		// Preserve original case for ID_NAMESPACE and other special identifiers
-		if (ctx.isHTMLElement && key.name !== ID_NAMESPACE && key.name !== ID_CLASSLIST && key.name !== ID_STYLELIST && key.name !== ID_EVENTHANDLER) {
-			key.name = intellijCompat(key.name);
-		}
-
 		if (key._uc_names) {
 			// onclick.left
 			const arr = key._uc_names;
@@ -723,11 +729,22 @@ function accumulateAttribute(pass, array, attribute, ctx) {
 			key = t.identifier(key.name);
 		}
 
-		if (ctx.isHTMLElement && key.name.startsWith("on")) key.name = ID_EVENTHANDLER+key.name.substring(2);
+		if (ctx.isHTMLElement && key.name.startsWith("on")) key.name = ID_EVENTHANDLER+key.name.substring(2).toLowerCase();
 		if (key.name.includes("-")) {
 			// aria-xxx
 			key = t.stringLiteral(key.name);
 		} else {
+			// FIXME add robust!
+			// Preserve original case for ID_NAMESPACE and other special identifiers
+			const first = key.name[0];
+			if (ctx.isHTMLElement && first !== ID_NAMESPACE && first !== ID_CLASSLIST && first !== ID_STYLELIST && first !== ID_EVENTHANDLER) {
+				key.name = intellijCompat(key.name);
+
+				if (t.isArrowFunctionExpression(value)) {
+					value = t.callExpression(getContext(pass, 'id/computed')(), [value]);
+				}
+			}
+
 			key.type = "Identifier";
 		}
 	}

@@ -191,9 +191,8 @@ export function appendChildren(parent, children) {
 
 					if (childNode.parentNode) {
 						childNode.replaceWith(newChild);
-						$dispose(childNode);
+						$dispose(childNode, listenerKey);
 					} else {
-						if (parent == null) throw LAZY_DISPOSE_FALLBACK;
 						parent.appendChild(newChild);
 					}
 
@@ -278,7 +277,7 @@ function setAttribute(element, key, value) {
 	} else if (value == null) {
 		element.removeAttribute(key);
 	} else {
-		element.setAttribute(key, value);
+		element.setAttribute(key, Array.isArray(value) ? value.filter(t => t).join(" ") : value);
 	}
 }
 
@@ -295,7 +294,8 @@ function setAttribute(element, key, value) {
 function _classesBehaviour(element, properties) {
 	const ref = new WeakRef(element);
 	for (const key in properties) {
-		const value = properties[key];
+		let value = properties[key];
+		if (typeof value === "function") value = $computed(value);
 		const update = () => {ref.deref().classList.toggle(key, unconscious(value))};
 		if (!isReactive(value)) update();
 		else $watchOn(value, update, element);
@@ -321,7 +321,8 @@ function _classesBehaviour(element, properties) {
 function _stylesBehaviour(element, properties) {
 	const ref = new WeakRef(element);
 	for (const key in properties) {
-		const value = properties[key];
+		let value = properties[key];
+		if (typeof value === "function") value = $computed(value);
 		const update = () => {ref.deref().style[key] = unconscious(value)};
 		if (!isReactive(value)) update();
 		else $watchOn(value, update, element);
@@ -726,8 +727,8 @@ if (import.meta.env.DEV) {
 			queueMicrotask(batchUpdate);
 
 			depth ++;
-			if (depth == 10) _devError("警告：递归更新可能影响性能", updatePending);
-			if (depth == 100) throw new Error("循环依赖");
+			if (depth === 10) _devError("警告：递归更新可能影响性能", updatePending);
+			if (depth >= 100) throw new Error("循环依赖");
 		} else {
 			updatePending = null;
 		}
@@ -1090,6 +1091,7 @@ if (import.meta.hot) {
 					}
 
 					if (!proxy.value?.isConnected) return;
+					delete proxy.value[$DISPOSABLE];
 
 					this.reloadingState = stateRepo;
 					stateRepo.prevStates = stateRepo.states;
@@ -1346,7 +1348,9 @@ let dirtyStore;
 
 function _doSaveStore() {
 	for(const [k, v] of dirtyStore) {
-		localStorage.setItem(k, v[STORE_SER](v.value));
+		const value = v[STORE_SER](v.value);
+		if (value == null) localStorage.removeItem(k);
+		else localStorage.setItem(k, value);
 	}
 	dirtyStore.clear();
 }
@@ -1554,7 +1558,7 @@ export function $asyncComponent(loader, loading, error) {
  * @param {function(): void} callback
  * @param {Reactive<any>[]} dependencies=
  */
-export function $capturedWatch(callback, dependencies) {
+export function $effect(callback, dependencies) {
 	const prevCapture = dependCapture;
 	if (!dependencies) dependCapture = new Set();
 
@@ -1571,19 +1575,17 @@ export function $capturedWatch(callback, dependencies) {
 /**
  *
  * @template T
- * @param {T} value
+ * @param {Reactive<T>} ref
  * @return {[function(): T, function(T | function(T): T): void]}
  */
-export function createSignal(value) {
-	const state = $state(value);
-
+export function createSignal(ref) {
 	return [
-		() => state.value,
+		() => ref.value,
 		(newValue) => {
 			if (typeof newValue === 'function') {
-				newValue = newValue(state.value);
+				newValue = newValue(ref.value);
 			}
-			return state.value = newValue;
+			return ref.value = newValue;
 		}
 	];
 }
