@@ -90,11 +90,12 @@
 }
 
 textarea.text-input {
-  min-height: 80px;
-  resize: vertical;
+  height: 68px;
+  resize: none;
   white-space: pre-wrap;
   font-size: 14px;
   padding: 8px 16px;
+  transition: all 0.15s ease;
 }
 
 .input-warning {

@@ -46,8 +46,7 @@ function generateStaticHTML(node) {
 		let attrs = node.openingElement.attributes
 			.filter(attr => {
 				if (!t.isJSXAttribute(attr) || attr.name.name === "ref") return false;
-				const val = attr.value;
-				return val && (t.isStringLiteral(val) || t.isNumericLiteral(val) || t.isBooleanLiteral(val));
+				return attr.value;
 			})
 			.map(attr => {
 				let name = attr.name.name;
@@ -55,13 +54,16 @@ function generateStaticHTML(node) {
 					name = attr.name.namespace.name + ":" + name;
 				}
 				name = intellijCompat(name);
-				const val = attr.value;
+				let val = attr.value;
+				if (val.expression) val = val.expression;
 				let valStr = "";
 				if (val) {
 					if (t.isStringLiteral(val)) {
 						valStr = val.value;
 					} else if (t.isNumericLiteral(val) || t.isBooleanLiteral(val)) {
 						valStr = val.value.toString();
+					} else {
+						console.log("Unsupported literal converting HTML", val);
 					}
 				}
 				return valStr ? `${name}="${escapeAttr(valStr)}"` : name;
@@ -415,8 +417,8 @@ function createPlugin(_, options) {
 function componentHMR(componentId, path, state) {
 	const {node} = path;
 
-	const name = componentId === "default" ? node.id.name : componentId;
-	if (!isFirstCharUpperCase(name) || name.length === 1) return;
+	const name = componentId === "default" ? node.id?.name : componentId;
+	if (!name || !isFirstCharUpperCase(name) || name.length === 1) return;
 
 	let components = getContext(state, "knownComponents");
 	if (components == null) {
@@ -684,8 +686,10 @@ function accumulateAttribute(pass, array, attribute, ctx) {
 		if (namespace === "class") namespace = ID_CLASSLIST;
 		else if (namespace === "style") namespace = ID_STYLELIST;
 		else namespace += ":";
-		// abc:def = ...
-		key = t.stringLiteral(namespace+key.name.name);
+
+		namespace += key.name.name;
+
+		key = namespace.includes(":") ? t.stringLiteral(namespace) : t.identifier(namespace);
 	} else {
 		if (key.name === "ref") {
 			ctx.ref = value;
@@ -723,13 +727,28 @@ function accumulateAttribute(pass, array, attribute, ctx) {
 			}
 
 			if (eventProperties.length) {
-				value = t.arrayExpression([value, t.objectExpression(eventProperties)]);
+				eventProperties.push(t.objectProperty(
+					t.identifier("f"),
+					value
+				));
+				value = t.objectExpression(eventProperties);
 			}
 
 			key = t.identifier(key.name);
 		}
 
-		if (ctx.isHTMLElement && key.name.startsWith("on")) key.name = ID_EVENTHANDLER+key.name.substring(2).toLowerCase();
+		if (ctx.isHTMLElement && key.name.startsWith("on")) {
+			key.name = ID_EVENTHANDLER+key.name.substring(2).toLowerCase();
+			for (let arrayElement of array) {
+				if (arrayElement.key.name === key.name) {
+					if (!t.isArrayExpression(arrayElement.value)) {
+						arrayElement.value = t.arrayExpression([arrayElement.value]);
+					}
+					arrayElement.value.elements.push(value);
+					return;
+				}
+			}
+		}
 		if (key.name.includes("-")) {
 			// aria-xxx
 			key = t.stringLiteral(key.name);
@@ -737,16 +756,17 @@ function accumulateAttribute(pass, array, attribute, ctx) {
 			// FIXME add robust!
 			// Preserve original case for ID_NAMESPACE and other special identifiers
 			const first = key.name[0];
-			if (ctx.isHTMLElement && first !== ID_NAMESPACE && first !== ID_CLASSLIST && first !== ID_STYLELIST && first !== ID_EVENTHANDLER) {
+			if (ctx.isHTMLElement && first !== ID_EVENTHANDLER) {
 				key.name = intellijCompat(key.name);
-
-				if (t.isArrowFunctionExpression(value)) {
-					value = t.callExpression(getContext(pass, 'id/computed')(), [value]);
-				}
 			}
 
 			key.type = "Identifier";
 		}
+	}
+
+	const first = (key.name?.name ?? key.name ?? key.value)?.[0];
+	if (first !== ID_EVENTHANDLER && t.isArrowFunctionExpression(value)) {
+		value = t.callExpression(getContext(pass, 'id/computed')(), [value]);
 	}
 
 	array.push(t.inherits(t.objectProperty(key, value), attribute));

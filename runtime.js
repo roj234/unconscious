@@ -4,8 +4,7 @@ import {
 	ID_EVENTHANDLER,
 	ID_NAMESPACE,
 	ID_STYLELIST,
-	isPureObject,
-	VERSION
+	isPureObject
 } from "./constant.js";
 import {debugSymbol} from "./runtime_shared.js";
 
@@ -60,7 +59,7 @@ export function createElement(type, props, ...children) {
 	// 设置属性
 	if (props) {
 		let weakSelf;
-		for (const [key, value] of Object.entries(props)) {
+		for (let [key, value] of Object.entries(props)) {
 			if (key === ID_NAMESPACE) continue;
 
 			if (isReactive(value)) {
@@ -255,11 +254,24 @@ function setAttribute(element, key, value) {
 			element.classList.toggle(key.substring(ID_CLASSLIST.length), value);
 		return;
 		case ID_EVENTHANDLER:
-			let attrib; // once, capture, passive等
-			if (Array.isArray(value))
-				[value, attrib] = value;
+			const name = key.substring(ID_EVENTHANDLER.length);
 
-			element.addEventListener(key.substring(ID_EVENTHANDLER.length), value, attrib);
+			function listen(value) {
+				let attrib; // once, capture, passive等
+				if (typeof (value) === "object") {
+					attrib = value;
+					value = attrib.f;
+				}
+				element.addEventListener(name, value, attrib);
+				return attrib;
+			}
+
+			if (Array.isArray(value)) {
+				for (let v of value) listen(v);
+			} else {
+				listen(value);
+			}
+
 		return;
 		case "s":
 			if (key === "style" && isPureObject(value)) {
@@ -527,6 +539,7 @@ function getArray(deep) {
 
 		const array = target.value;
 		let value = array?.[prop];
+		//if (isReactive(value)) return value;
 
 		if (typeof value === "function") {
 			// 无法知道什么是不是数组，可能的类型太多了
@@ -724,12 +737,13 @@ if (import.meta.env.DEV) {
 		}
 
 		if (updatePending.size) {
-			queueMicrotask(batchUpdate);
-
 			depth ++;
 			if (depth === 10) _devError("警告：递归更新可能影响性能", updatePending);
 			if (depth >= 100) throw new Error("循环依赖");
+
+			queueMicrotask(batchUpdate);
 		} else {
+			depth = 0;
 			updatePending = null;
 		}
 	};
@@ -1736,7 +1750,7 @@ export function For({each, fallback}, [renderItem]) {
 
 console.log(
 	'%cUnconscious'+
-	'%cv'+VERSION+
+	'%cv'+UC_VERSION+
 	'%cby Roj234',
 
 	'color: #fff; background-color: #007BFF; font-size: 18px; padding: 5px 10px;',

@@ -5,7 +5,7 @@ import {
   _uc_mixinPlugins as ucBabelPlugins,
   _uc_tokenIsKeyword as tokenIsKeyword,
   _uc_tokenLabelName as tokenLabelName,
-} from '@babel/parser';
+} from "@babel/parser";
 
 export const MIXIN_ID = "unconsciousMixin";
 
@@ -37,7 +37,13 @@ class UnconsciousJSXParserMixin extends superClass {
         // filter(...)
         if(this.match(10)) {
           this.next();
-          node._uc_names.push(this.parseCallExpressionArguments(11));
+          node._uc_names.push(this.ucparseCallExpressionArguments(11));
+        }
+
+        // IDE fallback 语法 filter{"xx", "yy"}=...
+        else if (this.match(5)) {
+          this.next();
+          node._uc_names.push(this.ucparseCallExpressionArguments(8));
         }
       }
     }
@@ -46,6 +52,30 @@ class UnconsciousJSXParserMixin extends superClass {
     else {this.unexpected();}
 
     return this.finishNode(node,"JSXIdentifier");
+  }
+
+  ucparseCallExpressionArguments(stopToken = 11) {
+    const elts = [];
+    let first = true;
+    const oldInFSharpPipelineDirectBody = this.state.inFSharpPipelineDirectBody;
+    this.state.inFSharpPipelineDirectBody = false;
+    while (!this.eat(stopToken)) {
+      if (first) {
+        first = false;
+      } else {
+        this.expect(12);
+        if (this.match(stopToken)) {
+          /*if (nodeForExtra) {
+            this.addTrailingCommaExtraToNode(nodeForExtra);
+          }*/
+          this.next();
+          break;
+        }
+      }
+      elts.push(this.parseExprListItem(stopToken, false, /*refExpressionErrors*/undefined, /*allowPlaceholder*/undefined));
+    }
+    this.state.inFSharpPipelineDirectBody = oldInFSharpPipelineDirectBody;
+    return elts;
   }
 };
 ucBabelPluginNames.push(MIXIN_ID);

@@ -1,4 +1,4 @@
-import {preserveState, isReactive} from "unconscious";
+import {isReactive, preserveState, unconscious} from "unconscious";
 import './filter.css';
 
 /**
@@ -9,14 +9,19 @@ import './filter.css';
  */
 
 /**
- * @param {Config[]} props.config 配置列表
- * @param {Object[]} props.choices={} 默认选项值
- * @param {function(string, any, Object[]): void|string} props.onChange=null 回调
- * @return JSX.Element
+ * @typedef {HTMLDivElement} Filter
+ * @property {(initial: boolean=false) => void} _onSettingsUpdated
  */
-export default function Filter(props) {
-	const initialState = isReactive(props.choices) ? props.choices : Object.assign({}, props.choices);
-	props.config.forEach(item => {
+
+/**
+ * @param {Config[]} config 配置列表
+ * @param {Object[]} choices={} 选项值
+ * @param {function(string, any, Object[]): void|string} onChange=null 回调
+ * @return {Filter}
+ */
+export default function Filter({config, choices, onChange}) {
+	const initialState = isReactive(choices) ? choices : Object.assign({}, choices);
+	config.forEach(item => {
 		switch (item.type) {
 			case 'input':
 			case 'textbox': initialState[item.id] = initialState[item.id] ?? ''; break;
@@ -41,17 +46,33 @@ export default function Filter(props) {
 	const emit = (name, newValue) => {
 		let result;
 		try {
-			result = props.onChange?.(name, newValue, state);
+			result = onChange?.(name, newValue, state);
 		} catch (e) {
 			result = e;
 		}
 		return result;
 	}
 
-	const root = <div className="filter"></div>;
-
 	// 构建每一项
-	props.config.forEach(item => {
+	const refreshHandlers = [];
+	function addRefreshHandler(id, callback, dontCall) {
+		if (!dontCall) callback();
+		if (isReactive(choices)) refreshHandlers.push(callback);
+	}
+	function onSettingsUpdated(initial) {
+		if (!initial) {
+			for (const item of refreshHandlers) {
+				item();
+			}
+		}
+
+		const objects = unconscious(choices);
+		for (const key in objects) {
+			emit(key, objects[key]);
+		}
+	}
+
+	const itemRenderer = item => {
 		let row, warning;
 
 		function showWarning(text) {
@@ -69,8 +90,7 @@ export default function Filter(props) {
 			break;
 			case 'radio': {
 				const required = !!item.required;
-				const handler = e => {
-					const btn = e.target;
+				const handler = ({target: btn}) => {
 					let value = item.choices[btn.title];
 
 					value = state[item.id] === value ? null : value;
@@ -83,7 +103,7 @@ export default function Filter(props) {
 					}
 					warning?.remove();
 
-					const cur = choiceScroll.querySelector('.active');
+					const cur = row.querySelector('.active');
 					if (cur) {
 						cur.classList.remove('active');
 						cur.setAttribute('aria-checked', 'false');
@@ -98,21 +118,25 @@ export default function Filter(props) {
 					state[item.id] = value;
 				};
 
-				const choiceScroll = <div className='choice-scroll' role='radiogroup' aria-label={item.name} onClick.children('button')={handler}></div>;
+				row = <div className='choice-scroll' role='radiogroup' aria-label={item.name} onClick.children{'button'}={handler}>
+					{Object.entries(item.choices).map(([label, value]) => {
+							const active = state[item.id] === value;
+							return <button className={active ? 'chip active' : 'chip'} _val={value}
+										   type='button' role='radio' aria-checked={active}
+										   title={label}>{label}</button>;
+						})}
+				</div>;
 
-				Object.entries(item.choices).forEach(([label, value]) => {
-					const active = state[item.id] === value;
-					choiceScroll.appendChild(<button className={active ? 'chip active' : 'chip'} type='button'
-													 role='radio' aria-checked={active}
-													 title={label}>{label}</button>);
-				});
-
-				row = choiceScroll;
+				addRefreshHandler(item.id, () => {
+					const value = state[item.id];
+					for (let child of row.children) {
+						child.classList.toggle('active', value === child._val);
+					}
+				}, true);
 			}
 			break;
 			case 'multiple': {
-				const handler = e => {
-					const btn = e.target;
+				const handler = ({target: btn}) => {
 					const value = item.choices[btn.title];
 
 					let selectedNow;
@@ -145,19 +169,24 @@ export default function Filter(props) {
 					}
 
 					btn.classList.toggle('active', selectedNow);
-					btn.setAttribute('aria-checked', selectedNow ? 'true' : 'false');
+					btn.setAttribute('aria-checked', !!selectedNow);
 				};
 
-				const choiceScroll = <div className='choice-scroll' role='group' aria-label={item.name} onClick.children('button')={handler}></div>;
+				row = <div className='choice-scroll' role='group' aria-label={item.name} onClick.children{'button'}={handler}>
+					{Object.entries(item.choices).map(([label, value]) => {
+							const selected = item.id ? state[item.id].includes(value) : !!state[value];
+							return (<button className={selected ? 'chip active' : 'chip'} type='button' name={value}
+											role='checkbox' aria-checked={selected}
+											title={label}>{label}</button>);
+						})}
+				</div>;
 
-				Object.entries(item.choices).forEach(([label, value]) => {
-					const selected = item.id ? state[item.id].includes(value) : !!state[value];
-					choiceScroll.appendChild(<button className={selected ? 'chip active' : 'chip'} type='button'
-													 role='checkbox' aria-checked={selected}
-													 title={label}>{label}</button>);
-				});
-
-				row = choiceScroll;
+				addRefreshHandler(item.id, () => {
+					for (let child of row.children) {
+						const value = child.name;
+						child.classList.toggle('active', item.id ? state[item.id].includes(value) : !!state[value]);
+					}
+				}, true);
 			}
 			break;
 			case 'secret':
@@ -169,13 +198,13 @@ export default function Filter(props) {
 							? new RegExp(item.pattern)
 							: null;
 
-				const handler = function (e) {
-					const val = this.value.trim();
+				const handler = (e) => {
+					const val = input.value.trim();
 					let invalid = pattern && val && !pattern.test(val);
 					let warnMessage = item.warning || '输入不符合要求';
 					if (invalid) {
 						if (e.type === 'change') {
-							this.value = state[item.id];
+							input.value = state[item.id];
 							invalid = false;
 						}
 					} else {
@@ -183,24 +212,24 @@ export default function Filter(props) {
 						if (warnMessage) invalid = true;
 						else state[item.id] = val;
 					}
-					this.classList.toggle('invalid', invalid);
+					input.classList.toggle('invalid', invalid);
 
 					if (invalid) showWarning(warnMessage);
 					else warning?.remove();
 				};
 
+				let input;
 				if (item.type === 'secret') {
-					row = <div className='input-warp'>
-						<input className='text-input' type='password' placeholder={item.placeholder || ''} value={state[item.id]}
-							   onblur={function(){this.type="password"}} onfocus={function(){this.type="text"}}
-							   onInput={handler} onChange={handler}/>
-					</div>;
+					input = <input className='text-input' type='password' placeholder={item.placeholder || ''}
+							   onBlur={function(){this.type="password"}} onFocus={function(){this.type="text"}}
+							   onInput={handler} onChange={handler}/>;
 				} else {
-					row = <div className='input-warp'>
-						<input className='text-input' type='text' placeholder={item.placeholder || ''} value={state[item.id]}
-							   onInput={handler} onChange={handler}/>
-					</div>;
+					input = <input className='text-input' type='text' placeholder={item.placeholder || ''}
+							   onInput={handler} onChange={handler}/>;
 				}
+
+				addRefreshHandler(item.id, () => {input.value = state[item.id];});
+				row = <div className='input-warp'>{input}</div>;
 			}
 			break;
 			case 'textbox': {
@@ -211,13 +240,13 @@ export default function Filter(props) {
 							? new RegExp(item.pattern)
 							: null;
 
-				const handler = function (e) {
-					const val = this.value.trim();
+				const handler = e => {
+					const val = input.value.trim();
 					let invalid = pattern && val && !pattern.test(val);
 					let warnMessage = item.warning || '输入不符合要求';
 					if (invalid) {
 						if (e.type === 'change') {
-							this.value = state[item.id];
+							input.value = state[item.id];
 							invalid = false;
 						}
 					} else {
@@ -225,29 +254,32 @@ export default function Filter(props) {
 						if (warnMessage) invalid = true;
 						else state[item.id] = val;
 					}
-					this.classList.toggle('invalid', invalid);
+					input.classList.toggle('invalid', invalid);
 
 					if (invalid) showWarning(warnMessage);
 					else warning?.remove();
 				};
 
-				row = <div className='input-warp'>
-					<textarea className='text-input' placeholder={item.placeholder || ''} onInput={handler} onChange={handler}>{state[item.id]}</textarea>
-				</div>;
+				const onFocusBlur = e => {
+					input.style.height = e.type === "focus" ? "500px" : "";
+				};
+
+				const input = <textarea className='text-input' placeholder={item.placeholder || ''} onInput={handler} onChange={handler} onFocus={onFocusBlur} onBlur={onFocusBlur}></textarea>;
+
+				addRefreshHandler(item.id, () => {input.value = state[item.id];});
+				row = <div className='input-warp'>{input}</div>;
 			}
-				break;
+			break;
 			case 'number': {
 				const min = item.min, max = item.max, step = item.step || 1;
 
 				const clamp = (v) => Math.max(min, Math.min(max, v));
 				const pct = (v) => ((v - min) / (max - min)) * 100;
 
-				const initialValue = state[item.id];
-
 				const trackFill = <div className='range-track-fill'></div>;
 
-				const slider = <input type='range' min={min} max={max} step={step} value={initialValue}/>;
-				const input = <input type='number' min={min} max={max} step={step} value={initialValue}/>;
+				const slider = <input type='range' min={min} max={max} step={step} />;
+				const input = <input type='number' min={min} max={max} step={step} />;
 
 				const updateUI = () => {
 					const myMin = slider.valueAsNumber;
@@ -282,8 +314,11 @@ export default function Filter(props) {
 					</div>
 				</div>;
 
-				// 初始绘制
-				updateUI();
+				addRefreshHandler(item.id, () => {
+					const value = state[item.id];
+					slider.valueAsNumber = clamp(value);
+					updateUI();
+				});
 			}
 			break;
 			case 'range': {
@@ -291,8 +326,6 @@ export default function Filter(props) {
 
 				const clamp = (v) => Math.max(min, Math.min(max, v));
 				const pct = (v) => ((v - min) / (max - min)) * 100;
-
-				const initialValue = state[item.id];
 
 				const updateUI = () => {
 					const myMin = r1.valueAsNumber;
@@ -324,11 +357,11 @@ export default function Filter(props) {
 
 				const trackFill = <div className='range-track-fill'></div>;
 
-				const r1 = <input type='range' min={min} max={max} step={step} value={initialValue[0]} onInput={limitMax} onchange={syncState} />;
-				const r2 = <input type='range' min={min} max={max} step={step} value={initialValue[1]} onInput={limitMin} onchange={syncState} />;
+				const r1 = <input type='range' min={min} max={max} step={step} onInput={limitMax} onChange={syncState} />;
+				const r2 = <input type='range' min={min} max={max} step={step} onInput={limitMin} onChange={syncState} />;
 
-				const nMin = <input type='number' min={min} max={max} value={initialValue[0]} onInput={limitMax} onchange={syncState} />;
-				const nMax = <input type='number' min={min} max={max} value={initialValue[1]} onInput={limitMin} onchange={syncState} />;
+				const nMin = <input type='number' min={min} max={max} onInput={limitMax} onChange={syncState} />;
+				const nMax = <input type='number' min={min} max={max} onInput={limitMin} onChange={syncState} />;
 
 				row = <div className='range-wrap'>
 					<div className='range-slider'>
@@ -343,17 +376,19 @@ export default function Filter(props) {
 					</div>
 				</div>;
 
-				// 初始绘制
-				updateUI();
+				addRefreshHandler(item.id, () => {
+					[r1.valueAsNumber, r2.valueAsNumber] = state[item.id];
+					updateUI();
+				});
 			}
 			break;
 		}
 
-		root.appendChild(<div className="filter-row" data-id={item.id}>
+		return (<div className="filter-row" data-id={item.id}>
 			<div className="filter-label">{item.name}</div>
 			{row}
 		</div>);
-	});
+	};
 
-	return root;
+	return <div _onSettingsUpdated={onSettingsUpdated} className="filter">{config.map(itemRenderer)}</div>;
 };
