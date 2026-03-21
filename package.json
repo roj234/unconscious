@@ -1,16 +1,19 @@
 {
 	"name": "unconscious",
-	"version": "1.11.0",
+	"version": "1.12.0",
 	"description": "Unconscious Web Framework",
-	"types": "unconscious.d.ts",
 	"type": "module",
 	"author": "Roj234",
 	"license": "BSD-3-Clause",
-	"main": "Injector.js",
 	"scripts": {
-		"demo": "vite example",
+		"example": "vite example",
 		"postinstall": "node Injector.js"
 	},
+
+	"main": "./runtime.js",
+	"module": "./runtime.js",
+	"types": "./types.d.ts",
+
 	"dependencies": {
 		"@babel/code-frame": "^7.27.1",
 		"@babel/generator": "^7.27.1",

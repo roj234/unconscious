@@ -6,7 +6,7 @@ import {
 	ID_STYLELIST,
 	isPureObject
 } from "./constant.js";
-import {debugSymbol} from "./runtime_shared.js";
+import {AS_IS, debugSymbol} from "./runtime_shared.js";
 
 export * from './runtime_shared.js';
 
@@ -131,11 +131,7 @@ export function appendChildren(parent, children) {
 						for (const el of value) {
 							if (el == null) continue;
 							const newChild = createChildNode(el);
-							if (childNode.parentNode) {
-								parent.insertBefore(newChild, childNode);
-							} else {
-								parent.appendChild(newChild);
-							}
+							parent.insertBefore(newChild, childNode.parentNode && childNode);
 							$disposable(newChild, listenerKey);
 							elements.push(newChild);
 						}
@@ -219,9 +215,9 @@ function fireAppended(parent, child) {
 	if (child instanceof DocumentFragment) {
 		Object.defineProperty(child, "parentElement", {
 			value: parent
-		})
+		});
+		child._appended && child._appended(parent);
 	}
-	child.dispatchEvent(new CustomEvent("append", {detail:parent}));
 }
 
 /**
@@ -251,7 +247,7 @@ function setAttribute(element, key, value) {
 			element.style[key.substring(ID_STYLELIST.length)] = value;
 		return;
 		case ID_CLASSLIST:
-			element.classList.toggle(key.substring(ID_CLASSLIST.length), value);
+			element.classList.toggle(key.substring(ID_CLASSLIST.length), !!value);
 		return;
 		case ID_EVENTHANDLER:
 			const name = key.substring(ID_EVENTHANDLER.length);
@@ -284,7 +280,7 @@ function setAttribute(element, key, value) {
 		break;
 	}
 
-	if (key in element && typeof element[key] !== "object") {
+	if (key in element && typeof element[key] !== "object" && value !== undefined) {
 		element[key] = value;
 	} else if (value == null) {
 		element.removeAttribute(key);
@@ -661,6 +657,8 @@ function $computed(callback, dependencies) {
 		dependCapture = prevCapture;
 	}
 
+	if (!dependencies) return holder.value;
+
 	let proxy;
 
 	const doUpdate = () => $update(proxy);
@@ -668,7 +666,7 @@ function $computed(callback, dependencies) {
 	const updateValue = () => {
 		const oldValue = holder.value;
 		const newValue = callback(oldValue);
-		if (newValue === undefined) return;
+		if (newValue === undefined || oldValue === newValue) return;
 		holder.value = newValue;
 
 		$unwatch(oldValue, doUpdate);
@@ -687,13 +685,7 @@ function $computed(callback, dependencies) {
 	};
 	$watch(dependencies, updateValue, false);
 
-	if (import.meta.env.DEV) {
-		proxy = new Proxy(holder, DevComputeProxy);
-	} else {
-		proxy = new Proxy(holder, ShallowProxy);
-	}
-
-	return proxy;
+	return proxy = import.meta.env.DEV ? new Proxy(holder, DevComputeProxy) : new Proxy(holder, ShallowProxy);
 }
 
 /**
@@ -1161,17 +1153,21 @@ if (import.meta.hot) {
  * @param {Reactive<T[]>} list - 响应式列表
  * @param {(item: T, index: number) => E} renderItem - 生成列表项元素的函数
  * @param {(item: T, index: number) => K} [keyFunc=item => item] - 生成唯一标识的函数
- * @param {Map<K, E>} [currentKeys=new Map]
+ * @param {Map<K, E>} currentKeys
+ * @param {(key: K, node: Renderable) => void} morphChild
  * @returns {DocumentFragment} 包含动态列表的文档片段
  */
-function $foreach(list, renderItem, keyFunc = (item) => item, currentKeys) {
+function $foreach(list, renderItem, keyFunc = AS_IS, {currentKeys = new Map, morphChild = AS_IS} = {}) {
+	if (!isReactive(list)) {
+		//if (import.meta.env.DEV) _devError("不应对非响应式数组使用$foreach; 以Array.prototype.map代替");
+		return list && list.map(renderItem);
+	}
+
 	let parent = document.createDocumentFragment();
 	let offset = 0;
-	if (!currentKeys) currentKeys = new Map();
-	//const currentKeys = new Map(); // key到DOM节点的映射
 
 	const callback = () => {
-		const newItems = unconscious(list);
+		const newItems = unconscious(list) || [];
 		const newKeys = newItems.map(keyFunc).map(unconscious);
 		const newKeySet = new Set(newKeys);
 
@@ -1180,54 +1176,66 @@ function $foreach(list, renderItem, keyFunc = (item) => item, currentKeys) {
 			if (!newKeySet.has(key)) {
 				$dispose(unconscious(node));
 				currentKeys.delete(key);
+			} else {
+				morphChild(key, node);
+				if (key === newKeys[0]) {
+					offset = Array.prototype.indexOf.call(parent.childNodes, unconscious(node).previousSibling)+1;
+				}
 			}
 		}
 
 		// 处理新增/移动
-		newItems.forEach((item, newIndex) => {
-			const key = newKeys[newIndex];
+		newItems.forEach((item, index) => {
+			const key = newKeys[index];
 
 			let node = currentKeys.get(key);
-			if (!node || !node.isConnected) {
+			if (!node?.isConnected) {
 				// 创建新元素
-				node = renderItem(unconscious(item), newIndex);
-
+				node = renderItem(item, index);
+				if (!isReactive(node))
+					node = createChildNode(node);
 				currentKeys.set(key, node);
 			}
 
 			// 调整位置
 			const nodeList = parent.childNodes;
-			if (nodeList[newIndex+offset] !== unconscious(node)) {
-				const referenceNode = newIndex < nodeList.length-offset
-					? nodeList[newIndex+offset]
+			if (nodeList[index+offset] !== unconscious(node)) {
+				const referenceNode = index < nodeList.length-offset
+					? nodeList[index+offset]
 					: null;
 
 				if (isReactive(node)) {
 					const reactiveNode = node;
 					$watch(reactiveNode, () => {
-						let orig = reactiveNode.value;
-						parent.replaceChild(orig, node);
+						let orig = createChildNode(reactiveNode.value);
+						node.replaceWith(orig);
+						$dispose(node);
 						node = orig;
 					}, false);
-					node = unconscious(node);
+					node = createChildNode(unconscious(node));
 				}
 				parent.insertBefore(node, referenceNode);
 			}
 		});
 	};
 
-	parent.addEventListener("append", e => {
-		parent = e.detail;
-		offset = parent.childElementCount;
-		if (!import.meta.env.DEV || isReactive(list)) {
-			$watch(list, callback);
-			$disposable(parent, [list, callback]);
-		} else {
-			_devError("不应对非响应式数组使用$foreach; 以Array.prototype.map代替");
-			callback();
-		}
-	}, {once:true});
-	return parent;
+	const fragment = parent;
+	fragment._appended = e => {
+		parent = e;
+		offset = parent.childNodes.length;
+		$watch(list, callback);
+		$disposable(parent, [list, callback]);
+
+		delete fragment._appended;
+		/*fragment._appended = e => {
+			if (parent === e) return;
+			parent = e;
+			console.log("change parent to", e);
+			for (const node of currentKeys.values()) $dispose(node);
+			currentKeys.clear();
+		};*/
+	};
+	return fragment;
 }
 
 /**
@@ -1498,15 +1506,25 @@ export function $store(key, initializer, options = {}) {
  * 2. 保留旧数据，避免界面闪烁
  * 3. 自动管理 loading 和 error
  */
-export function $asyncState(fetcher, value) {
+export function $asyncState(fetcher, value, initialValue) {
 	/**
 	 * @type {ReactivePromise}
 	 */
 	const state = {
-		value: null,
+		value: initialValue,
 		[$LISTENERS]: new Map()
 	};
 	const proxy = new Proxy(state, ShallowProxy);
+
+	const success = data => {
+		state.loading = false;
+		proxy.value = data;
+	};
+	const failure = error => {
+		state.loading = false;
+		state.error = error || true;
+		$update(proxy);
+	};
 
 	const callback = () => {
 		state.loading = true;
@@ -1515,17 +1533,19 @@ export function $asyncState(fetcher, value) {
 		// 这保证了加载新数据时, 旧数据依然可用, 从而不会给用户展示很多次Loading
 		$update(proxy);
 
-		fetcher(unconscious(value)).then(data => {
-			state.loading = false;
-			proxy.value = data;
-		}).catch(error => {
-			state.loading = false;
-			state.error = error || true;
-			$update(proxy);
-		});
+		try {
+			const data = fetcher(unconscious(value));
+			if (data instanceof Promise) {
+				data.then(success).catch(failure);
+			} else {
+				success(data);
+			}
+		} catch (e) {
+			failure(e);
+		}
 	};
 
-	if (isReactive(value)) $watch(value, callback);
+	if (isReactive(value)) $watch(value, callback, initialValue === undefined);
 	// 类似初始化的场景
 	else callback();
 

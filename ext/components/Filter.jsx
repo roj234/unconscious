@@ -91,7 +91,7 @@ export default function Filter({config, choices, onChange}) {
 			case 'radio': {
 				const required = !!item.required;
 				const handler = ({target: btn}) => {
-					let value = item.choices[btn.title];
+					let value = item.choices[btn.textContent];
 
 					value = state[item.id] === value ? null : value;
 					if (value == null && required) return;
@@ -123,7 +123,7 @@ export default function Filter({config, choices, onChange}) {
 							const active = state[item.id] === value;
 							return <button className={active ? 'chip active' : 'chip'} _val={value}
 										   type='button' role='radio' aria-checked={active}
-										   title={label}>{label}</button>;
+										   title={item.title?.[label] || label}>{label}</button>;
 						})}
 				</div>;
 
@@ -137,7 +137,7 @@ export default function Filter({config, choices, onChange}) {
 			break;
 			case 'multiple': {
 				const handler = ({target: btn}) => {
-					const value = item.choices[btn.title];
+					const value = item.choices[btn.textContent];
 
 					let selectedNow;
 					if (item.id) {
@@ -177,7 +177,7 @@ export default function Filter({config, choices, onChange}) {
 							const selected = item.id ? state[item.id].includes(value) : !!state[value];
 							return (<button className={selected ? 'chip active' : 'chip'} type='button' name={value}
 											role='checkbox' aria-checked={selected}
-											title={label}>{label}</button>);
+											title={item.title?.[label] || label}>{label}</button>);
 						})}
 				</div>;
 
@@ -199,18 +199,19 @@ export default function Filter({config, choices, onChange}) {
 							: null;
 
 				const handler = (e) => {
+					const doSubmit = e.type === 'change';
 					const val = input.value.trim();
 					let invalid = pattern && val && !pattern.test(val);
 					let warnMessage = item.warning || '输入不符合要求';
 					if (invalid) {
-						if (e.type === 'change') {
+						if (doSubmit) {
 							input.value = state[item.id];
 							invalid = false;
 						}
 					} else {
 						warnMessage = emit(item.id, val);
 						if (warnMessage) invalid = true;
-						else state[item.id] = val;
+						else if (doSubmit) state[item.id] = val;
 					}
 					input.classList.toggle('invalid', invalid);
 
@@ -241,18 +242,19 @@ export default function Filter({config, choices, onChange}) {
 							: null;
 
 				const handler = e => {
+					const doSubmit = e.type === 'change';
 					const val = input.value.trim();
 					let invalid = pattern && val && !pattern.test(val);
 					let warnMessage = item.warning || '输入不符合要求';
 					if (invalid) {
-						if (e.type === 'change') {
+						if (doSubmit) {
 							input.value = state[item.id];
 							invalid = false;
 						}
 					} else {
 						warnMessage = emit(item.id, val);
 						if (warnMessage) invalid = true;
-						else state[item.id] = val;
+						else if (doSubmit) state[item.id] = val;
 					}
 					input.classList.toggle('invalid', invalid);
 

@@ -33,7 +33,7 @@ const HTML_VOID = new Set("area,base,br,col,embed,hr,img,input,link,meta,source,
 
 function generateStaticHTML(node) {
 	if (t.isJSXText(node)) {
-		return escapeText(node.value);
+		return escapeText(node.value.trim());
 	}
 	if (t.isJSXElement(node)) {
 		let tagName = node.openingElement.name.name;
@@ -266,7 +266,7 @@ function createPlugin(_, options) {
 					if (path.scope === this.rootScope) return;
 
 					const resultOrRef = isStaticJSX(path);
-					if (resultOrRef) {
+					if (resultOrRef && path.node.children.length) {
 						const html = generateStaticHTML(path.node);
 						if (html) {
 							let factory = this.existingStaticHtml.get(html);

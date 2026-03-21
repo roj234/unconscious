@@ -8,6 +8,7 @@ import {
 	$animate,
 	$asyncComponent,
 	$computed,
+	$foreach,
 	$forElse,
 	$state,
 	$store, $update,
@@ -51,6 +52,23 @@ appendChildren(document.body, <>
 		}
 	}}>
 		{$forElse(items, item => <button>我是{item}号按钮</button>, <span>怎么一个按钮都没有</span>)}
+	</div>
+</>);
+
+const state1 = $state([1]);
+const array1 = $foreach(state1, item => <span>我是{item}号(A1)</span>);
+const state2 = $state([2]);
+const array2 = $foreach(state2, item => <span>我是{item}号(A2)</span>);
+
+const displayArray = $state(false);
+
+appendChildren(document.body, <>
+	<div onClick={() => {
+		state1.push(new Date().toISOString());
+		state2.push(new Date().toISOString());
+		displayArray.value ^= true;
+	}}>
+		{() => displayArray.value ? array1 : array2}
 	</div>
 </>);
 
@@ -141,7 +159,7 @@ function AsyncFetch(props) {
 	// 如果你确实不需要计算，你可以使用{AS_IS(... ? ... : ...)}包装
 	// 该函数不会影响构件大小
 	return <div>
-		{html.value.length ? html.value :
+		{() => html.length ? html.value :
 			<button onClick={() => {
 				fetchUrl();
 				html.push("加载中");
@@ -194,8 +212,8 @@ const animationTest = <div className="loading">我要消失了</div>;
 appendChildren(document.body, <>
 	<br />
 	隐藏并消失 with 元素复用 (might inside component)
-	{buttonIsVisible.value ? animationTest : null}
-	<button onClick={toggleButton}>{buttonIsVisible.value ? '隐藏' : "显示"}</button>
+	{() => buttonIsVisible.value ? animationTest : null}
+	<button onClick={toggleButton}>{() => buttonIsVisible.value ? '隐藏' : "显示"}</button>
 </>);
 
 function toggleButton() {
@@ -231,7 +249,7 @@ appendChildren(document.body, <>
 	<br />
 	隐藏并消失 without 元素复用
 	{animationTest2}
-	<button onClick={toggleButton2}>{buttonIsVisible2.value ? '隐藏' : "显示"}</button>
+	<button onClick={toggleButton2}>{() => buttonIsVisible2.value ? '隐藏' : "显示"}</button>
 </>);
 
 function toggleButton2() {

@@ -97,6 +97,9 @@ textarea.text-input {
   padding: 8px 16px;
   transition: all 0.15s ease;
 }
+textarea.text-input:not(:focus) {
+  overflow: hidden;
+}
 
 .input-warning {
   display: inline-flex;
