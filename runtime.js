@@ -162,7 +162,6 @@ export function appendChildren(parent, children) {
 							parent.appendChild(newChild);
 						}
 
-						fireAppended(parent, newChild);
 						$disposable(newChild, listenerKey);
 						childNode = newChild;
 					}
@@ -191,7 +190,6 @@ export function appendChildren(parent, children) {
 						parent.appendChild(newChild);
 					}
 
-					fireAppended(parent, newChild);
 					$disposable(newChild, listenerKey);
 					childNode = newChild;
 				};
@@ -201,22 +199,7 @@ export function appendChildren(parent, children) {
 		} else {
 			const newChild = createChildNode(child);
 			parent.appendChild(newChild);
-			fireAppended(parent, newChild);
 		}
-	}
-}
-
-/**
- * 发送append事件
- * @param {Element} parent
- * @param {Node} child
- */
-function fireAppended(parent, child) {
-	if (child instanceof DocumentFragment) {
-		Object.defineProperty(child, "parentElement", {
-			value: parent
-		});
-		child._appended && child._appended(parent);
 	}
 }
 
@@ -364,7 +347,15 @@ function unconscious(object) {
  */
 function $disposable(element, listenerKey) {
 	let set = element[$DISPOSABLE];
-	if (!set) element[$DISPOSABLE] = set = new Set();
+	if (!set) {
+		element[$DISPOSABLE] = set = new Set();
+		element.addEventListener('removed', (e) => {
+			for (const key of set) {
+				if (typeof key === "function") key();
+				else if (key !== e.detail.keep) $unwatch(...key);
+			}
+		});
+	}
 	set.add(listenerKey);
 }
 
@@ -374,22 +365,10 @@ function $disposable(element, listenerKey) {
  * @param {[Reactive<any>, Function]|undefined} [keep=undefined] - 保留不取消注册的响应式监听器
  */
 function $dispose(element, keep) {
-	const listeners = element[$DISPOSABLE];
-	if (listeners) {
-		for (const key of listeners) {
-			if (typeof key === "function") key();
-			else if (key !== keep) $unwatch(...key);
-		}
-	}
-
+	element.dispatchEvent(new CustomEvent('removed', { detail: { keep: 123 } }));
 	element.remove();
-	if (element.children) {
-		for (const child of Array.from(element.children))
-			$dispose(child);
-	}
 }
 
-const $DIRTY = debugSymbol("Dirty");
 // 第一层代理直接在容器中保存数据
 const $LISTENERS = debugSymbol("Listeners");
 const $DISPOSABLE = debugSymbol("DisposableRef");
@@ -1097,7 +1076,7 @@ if (import.meta.hot) {
 					}
 
 					if (!proxy.value?.isConnected) return;
-					delete proxy.value[$DISPOSABLE];
+					proxy.value[$DISPOSABLE]?.clear();
 
 					this.reloadingState = stateRepo;
 					stateRepo.prevStates = stateRepo.states;
@@ -1155,7 +1134,7 @@ if (import.meta.hot) {
  * @param {(item: T, index: number) => K} [keyFunc=item => item] - 生成唯一标识的函数
  * @param {Map<K, E>} currentKeys
  * @param {(key: K, node: Renderable) => void} morphChild
- * @returns {DocumentFragment} 包含动态列表的文档片段
+ * @returns {AppendObserver} 包含动态列表的自定义元素
  */
 function $foreach(list, renderItem, keyFunc = AS_IS, {currentKeys = new Map, morphChild = AS_IS} = {}) {
 	if (!isReactive(list)) {
@@ -1163,7 +1142,10 @@ function $foreach(list, renderItem, keyFunc = AS_IS, {currentKeys = new Map, mor
 		return list && list.map(renderItem);
 	}
 
-	let parent = document.createDocumentFragment();
+	/**
+	 * @type {HTMLElement}
+	 */
+	let parent;
 	let offset = 0;
 
 	const callback = () => {
@@ -1219,24 +1201,29 @@ function $foreach(list, renderItem, keyFunc = AS_IS, {currentKeys = new Map, mor
 		});
 	};
 
-	const fragment = parent;
-	fragment._appended = e => {
-		parent = e;
+	return new AppendObserver((self) => {
+		parent = self.parentElement;
 		offset = parent.childNodes.length;
 		$watch(list, callback);
 		$disposable(parent, [list, callback]);
-
-		delete fragment._appended;
-		/*fragment._appended = e => {
-			if (parent === e) return;
-			parent = e;
-			console.log("change parent to", e);
-			for (const node of currentKeys.values()) $dispose(node);
-			currentKeys.clear();
-		};*/
-	};
-	return fragment;
+		self.remove();
+	});
 }
+
+export class AppendObserver extends HTMLElement {
+	/**
+	 * @param {function(AppendObserver): void} callback
+	 */
+	constructor(callback) {
+		super();
+		this.callback = callback;
+	}
+
+	connectedCallback() {this.callback(this);}
+
+	disconnectedCallback() {}
+}
+customElements.define('append-observer', AppendObserver);
 
 /**
  * 创建按需更新的列表，复用现有DOM元素

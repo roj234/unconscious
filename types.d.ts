@@ -109,7 +109,7 @@ export function assertReactive<T>(t: Reactive<T> | object): Reactive<T>;
  * @param options - 扩展配置对象
  * @param options.currentKeys - 可以替换成MultiKeyMap
  * @param options.morphChild - key未变化时更新节点内部内容的函数（可选）
- * @returns {DocumentFragment} 包含动态列表的文档片段
+ * @returns {AppendObserver} 包含动态列表的自定义元素
  */
 export function $foreach<T, K, E extends Renderable>(
     list: T[] | Reactive<T[]>,
@@ -119,7 +119,11 @@ export function $foreach<T, K, E extends Renderable>(
         currentKeys?: Map<K, E>,
         morphChild?: (key: K, node: Renderable) => void
     }>
-): DocumentFragment;
+): AppendObserver;
+
+export class AppendObserver extends HTMLElement {
+    constructor(callback: (self: AppendObserver) => void);
+}
 
 export function $forElse<T>(
     list: Reactive<T[]>,

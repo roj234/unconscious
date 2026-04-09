@@ -1,137 +1,164 @@
 import {debugSymbol} from "../runtime_shared.js";
 
-/**
- * 项目渲染出元素的索引，因为实际有它所以{@link ITEM_KEY}才可以重复
- * @type {symbol}
- */
-const INDEX = debugSymbol("VL.Index");
-/**
- * 该项目的键，在数组中可以重复，如果和上次结果不同就重新渲染项目
- * @type {symbol}
- */
-const ITEM_KEY = debugSymbol("VL.Key");
-/**
- * 该项目的高度
- * @type {symbol}
- */
-const ITEM_HEIGHT = debugSymbol("VL.Height");
+import "./VirtualList.css";
 
 /**
- * @typedef VirtualList<T>
- * @template {Object} T 数据类型
- * @property {HTMLDivElement} dom - 内部垫高容器
- * @property {number} itemHeight - 每项的预期高度 (实际高度可以不同)
- * @property {number} height - 外部容器高度
- * @property {Array<T>} items - 数据源
- * @property {function(data: T, index: number, recycle: Array<HTMLElement>): HTMLElement} renderer - 渲染函数
+ * 项目渲染出元素的索引，因为实际有它所以{@link ITEM_KEY}才可以重复
  */
-class VirtualList {
+export const INDEX = debugSymbol("VL.Index");
+/**
+ * 该项目的键，在数组中可以重复，如果和上次结果不同就重新渲染项目
+ */
+export const ITEM_KEY = debugSymbol("VL.Key");
+/**
+ * 该项目的高度
+ */
+export const ITEM_HEIGHT = debugSymbol("VL.Height");
+
+/**
+ * 钉住
+ */
+export const PINNED = debugSymbol("VL.Pinned");
+
+/**
+ * @type VirtualList<T>
+ * @template {Object} T 数据类型
+ */
+export class VirtualList {
+	dom = <div className="_vl"></div>;
+
 	_start = 0;
 	_end = 0;
 
-	_startHeight = 0;
-	_totalHeight = 0;
-
-	_dirty = false;
+	_offset = 0;
+	_height = 0;
 
 	_recycle = [];
 
 	/**
-	 * 虚拟列表
-	 * @template {Object} T 数据类型
-	 * @param {Object} config - 配置选项
-	 * @param {HTMLElement} config.element - 父元素
-	 * @param {Array<T>} config.data - 数据源
-	 * @param {number} config.itemHeight - 每项的高度
-	 * @param {(item: T) => any} [config.keyFunc=item => item] - 生成唯一索引的函数
-	 * @param {(data: T, index: number, recycle: Array<HTMLElement>) => HTMLElement} config.renderer - 渲染函数
-	 * @param {number} [config.height=element.offsetHeight] - 总高度
-	 * @param {boolean} [config.fixed=false] - 元素高度是否固定
-	 * @param {(el: HTMLElement) => number} [config.heightOf=el => el.offsetHeight] - 元素外边距什么的加起来的高度
-	 * @returns {VirtualList<T>}
+	 * //@type {ResizeObserverCallback}
+	 * @param {{target: HTMLElement}[]} entries
+	 * @return {boolean}
+	 * @private
+	 */
+	_onResize = entries => {
+		let totalDelta = 0;
+		let scrollDelta = 0;
+
+		const wrapper = this._wrapper;
+		const domOrContainer = wrapper.firstElementChild.style;
+		domOrContainer.height = `1e6px`;
+
+		const wrapperRect = wrapper.getBoundingClientRect();
+		for (let {target} of entries) {
+			const itemIndex = target[INDEX];
+			const item = this.items[itemIndex];
+			// might be removed
+			if (!item) continue;
+
+			const targetRect = target.getBoundingClientRect();
+			const gap = this.gap;
+			const measuredHeight = targetRect.height + (typeof gap === "function" ? gap.call(this, target) : gap);
+			const expectedHeight = item[ITEM_HEIGHT] ?? this.itemHeight;
+
+			if (measuredHeight !== expectedHeight) {
+				const delta = measuredHeight - expectedHeight;
+				item[ITEM_HEIGHT] = measuredHeight;
+				totalDelta += delta;
+
+				// 当元素完全位于当前视口上方?? 这个没法处理跨边缘问题，比如元素一半在视口内，上下分别有两张图片
+				if (targetRect.top + expectedHeight < wrapperRect.top) {
+					scrollDelta += delta;
+				}
+			}
+		}
+
+		this._height += totalDelta;
+		wrapper.scrollTop += scrollDelta;
+
+		domOrContainer.height = ``;
+		return totalDelta;
+	}
+
+	_ro = new ResizeObserver(this._onResize);
+	_io = new IntersectionObserver(entries => {
+		if((this._visible = entries.at(-1).isIntersecting) && this._dirty) {
+			this.resize();
+		}
+	});
+
+	/**
+	 * @param {VirtualListConfig} config
 	 */
 	constructor(config) {
-		const wrapper = this._wrapper = config.element;
-		const container = this.dom = <div className="_vl"></div>;
-		wrapper.appendChild(container);
-
-		if (!(this.itemHeight = config.itemHeight)) throw "元素默认高度不能为0";
+		this.itemHeight = config.itemHeight;
 		this.renderer = config.renderer;
+		this.render = this.render.bind(this);
+		this.gap = config.gap || 0;
+		this.keyFunc = config.keyFunc || (item => item[ITEM_KEY] ?? item);
+		this.isSameKey = config.isSameKey || ((a, b) => a === b);
+		this.overscan = config.overscan || 0;
 
-		this.heightOf = config.heightOf ?? (el => el.offsetHeight);
-		this.render = (config.fixed ? this._updateFixed : this._update).bind(this);
-		this.keyFunc = config.keyFunc ?? (item => item[ITEM_KEY] ?? item);
+		this._dirty = !!(this.items = config.data);
 
-		wrapper.addEventListener('scroll', this.render);
-
-		this._dirty = (this.items = config.data) ? 3 : 0;
-
-		(this._observer = new IntersectionObserver(entries => {
-			if((this._visible = entries[entries.length-1].isIntersecting) && this._dirty) {
-				this.repaint(true);
-				this._dirty = false;
-			}
-		})).observe(wrapper);
-	}
-
-	// 鼠标事件处理
-	_handleMouseWheel = (e) => {
-		let el = e.target;
-		while(el) {
-			if (el[INDEX]) {
-				this._hoveringElement = el;
-				break;
-			}
-			el = el.parentElement;
-		}
-	}
-
-	_handleMiddleClick = (e) => {
-		if (e.button === 1) { // 鼠标中键
-			this._handleMouseWheel(e);
+		const wrapper = config.element;
+		if (wrapper) {
+			wrapper.appendChild(this.dom);
+			this.attach(wrapper);
 		}
 	}
 
 	/**
-	 * 子元素或列表高度修改后重新计算需要渲染的项目
-	 * 传入true仅更新列表高度
-	 * @param {boolean=false} itemHeightUnchanged 子元素高度未变化
+	 * @param {HTMLElement} wrapper
 	 */
-	repaint(itemHeightUnchanged) {
-		if (!itemHeightUnchanged) {
-			this._start = 0;
-			this._startHeight = 0;
-			this._totalHeight = 0;
-		}
+	attach(wrapper) {
+		this._wrapper = wrapper;
+		wrapper.addEventListener('scroll', this.render);
+		this._io.observe(wrapper);
+	}
 
-		if (!this._visible) {this._dirty = true;return;}
-
-		this.dom.style.height = "99999px";
+	resize() {
+		const style = this._wrapper?.firstElementChild.style;
+		if (style) style.height = `1e6px`;
 		this.render();
+		if (style) style.height = '';
+	}
+
+	scrollToBottom() {
+		const items = this.items;
+		const last = items.length - 1;
+		if (last < 0) return;
+
+		let i = 0;
+		let startHeight = 0;
+
+		while(i < last) startHeight += items[i++][ITEM_HEIGHT] ?? this.itemHeight;
+
+		this.dom.style = `padding-top:${startHeight}px`;
+		this._updateDOM(this.dom, this._start = last, this._end = last + 1, items);
+		this._offset = startHeight;
+		this._height = startHeight + (items.at(-1)[ITEM_HEIGHT] ?? this.itemHeight);
+
+		const wrapper = this._wrapper;
+		wrapper.scrollTop = wrapper.scrollHeight;
+
+		requestAnimationFrame(() => {
+			wrapper.scrollTop = wrapper.scrollHeight;
+		});
 	}
 
 	/**
 	 * 更新数组某项并(立即)更新虚拟列表，如果这项正在渲染
 	 * @param {number} i 数组索引
 	 * @param {T} item 新的值
-	 * @param {boolean=false} heightUnchanged
 	 */
-	setItem(i, item, heightUnchanged) {
-		if (!item) item = this.items[i];
-		else this.items[i] = item;
+	setItem(i, item) {
+		if (item) this.items[i] = item;
 
-		if (!heightUnchanged) {
-			delete item[ITEM_HEIGHT];
-			if (i < this._start) {
-				this._start = 0;
-				this._startHeight = 0;
-			}
-			this._totalHeight = 0;
-		}
-		if (i < this._start || i >= this._end) return;
+		const value = this.getValue(i);
+		if (!value) return;
 
-		this.getValue(i)[INDEX] = -1;
-		if (!this._visible) {this._dirty = true;return;}
+		value[INDEX] = -1;
 		this.render();
 	}
 
@@ -141,7 +168,12 @@ class VirtualList {
 	 */
 	setItems(items) {
 		this.items = items;
-		this.repaint();
+		this._height = 0;
+		if (items.length < this._start) {
+			this._start = 0;
+			this._offset = 0;
+		}
+		this.resize();
 	}
 
 	/**
@@ -166,20 +198,6 @@ class VirtualList {
 	}
 
 	/**
-	 * 查找项目
-	 * @param {function(T): boolean} predicate
-	 * @returns {number}
-	 */
-	indexMatch(predicate) {
-		for (let i = this._start; i < this._end; i++) {
-			if (predicate(this.items[i])) {
-				return i;
-			}
-		}
-		return -1;
-	}
-
-	/**
 	 * 回收利用现有元素，有必要吗？
 	 * @param {string} match pattern
 	 * @returns {HTMLElement|null}
@@ -197,103 +215,113 @@ class VirtualList {
 	 * 清理资源
 	 */
 	destroy() {
-		this._observer.disconnect();
+		this._io.disconnect();
 		this._wrapper.removeEventListener('scroll', this.render);
 	}
 
-	_updateFixed() {
-		const viewHeight = this._wrapper.offsetHeight;
+	render() {
+		if (!this._visible) {this._dirty = true;return;}
 
 		const items = this.items;
-		const itemHeight = this.itemHeight;
-
-		const startIndex = Math.floor(this._wrapper.scrollTop / itemHeight);
-		const endIndex = Math.min(items.length, startIndex + Math.ceil(viewHeight / itemHeight) + 1);
-
 		const container = this.dom;
-		container.style = `padding-top:${startIndex * itemHeight}px;padding-bottom:${(items.length - endIndex) * itemHeight}px`;
+		const overscan = this.overscan;
+		const getItemHeight = (j) => items[j][ITEM_HEIGHT] ?? this.itemHeight;
 
-		this._renderList(container, startIndex, endIndex, items);
-	}
+		for(;;) {
+			let i = this._start;
+			let offset = this._offset;
 
-	_update() {
-		const items = this.items;
+			const {scrollTop: viewStart, offsetHeight: viewHeight} = this._wrapper;
 
-		let i = this._start;
-		let offset = this._startHeight;
+			// 这是一个脆弱（指你不能去改 _start）但有意义的优化，只处理两次滚动之间的差值offset，通常这个差值会很小，O(n) -> O(1)
+			if (offset < viewStart) {
+				// 处理往下滚动
+				while(i < items.length) {
+					const h = getItemHeight(i);
+					if ((offset + h) >= viewStart) break;
+					i++;
+					offset += h;
+				}
+			} else if (offset !== viewStart) {
+				// 往上滚动
+				while (i > 0) {
+					if ((offset -= getItemHeight(--i)) < viewStart) break;
+				}
+			}
 
-		//进入视口
-		const viewStart = this._wrapper.scrollTop;
-		if (offset < viewStart) {
+			// 在前部额外渲染
+			{
+				const targetBeginOffset = viewStart - overscan;
+				while (offset > targetBeginOffset && i > 0) {
+					offset -= getItemHeight(--i);
+				}
+			}
+
+			const startIndex = this._start = i;
+			const startHeight = this._offset = offset;
+
+			//离开视口
+			const viewEnd = viewStart + viewHeight;
 			while(i < items.length) {
-				const h = items[i][ITEM_HEIGHT] ?? this.itemHeight;
-				if ((offset + h) >= viewStart) break;
-				i++;
-				offset += h;
+				if ((offset += getItemHeight(i++)) > viewEnd) break;
 			}
-		} else if (offset !== viewStart) {
-			while (i > 0) {
-				const h = items[--i][ITEM_HEIGHT] ?? this.itemHeight;
-				if ((offset -= h) < viewStart) break;
+
+			//总高度
+			let totalHeight = this._height;
+			if (!totalHeight) {
+				totalHeight = offset;
+				let j = i;
+				while(j < items.length) totalHeight += getItemHeight(j++);
+				this._height = totalHeight;
 			}
-		}
-		const startIndex = this._start = i;
-		const startHeight = this._startHeight = offset;
 
-		const viewHeight = this._wrapper.offsetHeight;
-		//离开视口
-		const viewEnd = viewStart + viewHeight;
-		while(i < items.length) {
-			const h = items[i++][ITEM_HEIGHT] ?? this.itemHeight;
-			if ((offset += h) > viewEnd) break;
-		}
-
-		//总高度
-		let totalHeight = this._totalHeight;
-		if (!totalHeight) {
-			totalHeight = offset;
-			let j = i;
-			while(j < items.length) totalHeight += items[j++][ITEM_HEIGHT] ?? this.itemHeight;
-			this._totalHeight = totalHeight;
-		}
-
-		// 未渲染的元素的高度由padding-top和padding-bottom代替，保证滚动条位置正确
-		// 这里如果把设置padding的操作放在渲染元素之后，部分浏览器滚动到最后一个元素时会有问题
-		const container = this.dom;
-		container.style = `padding-top: ${startHeight}px; padding-bottom: ${totalHeight-offset}px`;
-		this._renderList(container, startIndex, Math.min(i+1, items.length)/*多渲染一个，防止滚动太快跟不上*/, items);
-
-		i = startIndex;
-		// 缓存已知的元素高度，减少滚动条不跟手的问题
-		for(const el of container.children) {
-			if (!el[ITEM_KEY]) continue;
-
-			const h = this.heightOf(el);
-			let item;
-			if (h !== this.itemHeight && h !== (item=items[i])[ITEM_HEIGHT]) {
-				item[ITEM_HEIGHT] = h;
-				this._totalHeight += (h - this.itemHeight);
+			// 在后部额外渲染
+			{
+				// 将 endExtra 的动态衰减转为对静态边界坐标 targetEndOffset 的检测
+				const targetEndOffset = viewEnd + overscan;
+				while (offset < targetEndOffset && i < items.length) {
+					offset += getItemHeight(i++);
+				}
 			}
-			i++;
+
+			// 未渲染的元素的高度由padding-top和padding-bottom代替，保证滚动条位置正确
+			// 这里如果把设置padding的操作放在渲染元素之后，部分浏览器滚动到最后一个元素时会有问题
+			container.style = `padding-top:${startHeight}px;padding-bottom:${totalHeight-offset}px`;
+			if (!this._updateDOM(container, startIndex, i, items))
+				break
 		}
+		this._dirty = false;
 	}
 
-	_renderList(container, startIndex, endIndex, items) {
+	_updateDOM(container, startIndex, endIndex, items) {
 		const recycle = this._recycle;
 
 		const reuse = {};
 		// 遍历现有元素，回收不可见或key变化的元素
-		for (const item of Array.from(container.children)) {
-			const i = item[INDEX];
-			if (i < startIndex || i >= endIndex || item[ITEM_KEY] !== this.keyFunc(items[i], i)) {
-				recycle.push(item);
-				item.remove();
+		for (const element of Array.from(container.children)) {
+			const i = element[INDEX];
+			const item = items[i];
+
+			let mustRemove;
+			if (i < startIndex || i >= endIndex || (mustRemove = !this.isSameKey(element[ITEM_KEY], this.keyFunc(item, i)))) {
+				// 不回收Pinned的元素
+				if (!mustRemove && item?.[PINNED]) {
+					const height = item[ITEM_HEIGHT] ?? this.itemHeight;
+					const property = i < startIndex ? 'paddingTop' : 'paddingBottom';
+					container.style[property] = parseFloat(container.style[property]) - height;
+					continue;
+				}
+
+				recycle.push(element);
+				this._ro.unobserve(element);
+				element.remove();
 			} else {
-				reuse[i] = item;
+				reuse[i] = element;
 			}
 		}
 
 		// 插入新元素
+		const newElements = [];
 		let anchorNode = null;
 		for (let i = startIndex; i < endIndex; i++) {
 			if (reuse[i]) {
@@ -302,24 +330,25 @@ class VirtualList {
 			}
 
 			// 创建或复用元素
-			const item = this.renderer(items[i], i, recycle);
-			item[INDEX] = i;
-			item[ITEM_KEY] = this.keyFunc(items[i], i);
+			const element = this.renderer(items[i], i, recycle);
+			element[INDEX] = i;
+			element[ITEM_KEY] = this.keyFunc(items[i], i);
+			this._ro.observe(element);
 
 			if (!anchorNode) {
 				// 情况1：向上滚动
-				container.prepend(item);
+				container.prepend(element);
 			} else {
 				// 情况2：向下滚动
-				anchorNode.after(item);
+				anchorNode.after(element);
 			}
-			anchorNode = item; // 更新锚点为新元素
+			anchorNode = element; // 更新锚点为新元素
+			newElements.push({target: element});
 		}
 
 		recycle.length = 0;
 		this._start = startIndex;
 		this._end = endIndex;
+		return newElements.length && this._onResize(newElements);
 	}
 }
-
-export {VirtualList, INDEX, ITEM_KEY, ITEM_HEIGHT};

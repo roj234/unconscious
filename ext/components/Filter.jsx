@@ -76,7 +76,7 @@ export default function Filter({config, choices, onChange}) {
 		let row, warning;
 
 		function showWarning(text) {
-			if (warning) warning.innerText = text;
+			if (warning?.isConnected) warning.innerText = text;
 			else {
 				warning = <div className='input-warning' aria-live='polite'>{text}</div>;
 				row.append(warning);
@@ -221,15 +221,15 @@ export default function Filter({config, choices, onChange}) {
 
 				let input;
 				if (item.type === 'secret') {
-					input = <input className='text-input' type='password' placeholder={item.placeholder || ''}
+					input = <input className='text-input' type='password' placeholder={item.placeholder}
 							   onBlur={function(){this.type="password"}} onFocus={function(){this.type="text"}}
 							   onInput={handler} onChange={handler}/>;
 				} else {
-					input = <input className='text-input' type='text' placeholder={item.placeholder || ''}
+					input = <input className='text-input' type='text' placeholder={item.placeholder}
 							   onInput={handler} onChange={handler}/>;
 				}
 
-				addRefreshHandler(item.id, () => {input.value = state[item.id];});
+				addRefreshHandler(item.id, () => {input.value = state[item.id] ?? '';});
 				row = <div className='input-warp'>{input}</div>;
 			}
 			break;
@@ -266,9 +266,10 @@ export default function Filter({config, choices, onChange}) {
 					input.style.height = e.type === "focus" ? "500px" : "";
 				};
 
-				const input = <textarea className='text-input' placeholder={item.placeholder || ''} onInput={handler} onChange={handler} onFocus={onFocusBlur} onBlur={onFocusBlur}></textarea>;
+				const input = <textarea className='text-input' placeholder={item.placeholder}
+										onInput={handler} onChange={handler} onFocus={onFocusBlur} onBlur={onFocusBlur} />;
 
-				addRefreshHandler(item.id, () => {input.value = state[item.id];});
+				addRefreshHandler(item.id, () => {input.value = state[item.id] ?? '';});
 				row = <div className='input-warp'>{input}</div>;
 			}
 			break;
@@ -387,7 +388,7 @@ export default function Filter({config, choices, onChange}) {
 		}
 
 		return (<div className="filter-row" data-id={item.id}>
-			<div className="filter-label">{item.name}</div>
+			<div className="filter-label" title={item.title}>{item.name}</div>
 			{row}
 		</div>);
 	};
