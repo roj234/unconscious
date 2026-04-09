@@ -17,6 +17,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  white-space: pre-line;
 }
 
 .choice-scroll {

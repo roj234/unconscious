@@ -3,9 +3,9 @@ import {
 	ID_DANGEROUSLY_SET_INNERHTML,
 	ID_EVENTHANDLER,
 	ID_NAMESPACE,
-	ID_STYLELIST,
-	isPureObject
+	ID_STYLELIST
 } from "./constant.js";
+import {isPureObject} from "./runtime_shared.js";
 
 export * from './runtime_shared.js';
 

@@ -701,7 +701,7 @@ function accumulateAttribute(pass, array, attribute, ctx) {
 			const arr = key._uc_names;
 
 			function isEventProperty(name) {
-				return name === "once" || name === "passive" || name === "capture";
+				return name === "once" || name === "passive" || name === "capture" || name === "noPassive";
 			}
 
 			const eventProperties = [];
@@ -710,8 +710,8 @@ function accumulateAttribute(pass, array, attribute, ctx) {
 				const decorator = arr[i];
 				if (isEventProperty(decorator)) {
 					eventProperties.push(t.objectProperty(
-						t.identifier(decorator),
-						t.booleanLiteral(true)
+						t.identifier(decorator.replace("no", "").toLowerCase()),
+						t.booleanLiteral(!decorator.startsWith("no"))
 					));
 				} else {
 					let expr;
@@ -755,8 +755,8 @@ function accumulateAttribute(pass, array, attribute, ctx) {
 		} else {
 			// FIXME add robust!
 			// Preserve original case for ID_NAMESPACE and other special identifiers
-			const first = key.name[0];
-			if (ctx.isHTMLElement && first !== ID_EVENTHANDLER) {
+			const first = key.name;
+			if (ctx.isHTMLElement && first !== ID_EVENTHANDLER && !first.startsWith("on")) {
 				key.name = intellijCompat(key.name);
 			}
 
@@ -764,8 +764,8 @@ function accumulateAttribute(pass, array, attribute, ctx) {
 		}
 	}
 
-	const first = (key.name?.name ?? key.name ?? key.value)?.[0];
-	if (first !== ID_EVENTHANDLER && t.isArrowFunctionExpression(value)) {
+	const first = key.name?.name ?? key.name ?? key.value ?? '';
+	if (first[0] !== ID_EVENTHANDLER && !first.startsWith("on") && t.isArrowFunctionExpression(value)) {
 		value = t.callExpression(getContext(pass, 'id/computed')(), [value]);
 	}
 
