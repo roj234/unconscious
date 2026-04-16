@@ -73,8 +73,14 @@ export class VirtualList {
 			}
 		}
 
-		this._height += totalDelta;
-		wrapper.scrollTop += scrollDelta;
+		if (totalDelta) {
+			this._height += totalDelta;
+			wrapper.scrollTop += scrollDelta;
+			if (!this._dirty) {
+				this._dirty = true;
+				requestAnimationFrame(this.render);
+			}
+		}
 
 		domOrContainer.height = ``;
 		return totalDelta;
@@ -96,7 +102,7 @@ export class VirtualList {
 		this.render = this.render.bind(this);
 		this.gap = config.gap || 0;
 		this.keyFunc = config.keyFunc || (item => item[ITEM_KEY] ?? item);
-		this.isSameKey = config.isSameKey || ((a, b) => a === b);
+		this.isSameKey = config.isSameKey || ((a, b) => a[ITEM_KEY] === b);
 		this.overscan = config.overscan || 0;
 
 		this._dirty = !!(this.items = config.data);
@@ -127,7 +133,10 @@ export class VirtualList {
 	scrollToBottom() {
 		const items = this.items;
 		const last = items.length - 1;
-		if (last < 0) return;
+		if (last < 0) {
+			this.render();
+			return;
+		}
 
 		let i = 0;
 		let startHeight = 0;
@@ -220,7 +229,8 @@ export class VirtualList {
 	}
 
 	render() {
-		if (!this._visible) {this._dirty = true;return;}
+		this._dirty = true;
+		if (!this._visible) return;
 
 		const items = this.items;
 		const container = this.dom;
@@ -249,9 +259,14 @@ export class VirtualList {
 				}
 			}
 
+			if (offset < 0) {
+				i = 0;
+				offset = 0;
+			}
+
 			// 在前部额外渲染
 			{
-				const targetBeginOffset = viewStart - overscan;
+				const targetBeginOffset = Math.max(0, viewStart - overscan);
 				while (offset > targetBeginOffset && i > 0) {
 					offset -= getItemHeight(--i);
 				}
@@ -303,7 +318,7 @@ export class VirtualList {
 			const item = items[i];
 
 			let mustRemove;
-			if (i < startIndex || i >= endIndex || (mustRemove = !this.isSameKey(element[ITEM_KEY], this.keyFunc(item, i)))) {
+			if (i < startIndex || i >= endIndex || (mustRemove = !this.isSameKey(element, this.keyFunc(item, i)))) {
 				// 不回收Pinned的元素
 				if (!mustRemove && item?.[PINNED]) {
 					const height = item[ITEM_HEIGHT] ?? this.itemHeight;
@@ -330,7 +345,13 @@ export class VirtualList {
 			}
 
 			// 创建或复用元素
-			const element = this.renderer(items[i], i, recycle);
+			let element;
+			try {
+				element = this.renderer(items[i], i, recycle);
+			} catch (e) {
+				console.error(e, items[i]);
+				continue;
+			}
 			element[INDEX] = i;
 			element[ITEM_KEY] = this.keyFunc(items[i], i);
 			this._ro.observe(element);

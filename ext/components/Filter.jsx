@@ -10,7 +10,7 @@ import './filter.css';
 
 /**
  * @typedef {HTMLDivElement} Filter
- * @property {(initial: boolean=false) => void} _onSettingsUpdated
+ * @property {(initial: boolean=false) => void} onSettingsUpdated
  */
 
 /**
@@ -19,19 +19,18 @@ import './filter.css';
  * @param {function(string, any, Object[]): void|string} onChange=null 回调
  * @return {Filter}
  */
-export default function Filter({config, choices, onChange}) {
-	const initialState = isReactive(choices) ? choices : Object.assign({}, choices);
+export default function Filter({config, choices, onChange, isMobile}) {
 	config.forEach(item => {
 		switch (item.type) {
 			case 'input':
-			case 'textbox': initialState[item.id] = initialState[item.id] ?? ''; break;
-			case 'multiple': if (item.id) initialState[item.id] = initialState[item.id] ?? []; break;
+			case 'textbox': choices[item.id] = choices[item.id] ?? ''; break;
+			case 'multiple': if (item.id) choices[item.id] = choices[item.id] ?? []; break;
 			case 'range': {
 				const min = item.min, max = item.max;
 				const clamp = (v) => Math.max(min, Math.min(max, v));
 
-				const init = initialState[item.id];
-				initialState[item.id] = init
+				const init = choices[item.id];
+				choices[item.id] = init
 					? [
 						clamp(Number(init[0] ?? min)),
 						clamp(Number(init[1] ?? max))
@@ -42,7 +41,7 @@ export default function Filter({config, choices, onChange}) {
 		}
 	});
 
-	const state = preserveState(initialState);
+	const state = preserveState(choices);
 	const emit = (name, newValue) => {
 		let result;
 		try {
@@ -59,16 +58,18 @@ export default function Filter({config, choices, onChange}) {
 		if (!dontCall) callback();
 		if (isReactive(choices)) refreshHandlers.push(callback);
 	}
-	function onSettingsUpdated(initial) {
+	function onSettingsUpdated(initial, noemit) {
 		if (!initial) {
 			for (const item of refreshHandlers) {
 				item();
 			}
 		}
 
-		const objects = unconscious(choices);
-		for (const key in objects) {
-			emit(key, objects[key]);
+		if (!noemit) {
+			const objects = unconscious(choices);
+			for (const key in objects) {
+				emit(key, objects[key]);
+			}
 		}
 	}
 
@@ -93,7 +94,7 @@ export default function Filter({config, choices, onChange}) {
 				const handler = ({target: btn}) => {
 					let value = item.choices[btn.textContent];
 
-					value = state[item.id] === value ? null : value;
+					value = state[item.id] === value ? undefined : value;
 					if (value == null && required) return;
 
 					let err = emit(item.id, value);
@@ -243,7 +244,7 @@ export default function Filter({config, choices, onChange}) {
 
 				const handler = e => {
 					const doSubmit = e.type === 'change';
-					const val = input.value.trim();
+					const val = input.value;//.trim();
 					let invalid = pattern && val && !pattern.test(val);
 					let warnMessage = item.warning || '输入不符合要求';
 					if (invalid) {
@@ -262,8 +263,14 @@ export default function Filter({config, choices, onChange}) {
 					else warning?.remove();
 				};
 
+				let filled;
 				const onFocusBlur = e => {
-					input.style.height = e.type === "focus" ? "500px" : "";
+					const isFocus = e.type === "focus";
+					if (isFocus && !filled && item.placeholder) {
+						if (!input.value) input.value = item.placeholder;
+						filled = true;
+					}
+					input.style.height = isFocus ? "500px" : "";
 				};
 
 				const input = <textarea className='text-input' placeholder={item.placeholder}
@@ -387,11 +394,20 @@ export default function Filter({config, choices, onChange}) {
 			break;
 		}
 
-		return (<div className="filter-row" data-id={item.id}>
-			<div className="filter-label" title={item.title}>{item.name}</div>
+		const isString = typeof item.id === "string";
+		return (<div className="filter-row" data-id={isString ? item.id : undefined} _key={item.id}>
+			{item.name && (!isMobile
+				? <div className="filter-label" title={typeof item.title === "string" ? item.title : undefined}>{item.name}</div>
+				: <>
+					<div className="filter-label">{item.name}</div>
+					{typeof item.title === "string" ? <div className="filter-label tooltip">{item.title}</div> : undefined}
+				</>
+			)}
 			{row}
 		</div>);
 	};
 
-	return <div _onSettingsUpdated={onSettingsUpdated} className="filter">{config.map(itemRenderer)}</div>;
+	const div = <div className="filter">{config.map(itemRenderer)}</div>;
+	div.onSettingsUpdated = onSettingsUpdated;
+	return div;
 };

@@ -33,7 +33,7 @@ export interface VirtualListConfig<T, K> {
     renderer: (data: T, index: number, recycle: HTMLElement[]) => HTMLElement;
     // 生成唯一索引的函数
     keyFunc?: (item: T) => K;
-    isSameKey?: (key1: K, key2: K) => boolean;
+    isSameKey?: (key1: HTMLElement, key2: K) => boolean;
 }
 
 /**

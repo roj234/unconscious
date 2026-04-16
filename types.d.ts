@@ -51,7 +51,7 @@ export function appendChildren(parent: Element, children: Fragment): void;
  */
 export function appendChild(parent: Element, child: Renderable): void;
 
-export function isReactive(object: any): object is Reactive<any>;
+export function isReactive<T>(object: T): object is Reactive<T>;
 export function unconscious<T>(object: T | Reactive<T>): T;
 export function isPureObject(object: any): boolean;
 

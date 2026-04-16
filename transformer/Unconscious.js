@@ -701,7 +701,7 @@ function accumulateAttribute(pass, array, attribute, ctx) {
 			const arr = key._uc_names;
 
 			function isEventProperty(name) {
-				return name === "once" || name === "passive" || name === "capture";
+				return name === "once" || name === "passive" || name === "capture" || name === "noPassive";
 			}
 
 			const eventProperties = [];
@@ -710,8 +710,8 @@ function accumulateAttribute(pass, array, attribute, ctx) {
 				const decorator = arr[i];
 				if (isEventProperty(decorator)) {
 					eventProperties.push(t.objectProperty(
-						t.identifier(decorator),
-						t.booleanLiteral(true)
+						t.identifier(decorator.replace("no", "").toLowerCase()),
+						t.booleanLiteral(!decorator.startsWith("no"))
 					));
 				} else {
 					let expr;
