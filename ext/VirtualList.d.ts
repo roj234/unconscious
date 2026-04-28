@@ -1,6 +1,4 @@
 
-// 项目渲染出元素的索引，因为实际有它所以 ITEM_KEY 才可以重复
-export const INDEX: unique symbol;
 // 该项目的键，在数组中可以重复，如果和上次结果不同就重新渲染项目
 export const ITEM_KEY: unique symbol;
 // 该项目的高度
@@ -100,14 +98,6 @@ export class VirtualList<T = object> {
      * @returns 索引（如果未找到，返回 -1）
      */
     findIndex(item: T): number;
-
-    /**
-     * 从回收池中查找并复用元素（已弃用）
-     * @param match CSS 选择器模式
-     * @returns 匹配的元素（如果未找到，返回 null）
-     * @deprecated 都用框架了还关心这个？
-     */
-    findElement(match: string): HTMLElement | null;
 
     /**
      * lazy附加到容器

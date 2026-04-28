@@ -52,7 +52,7 @@ export function appendChildren(parent: Element, children: Fragment): void;
 export function appendChild(parent: Element, child: Renderable): void;
 
 export function isReactive<T>(object: T): object is Reactive<T>;
-export function unconscious<T>(object: T | Reactive<T>): T;
+export function unconscious<T>(object: Reactive<T>): T;
 export function isPureObject(object: any): boolean;
 
 /**
@@ -70,6 +70,7 @@ export function $disposable(element: Element | Text, listenerKey: [Reactive<any>
 export function $dispose(element: Element | Text, keep?: [Reactive<any>, Function]): void;
 
 export function $state<T>(object: T, deep?: boolean): Reactive<T>;
+export function $stampLock<T>(state: Reactive<T>): Reactive<T>;
 export function $watch(objects: Reactive<any> | Reactive<any>[], listener: () => Function | void, triggerNow?: boolean): void;
 export function $watchOn(object: Reactive<any>, listener: () => void, element: HTMLElement): void;
 export function $unwatch(object: Reactive<any>, listener: Function): void;

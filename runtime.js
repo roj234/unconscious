@@ -546,8 +546,8 @@ function getArray(deep) {
 			// NodeList TypedArray Array ...
 			// 所以createArrayLike
 			if (MUTATOR_METHODS.has(prop) && array.length != null && !isPureObject(array)) {
-				return function () {
-					let v = value.apply(array, arguments);
+				return (...args) => {
+					let v = value.apply(array, args);
 					$update(proxy);
 					return v;
 				};
@@ -578,6 +578,47 @@ function $state(object, deep, initialListeners = new Map) {
 		deep ? DeepShallowProxy : ShallowProxy
 	);
 }
+
+/**
+ * 乐观锁
+ * @template T
+ * @param {Reactive<T>} state
+ * @return {Reactive<T>}
+ */
+export function $stampLock(state) {
+	const value = unconscious(state);
+	if (state === value) return state;
+
+	return new Proxy(value, {
+		set(target, p, newValue, receiver) {
+			target[p] = newValue;
+			if (unconscious(state) === target) $update(state);
+			return true;
+		},
+		get(target, prop, receiver) {
+			if (prop === "value") return target;
+
+			let fn = target[prop];
+			if (typeof fn === "function") {
+				// 无法知道什么是不是数组，可能的类型太多了
+				// NodeList TypedArray Array ...
+				// 所以createArrayLike
+				if (MUTATOR_METHODS.has(prop) && target.length != null && !isPureObject(target)) {
+					return (...args) => {
+						let v = fn.apply(target, args);
+						if (unconscious(state) === target) $update(state);
+						return v;
+					};
+				} else {
+					return fn.bind(target);
+				}
+			}
+
+			return fn;
+		}
+	})
+}
+
 
 /**
  * 监听响应式变量变化
@@ -959,6 +1000,8 @@ if (import.meta.hot) {
 			}
 
 			const info = this.modules.get(moduleId);
+			if (!info) return "找不到此模块";
+
 			// 请注意：这里的update虽然是同步到当前模块，但updateModule方法被调用时，当前模块已被替换
 			info.sync.set(info.version++, update);
 

@@ -5,7 +5,8 @@ import "./VirtualList.css";
 /**
  * 项目渲染出元素的索引，因为实际有它所以{@link ITEM_KEY}才可以重复
  */
-export const INDEX = debugSymbol("VL.Index");
+const INDEX = debugSymbol("VL.Index");
+
 /**
  * 该项目的键，在数组中可以重复，如果和上次结果不同就重新渲染项目
  */
@@ -25,7 +26,7 @@ export const PINNED = debugSymbol("VL.Pinned");
  * @template {Object} T 数据类型
  */
 export class VirtualList {
-	dom = <div className="_vl"></div>;
+	dom = <div className="_vl" />;
 
 	_start = 0;
 	_end = 0;
@@ -33,57 +34,43 @@ export class VirtualList {
 	_offset = 0;
 	_height = 0;
 
-	_recycle = [];
+	//_scrollTop = 0;
 
 	/**
-	 * //@type {ResizeObserverCallback}
+	 * @type {ResizeObserverCallback}
 	 * @param {{target: HTMLElement}[]} entries
 	 * @return {boolean}
 	 * @private
 	 */
-	_onResize = entries => {
-		let totalDelta = 0;
-		let scrollDelta = 0;
+	_onResize = (entries) => {
+		let heightChanged = false;
 
-		const wrapper = this._wrapper;
-		const domOrContainer = wrapper.firstElementChild.style;
-		domOrContainer.height = `1e6px`;
-
-		const wrapperRect = wrapper.getBoundingClientRect();
-		for (let {target} of entries) {
+		for (let {target, borderBoxSize} of entries) {
 			const itemIndex = target[INDEX];
 			const item = this.items[itemIndex];
 			// might be removed
 			if (!item) continue;
 
-			const targetRect = target.getBoundingClientRect();
+			const targetRect = borderBoxSize ? borderBoxSize[0].blockSize : target.getBoundingClientRect().height;
 			const gap = this.gap;
-			const measuredHeight = targetRect.height + (typeof gap === "function" ? gap.call(this, target) : gap);
+			const measuredHeight = targetRect + (typeof gap === "function" ? gap.call(this, target) : gap);
 			const expectedHeight = item[ITEM_HEIGHT] ?? this.itemHeight;
 
 			if (measuredHeight !== expectedHeight) {
 				const delta = measuredHeight - expectedHeight;
 				item[ITEM_HEIGHT] = measuredHeight;
-				totalDelta += delta;
-
-				// 当元素完全位于当前视口上方?? 这个没法处理跨边缘问题，比如元素一半在视口内，上下分别有两张图片
-				if (targetRect.top + expectedHeight < wrapperRect.top) {
-					scrollDelta += delta;
-				}
+				heightChanged += delta;
 			}
 		}
 
-		if (totalDelta) {
-			this._height += totalDelta;
-			wrapper.scrollTop += scrollDelta;
-			if (!this._dirty) {
-				this._dirty = true;
-				requestAnimationFrame(this.render);
-			}
+		// 如果抵消了，也可能需要重渲染
+		if (heightChanged !== false) {
+			this._height += heightChanged;
+			const anchor = this._anchor;
+			if (!this._dirty) this.render();
+			if (anchor) this._moveTo(anchor);
 		}
-
-		domOrContainer.height = ``;
-		return totalDelta;
+		return heightChanged;
 	}
 
 	_ro = new ResizeObserver(this._onResize);
@@ -99,7 +86,6 @@ export class VirtualList {
 	constructor(config) {
 		this.itemHeight = config.itemHeight;
 		this.renderer = config.renderer;
-		this.render = this.render.bind(this);
 		this.gap = config.gap || 0;
 		this.keyFunc = config.keyFunc || (item => item[ITEM_KEY] ?? item);
 		this.isSameKey = config.isSameKey || ((a, b) => a[ITEM_KEY] === b);
@@ -131,29 +117,23 @@ export class VirtualList {
 	}
 
 	scrollToBottom() {
-		const items = this.items;
+		delete this._anchor;
+
+		const {items, _h: getItemHeight, dom, _wrapper: wrapper} = this;
 		const last = items.length - 1;
-		if (last < 0) {
-			this.render();
-			return;
-		}
+		if (last < 0) { this.render(); return; }
 
 		let i = 0;
 		let startHeight = 0;
 
-		while(i < last) startHeight += items[i++][ITEM_HEIGHT] ?? this.itemHeight;
+		while(i < last) startHeight += getItemHeight(i++);
 
-		this.dom.style = `padding-top:${startHeight}px`;
-		this._updateDOM(this.dom, this._start = last, this._end = last + 1, items);
+		dom.style = `padding-top:${startHeight}px`;
+		this._updateDOM(dom, this._start = last, this._end = last + 1, items, 1);
 		this._offset = startHeight;
-		this._height = startHeight + (items.at(-1)[ITEM_HEIGHT] ?? this.itemHeight);
+		this._height = startHeight + getItemHeight(i);
 
-		const wrapper = this._wrapper;
 		wrapper.scrollTop = wrapper.scrollHeight;
-
-		requestAnimationFrame(() => {
-			wrapper.scrollTop = wrapper.scrollHeight;
-		});
 	}
 
 	/**
@@ -166,9 +146,19 @@ export class VirtualList {
 
 		const value = this.getValue(i);
 		if (!value) return;
-
 		value[INDEX] = -1;
+
+		const anchor = this._findAnchor();
+
+		this._height = 0;
+		if (i < this._start) {
+			this._start = 0;
+			this._offset = 0;
+		}
+
 		this.render();
+
+		this._moveTo(anchor);
 	}
 
 	/**
@@ -207,45 +197,62 @@ export class VirtualList {
 	}
 
 	/**
-	 * 回收利用现有元素，有必要吗？
-	 * @param {string} match pattern
-	 * @returns {HTMLElement|null}
-	 * @deprecated 都用框架了还关心这个？
-	 */
-	findElement(match) {
-		const r = this._recycle;
-		for (let i = r.length-1; i >= 0; i--) {
-			if (r[i].matches(match)) return r.splice(i, 1)[0];
-		}
-		return null;
-	}
-
-	/**
 	 * 清理资源
 	 */
 	destroy() {
 		this._io.disconnect();
-		this._wrapper.removeEventListener('scroll', this.render);
+		this._wrapper?.removeEventListener('scroll', this.render);
 	}
 
-	render() {
+	_h = (j) => this.items[j][ITEM_HEIGHT] ?? this.itemHeight;
+
+	_findAnchor() {
+		const {_h: getItemHeight, _offset: offset, _start: start, _wrapper: {scrollTop}, items} = this;
+
+		// 如果能看到顶部，就根据顶部定位，否则根据底部定位
+		const baseOffset = scrollTop - offset;
+		// items[start] 检查空列表
+		if (items[start] && baseOffset > 0) return [start + 1, baseOffset - getItemHeight(start)];
+		return [start, baseOffset];
+	}
+
+	_moveTo([targetIndex, targetOffset]) {
+		let {_h: getItemHeight, _offset: prefix, _start: i, items} = this;
+
+		// O(n) => O(residual) ≈ O(1)
+		while (i < targetIndex && i < items.length) prefix += getItemHeight(i++);
+		while (i > targetIndex && i > 0) prefix -= getItemHeight(--i);
+
+		// 如果开始在 targetIndex 元素上，那么滚动之后不能跑到 targetIndex 元素外
+		if (targetIndex < items.length) targetOffset = Math.min(targetOffset, getItemHeight(targetIndex));
+		if (targetIndex > 0) targetOffset = Math.max(targetOffset, -getItemHeight(targetIndex-1));
+
+		this._wrapper.scrollTop = prefix + targetOffset;
+	}
+
+	render = () => {
 		this._dirty = true;
 		if (!this._visible) return;
 
-		const items = this.items;
-		const container = this.dom;
-		const overscan = this.overscan;
-		const getItemHeight = (j) => items[j][ITEM_HEIGHT] ?? this.itemHeight;
-
 		for(;;) {
-			let i = this._start;
-			let offset = this._offset;
+			let {
+				items,
+				dom: container,
+				overscan,
+				_h: getItemHeight,
+				_start: i,
+				_offset: offset,
+				_height: totalHeight,
+				_wrapper: {
+					scrollTop: viewStart,
+					offsetHeight: viewHeight
+				}
+			} = this;
+			//this._scrollTop = viewStart;
 
-			const {scrollTop: viewStart, offsetHeight: viewHeight} = this._wrapper;
-
-			// 这是一个脆弱（指你不能去改 _start）但有意义的优化，只处理两次滚动之间的差值offset，通常这个差值会很小，O(n) -> O(1)
+			// 只处理两次滚动之间的差值 O(n) => O(residual) ≈ O(1)
 			if (offset < viewStart) {
-				// 处理往下滚动
+				// 往下滚动
 				while(i < items.length) {
 					const h = getItemHeight(i);
 					if ((offset + h) >= viewStart) break;
@@ -282,7 +289,6 @@ export class VirtualList {
 			}
 
 			//总高度
-			let totalHeight = this._height;
 			if (!totalHeight) {
 				totalHeight = offset;
 				let j = i;
@@ -299,18 +305,24 @@ export class VirtualList {
 				}
 			}
 
+			// 可能是直接设置 scrollTop 导致 anchor 丢失
+			const anchorElement = this._anchor?.[0];
+			if (anchorElement < startIndex || anchorElement > i) this._anchor = null;
+
 			// 未渲染的元素的高度由padding-top和padding-bottom代替，保证滚动条位置正确
 			// 这里如果把设置padding的操作放在渲染元素之后，部分浏览器滚动到最后一个元素时会有问题
 			container.style = `padding-top:${startHeight}px;padding-bottom:${totalHeight-offset}px`;
-			if (!this._updateDOM(container, startIndex, i, items))
-				break
+
+			// 在同一帧内尽可能多的更新元素高度以减小闪烁
+			if (!this._updateDOM(container, startIndex, i, items, viewHeight))
+				break;
 		}
+
+		this._anchor = this._findAnchor();
 		this._dirty = false;
 	}
 
-	_updateDOM(container, startIndex, endIndex, items) {
-		const recycle = this._recycle;
-
+	_updateDOM(container, startIndex, endIndex, items, heightLimit) {
 		const reuse = {};
 		// 遍历现有元素，回收不可见或key变化的元素
 		for (const element of Array.from(container.children)) {
@@ -327,7 +339,6 @@ export class VirtualList {
 					continue;
 				}
 
-				recycle.push(element);
 				this._ro.unobserve(element);
 				element.remove();
 			} else {
@@ -338,7 +349,8 @@ export class VirtualList {
 		// 插入新元素
 		const newElements = [];
 		let anchorNode = null;
-		for (let i = startIndex; i < endIndex; i++) {
+		let i = startIndex;
+		for (; i < endIndex/* && heightLimit > 0*/; i++/*, heightLimit -= anchorNode.offsetHeight*/) {
 			if (reuse[i]) {
 				anchorNode = reuse[i];
 				continue; // 未变化则跳过
@@ -346,14 +358,15 @@ export class VirtualList {
 
 			// 创建或复用元素
 			let element;
+			const item = items[i];
 			try {
-				element = this.renderer(items[i], i, recycle);
+				element = this.renderer(item, i);
 			} catch (e) {
-				console.error(e, items[i]);
+				console.error(e, item);
 				continue;
 			}
 			element[INDEX] = i;
-			element[ITEM_KEY] = this.keyFunc(items[i], i);
+			element[ITEM_KEY] = this.keyFunc(item, i);
 			this._ro.observe(element);
 
 			if (!anchorNode) {
@@ -367,9 +380,8 @@ export class VirtualList {
 			newElements.push({target: element});
 		}
 
-		recycle.length = 0;
 		this._start = startIndex;
-		this._end = endIndex;
+		this._end = i;
 		return newElements.length && this._onResize(newElements);
 	}
 }

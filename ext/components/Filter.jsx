@@ -17,9 +17,11 @@ import './filter.css';
  * @param {Config[]} config 配置列表
  * @param {Object[]} choices={} 选项值
  * @param {function(string, any, Object[]): void|string} onChange=null 回调
+ * @param {boolean=false} showTitle
+ * @param {boolean=true} fillPlaceholder
  * @return {Filter}
  */
-export default function Filter({config, choices, onChange, isMobile}) {
+export default function Filter({config, choices, onChange, showTitle, fillPlaceholder = true}) {
 	config.forEach(item => {
 		switch (item.type) {
 			case 'input':
@@ -45,7 +47,7 @@ export default function Filter({config, choices, onChange, isMobile}) {
 	const emit = (name, newValue) => {
 		let result;
 		try {
-			result = onChange?.(name, newValue, state);
+			result = onChange?.(name, newValue, state, div);
 		} catch (e) {
 			result = e;
 		}
@@ -263,7 +265,7 @@ export default function Filter({config, choices, onChange, isMobile}) {
 					else warning?.remove();
 				};
 
-				let filled;
+				let filled = !fillPlaceholder;
 				const onFocusBlur = e => {
 					const isFocus = e.type === "focus";
 					if (isFocus && !filled && item.placeholder) {
@@ -396,7 +398,7 @@ export default function Filter({config, choices, onChange, isMobile}) {
 
 		const isString = typeof item.id === "string";
 		return (<div className="filter-row" data-id={isString ? item.id : undefined} _key={item.id}>
-			{item.name && (!isMobile
+			{item.name && (!showTitle
 				? <div className="filter-label" title={typeof item.title === "string" ? item.title : undefined}>{item.name}</div>
 				: <>
 					<div className="filter-label">{item.name}</div>
