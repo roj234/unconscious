@@ -1,4 +1,5 @@
 
+export const INDEX: unique symbol;
 // 该项目的键，在数组中可以重复，如果和上次结果不同就重新渲染项目
 export const ITEM_KEY: unique symbol;
 // 该项目的高度

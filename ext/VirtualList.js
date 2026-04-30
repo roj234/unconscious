@@ -5,7 +5,7 @@ import "./VirtualList.css";
 /**
  * 项目渲染出元素的索引，因为实际有它所以{@link ITEM_KEY}才可以重复
  */
-const INDEX = debugSymbol("VL.Index");
+export const INDEX = debugSymbol("VL.Index");
 
 /**
  * 该项目的键，在数组中可以重复，如果和上次结果不同就重新渲染项目
@@ -105,6 +105,16 @@ export class VirtualList {
 	 */
 	attach(wrapper) {
 		this._wrapper = wrapper;
+
+		/*const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop");
+		const set = descriptor.set;
+		const mySet = function () {
+			delete this._anchor;
+			set.apply(this, arguments);
+		};
+		descriptor.set = mySet;
+		Object.defineProperty(wrapper, 'scrollTop', descriptor);*/
+
 		wrapper.addEventListener('scroll', this.render);
 		this._io.observe(wrapper);
 	}
@@ -134,6 +144,11 @@ export class VirtualList {
 		this._height = startHeight + getItemHeight(i);
 
 		wrapper.scrollTop = wrapper.scrollHeight;
+	}
+
+	scrollTo(offset) {
+		delete this._anchor;
+		this._wrapper.scrollTop = offset;
 	}
 
 	/**
