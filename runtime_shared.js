@@ -1,6 +1,8 @@
 export const PASSIVE_EVENT = {passive: true};
 export const ONCE_EVENT = {once: true};
 
+export function isPureObject(object) {return Object.prototype.toString.call(object) === "[object Object]";}
+
 /**
  * 开发时获取带名称的符号
  * @param name 符号名称

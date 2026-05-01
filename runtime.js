@@ -3,10 +3,9 @@ import {
 	ID_DANGEROUSLY_SET_INNERHTML,
 	ID_EVENTHANDLER,
 	ID_NAMESPACE,
-	ID_STYLELIST,
-	isPureObject
+	ID_STYLELIST
 } from "./constant.js";
-import {AS_IS, debugSymbol} from "./runtime_shared.js";
+import {AS_IS, debugSymbol, isPureObject} from "./runtime_shared.js";
 
 export * from './runtime_shared.js';
 
@@ -775,7 +774,7 @@ if (import.meta.env.DEV) {
 					_devError("响应式元素被外部移除，并且未取消%O的监听器，应使用$dispose(%O)", owners, listener);
 				}
 
-				alert("事件派发失败");
+				//alert("事件派发失败");
 			}
 		}
 

@@ -34,8 +34,6 @@ export class VirtualList {
 	_offset = 0;
 	_height = 0;
 
-	//_scrollTop = 0;
-
 	/**
 	 * @type {ResizeObserverCallback}
 	 * @param {{target: HTMLElement}[]} entries
@@ -105,16 +103,6 @@ export class VirtualList {
 	 */
 	attach(wrapper) {
 		this._wrapper = wrapper;
-
-		/*const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop");
-		const set = descriptor.set;
-		const mySet = function () {
-			delete this._anchor;
-			set.apply(this, arguments);
-		};
-		descriptor.set = mySet;
-		Object.defineProperty(wrapper, 'scrollTop', descriptor);*/
-
 		wrapper.addEventListener('scroll', this.render);
 		this._io.observe(wrapper);
 	}
@@ -139,6 +127,7 @@ export class VirtualList {
 		while(i < last) startHeight += getItemHeight(i++);
 
 		dom.style = `padding-top:${startHeight}px`;
+		this._anchor = [last + 1, -(startHeight + getItemHeight(i))]; // 不能合并，updateDOM有副作用
 		this._updateDOM(dom, this._start = last, this._end = last + 1, items, 1);
 		this._offset = startHeight;
 		this._height = startHeight + getItemHeight(i);
