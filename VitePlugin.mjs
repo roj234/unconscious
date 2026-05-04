@@ -110,14 +110,13 @@ export default (options = {}) => {
       return {
         resolve: {
           alias: {
-            'unconscious/ext': scriptPath+'/ext',
+            'unconscious/common': scriptPath+'/common',
             ...theLibrary,
           }
         },
 
         define: {
           UC_PERSIST_STORE: userConfig?.define?.UC_PERSIST_STORE ?? JSON.stringify(findPackageJson()?.data.name ?? 'default'),
-          UC_IMMEDIATE_STORE: userConfig?.define?.UC_IMMEDIATE_STORE ?? false,
           UC_REACTIVE_FRAGMENT: userConfig?.define?.UC_REACTIVE_FRAGMENT ?? false,
           UC_VERSION: JSON.stringify(findPackageJson(new URL(import.meta.url).pathname.substring(1))?.data.version) ?? 'unknown',
         },

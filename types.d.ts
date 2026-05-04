@@ -1,6 +1,9 @@
 
 export declare namespace JSX {
     interface Element extends HTMLElement {}
+    interface IntrinsicElement {
+
+    }
 }
 
 //region micro模块包含的部分
@@ -108,7 +111,7 @@ export function assertReactive<T>(t: Reactive<T> | object): Reactive<T>;
  * @param renderItem - 生成列表项元素的函数
  * @param [keyFunc=item => item] - 生成唯一标识的函数
  * @param options - 扩展配置对象
- * @param options.currentKeys - 可以替换成MultiKeyMap
+ * @param options.currentKeys - 可以替换成NestedMap
  * @param options.morphChild - key未变化时更新节点内部内容的函数（可选）
  * @returns {AppendObserver} 包含动态列表的自定义元素
  */
@@ -126,10 +129,11 @@ export class AppendObserver extends HTMLElement {
     constructor(callback: (self: AppendObserver) => void);
 }
 
-export function $forElse<T>(
-    list: Reactive<T[]>,
-    renderItem: (item: T, index: number) => Renderable,
-    emptyElement: Renderable
+export function $forElse<T, K, E extends Renderable>(
+    list: T[] | Reactive<T[]>,
+    renderItem: (item: T, index: number) => E,
+    emptyElement: Renderable,
+    keyFunc?: (item: T, index: number) => K,
 ): Readonly<Reactive<JSX.Element>>;
 
 export function $forElseAsyncState<T>(
@@ -190,7 +194,7 @@ export function $store<T>(
          * 持久化到localStorage
          * @default false
          */
-        persist?: boolean;
+        persist?: boolean | Storage;
         /**
          * 数据序列化方法
          * 仅persist=true时有效
@@ -256,57 +260,11 @@ export function $asyncComponent(
 /**
  * 在调用时执行并自动捕获依赖的$watch
  * @param {function(): void} callback
- * @param {Reactive<any>[]} dependencies=
  */
-export function $effect(callback: () => void, dependencies: Reactive<any>[]): void;
-
-export function createSignal<T>(
-    ref: Reactive<T>,
-): [get: () => T, set: (value: T | ((oldValue: T) => T)) => T];
+export function $effect(callback: () => void): void;
 
 export function createEffect<T>(
     fn: (oldValue: T) => T | void,
     value?: T,
     options?: Partial<{}>
 ): void;
-
-export function createMemo<T>(
-    fn: (oldValue: T) => T,
-    value?: T,
-    options?: Partial<{
-        equals: (prev: T, next: T) => boolean;
-    }>
-): () => T;
-
-export function createResource<T, N>(
-    fetchData: (source: undefined, _: {
-        value: T,
-        refetching: true | N
-    }) => Promise<T>,
-): [
-    data: (() => T) & {
-        loading: boolean;
-        error: false | Error;
-    },
-    _: {
-        mutate: (value: T) => T;
-        refetch: (info: N) => void;
-    }
-];
-
-export function createResource<T, N, S>(
-    source: S,
-    fetchData: (source: S, _: {
-        value: T,
-        refetching: true | N
-    }) => Promise<T>,
-): [
-    data: (() => T) & {
-        loading: boolean;
-        error: false | Error;
-    },
-    _: {
-        mutate: (value: T) => T;
-        refetch: (info: N) => void;
-    }
-];

@@ -1,5 +1,5 @@
 /*! FunEx next (beta)
- *  Author: Roj234 @ 2024/7/15 - 2025/4/28, All rights reserved
+ *  Author: Roj234 @ 2020 - 2024/7/15, All rights reserved
  */
 
 
@@ -21,24 +21,6 @@ function A(selector, element){return Array.from((element??document).querySelecto
 
 export {G, A}
 
-//region 通知
-function addNotification(message, duration) {
-	const notification = E(`<div class="notification"><button class="close" onclick="closeNotification(this.parentElement)">&times;</button>${message}</div>`);
-
-	G('#notifications').appendChild(notification);
-
-	requestAnimationFrame(() => notification.classList.add('show'));
-
-	const close = () => closeNotification(notification);
-	if (duration) setTimeout(close, duration);
-	return {close}
-}
-function closeNotification(el) {
-	el.classList.remove('show');
-	setTimeout(() => el.remove(), 300);
-}
-export {addNotification, closeNotification}
-//endregion
 //region 日期与时间
 const parseSubRx = {
 	"Y": ["(\\d{4})", "setFullYear"],
@@ -63,7 +45,7 @@ const parseSubRx = {
 const parseDate = function(pattern, date) {
 	var _times = [];
 	var id = 1;
-	pattern = pattern.replace(/[\\]?([a-zA-Z])/g, function(t, s, i) {
+	pattern = pattern.replace(/\\?([a-zA-Z])/g, (t, s, i) => {
 		var px = parseSubRx[t];
 		if (px) {
 			_times.push({
@@ -106,56 +88,40 @@ const parseDate = function(pattern, date) {
 	return date;
 }
 
-var txt_weekdays = ["天", "一", "二", "三", "四", "五", "六"];
+var txt_weekdays = "天一二三四五六".split("");
+const pad = (n, c) => String(n).padStart(c, "0");
 
-function pad(n, c) {
-	return String(n).padStart(c, "0");
-}
-
-const formatDate = function(format, stamp) {
-	if (stamp === 0) return "-";
-
-	var date = (null != stamp ? new Date(stamp) : new Date());
-	var f = {
+const formatDate = (format, stamp) => {
+	if (null === stamp) return '-';
+	var date = (null == stamp/*undefined*/ ? new Date() : new Date(stamp));
+	var fmt = {
 		// Year
-		L: function() { // 闰年
-			var y = f.Y();
+		// 闰年
+		L: () => {
+			var y = fmt.Y();
 			return (0 === (y & 3) && (y % 1e2 || 0 === (y % 4e2))) ? 1 : 0;
 		},
-		Y: function() { // 2012
-			return date.getFullYear();
-		},
-		y: function() { // 12
-			return String(date.getFullYear()).slice(2);
-		},
+		// 2012
+		Y: () => date.getFullYear(),
+		// 12
+		y: () => String(fmt.Y()).slice(2),
 		// Day
-		d: function() { // 01
-			return pad(f.j(), 2);
-		},
-		j: function() { // 1
-			return date.getDate();
-		},
+		j: () => date.getDate(),
+		d: () => pad(fmt.j(), 2),
 		// Week
-		l: function() { // 星期一
-			return "星期" + txt_weekdays[f.w()];
-		},
-		w: function() { // 0-6星期
-			return date.getDay();
-		},
-		N: function() { // 1-7
-			return f.w() + 1;
-		},
+		l: () => "星期" + txt_weekdays[fmt.w()],
+		// 0-6星期
+		w: () => date.getDay(),
+		// 1-7
+		N: () => fmt.w() + 1,
 		// Month
-		m: function() { // 01
-			return pad(f.n(), 2);
-		},
-		n: function() { // 1
-			return date.getMonth() + 1;
-		},
-		t: function() { // 本月有几天
+		n: () => date.getMonth() + 1,
+		m: () => pad(fmt.n(), 2),
+		// 本月有几天
+		t: () => {
 			var n;
 			if ((n = date.getMonth() + 1) === 2) {
-				return 28 + f.L();
+				return 28 + fmt.L();
 			} else {
 				n = 0 !== (n & 1);
 				if (n && n < 8 || !n && n > 7) {
@@ -166,54 +132,36 @@ const formatDate = function(format, stamp) {
 			}
 		},
 		// Time
-		a: function() { // 小写
-			return date.getHours() > 11 ? "pm" : "am";
-		},
-		A: function() { // 大写
-			return f.a().toUpperCase();
-		},
-		g: function() { // am/pm时间
-			return date.getHours() % 12 || 12;
-		},
-		G: function() {
-			return date.getHours();
-		},
-		h: function() { // 01
-			return pad(f.g(), 2);
-		},
-		H: function() { // 01
-			return pad(date.getHours(), 2);
-		},
-		i: function() {
-			return pad(date.getMinutes(), 2);
-		},
-		s: function() {
-			return pad(date.getSeconds(), 2);
-		},
-		O: function() { // timezone offset 2
+		// 小写
+		a: () => date.getHours() > 11 ? "pm" : "am",
+		// 大写
+		A: () => fmt.a().toUpperCase(),
+		// am/pm时间
+		g: () => date.getHours() % 12 || 12,
+		h: () => pad(fmt.g(), 2),
+		G: () => date.getHours(),
+		H: () => pad(fmt.G(), 2),
+		i: () => pad(date.getMinutes(), 2),
+		s: () => pad(date.getSeconds(), 2),
+		// timezone offset 2
+		O: () => {
 			var t = pad(Math.abs(date.getTimezoneOffset() / 60 * 100), 4);
 			if (date.getTimezoneOffset() > 0) t = "-" + t;
 			else t = "+" + t;
 			return t;
 		},
-		P: function() { // timezone offset
-			var O = f.O();
-			return (O.substr(0, 3) + ":" + O.substr(3, 2));
+		// timezone offset
+		P: () => {
+			var tzoff = fmt.O();
+			return (tzoff.slice(0, 3) + ":" + tzoff.slice(3, 2));
 		},
-		c: function() { // UTC
-			return f.Y() + "-" + f.m() + "-" + f.d() + "T" + f.H() + ":" + f.i() + ":" + f.s() + f.P();
-		},
-		U: function() { // Unix
-			return Math.round(date.getTime() / 1000);
-		}
+		// UTC
+		c: () => fmt.Y() + "-" + fmt.m() + "-" + fmt.d() + "T" + fmt.H() + ":" + fmt.i() + ":" + fmt.s() + fmt.P(),
+		// Unix
+		U: () => Math.round(date.getTime() / 1000)
 	};
 
-	return format.replace(/[\\]?([a-zA-Z])/g, function(t, s) {
-		if (t === s && f[s]) {
-			return f[s]();
-		}
-		return s;
-	});
+	return format.replace(/\\?([a-zA-Z])/g, (t, s) => t === s && fmt[s] ? fmt[s]() : s);
 };
 
 const tms = {

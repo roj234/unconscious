@@ -2,9 +2,21 @@
 
 '上一代' 轻量级响应式框架，直接操作真实 DOM，提供细粒度更新和高性能。专注于最小化运行时开销，支持现代函数组件和丰富的 JSX 扩展语法。
 - Svelte家的Vue风味的React
-- 大概用起来比较麻烦
 
-## You have been warned
+### 你已经被警告过了
+- 对于除我以外的人来说，用起来很麻烦，**真的，真的很麻烦**
+- unconscious 在这个框架里是一个函数的名称
+  - 它的功能是从响应式对象中提取不具备更新能力的原始对象
+  - 因为响应式对象是"有意识的"，它知道自己什么时候要更新，原始数据是"无意识的"
+- 这个框架和函数的名字一样——它没有自己的意识。它不替开发者做决定。开发者应该清醒地知道每一行代码在做什么。
+  - 事件监听没有包装，没有代理（除非你自己在修饰符里加），你自己决定挂在哪个元素上，不会替你提升到window
+  - 响应式不是自然而然的表达式，你必须写 {a && b} 或者 {() => ...} 这两种编译器支持的自动转计算属性的语法
+    - 否则，他们就真的只会在调用时执行一次
+- 这不是一个完美的框架，而是一个诚实的框架。它如实告诉你：我不帮你做什么，你需要自己决定。
+- 我不建议在任何多人合作项目中使用这个框架，它是为一个人能完全理解所有代码行为的项目设计的。
+- 为了性能上限我牺牲了这么多，它的回报（大概）也是值得的
+
+
 - [Injector.js](Injector.js)会修改node_modules中部分文件的内容
 - - 修改了babel以暴露一些parser的内部API
 - - 修改了Vite WebWorker Polyfill的代码，理论上不影响现代浏览器
@@ -44,8 +56,7 @@ npm install
 ```
 
 ### 示例
-Unconscious 采用函数组件设计，支持 props 和 children。使用 `preserveState` 标记内部状态为响应式（HMR 时状态迁移）。  
-以下示例展示事件装饰器（`onclick.children`）和元素装饰器（`@styles`）。条件表达式 `? :` 是语法糖，会编译为 `$computed(() => ...)`。
+一个计数器组件，我尽可能多的使用了不被IDE兼容的语法糖，这些糖有的我写了IDE兼容的workaround，但很不幸没有文档
 
 ```jsx
 import {$state, $computed, preserveState} from "unconscious";
@@ -63,52 +74,9 @@ export default function Counter() {
 }
 ```
 
-在项目中，直接导入并挂载：
-
-```js
-import {appendChildren} from "unconscious";
-appendChildren(document.body, [<Counter/>]);
-```
-
-这些导出语法支持组件热更新
-```js
-export function Component() {}
-export const Component = () => {}
-```
-
-这些导出语法支持重载，但不支持组件热更新，并有一些限制
-```js
-export default () => {}
-
-// t 必须是 let或var，如果是const将在重载时报错
-let t = '';
-export {t}
-```
-
-### 全功能示例
-- 点击查看[全功能示例](example/src/main.js)，这个示例使用了后面介绍的所有函数
+### 示例
 - 要理解示例代码，我假设你对JSX语法有一定了解，使用或了解过Vue和React
-- 本文中的示例由AI编写，我也不知道能不能跑，全功能示例是我写的，100%能跑
-
-### 异步状态
-- `$asyncState(fetcher, param?)`：管理 Promise 状态（`loading`、`error`、`value`）。参数变化时自动重取。
-- `$asyncComponent(loader, loading, error)`：懒加载组件（`loading`/`error` 回调）。
-
-示例：
-```jsx
-const state = $asyncState(async (page) => {
-  const res = await fetch(`/api?page=${page}`);
-  return res.json();
-}, $state(1));
-
-function List() {
-  return (
-    <div>
-      {state.loading ? "加载中..." : state.error ? "错误" : state.value?.map(item => <div>{item}</div>)}
-    </div>
-  );
-}
-```
+- 点击查看或者在本地运行[全功能示例](example/src/main.js)，这个示例使用了后面介绍的所有函数
 
 ## API
 
@@ -245,9 +213,6 @@ user.token = "123456";
 // 命名空间前缀
 UC_PERSIST_STORE = 'myapp'; // 默认 'default'
 
-// 立即保存（true）或延迟（false：beforeunload/visibilitychange/60s）
-UC_IMMEDIATE_STORE = false;
-
 // 启用 Fragment
 UC_REACTIVE_FRAGMENT = false;
 ```
@@ -275,6 +240,13 @@ el.addEventListener("append", (e) => {
 
 ## 开发与生产
 - 很多错误检查只在开发时有效，请注意，如果【忽略开发时的错误】可能在production中造成内存溢出、死循环等问题
-- Baseline widely available: Chrome 107
+- 最低浏览器: Chrome 107
 
-*Unconscious：觉醒你的 DOM。*
+## common 文件夹
+这个文件夹里有很多有意思的东西 (换句话说，这是 JavaScript 版本的 [RojLib](https://github.com/Roj234/RojLib))
+- deepEqual
+- msgpack
+- NestedMap
+- json-schema-utils
+- StreamJsonParser
+- zip-io

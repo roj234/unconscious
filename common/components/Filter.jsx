@@ -1,4 +1,4 @@
-import {isReactive, preserveState, unconscious} from "unconscious";
+import {AS_IS, isReactive, preserveState, unconscious} from "unconscious";
 import './filter.css';
 
 /**
@@ -10,7 +10,7 @@ import './filter.css';
 
 /**
  * @typedef {HTMLDivElement} Filter
- * @property {(initial: boolean=false) => void} onSettingsUpdated
+ * @property {(initial: boolean=false) => void} sync
  */
 
 /**
@@ -23,22 +23,32 @@ import './filter.css';
  */
 export default function Filter({config, choices, onChange, showTitle, fillPlaceholder = true}) {
 	config.forEach(item => {
-		switch (item.type) {
+		const {id, type} = item;
+
+		switch (type) {
 			case 'input':
-			case 'textbox': choices[item.id] = choices[item.id] ?? ''; break;
-			case 'multiple': if (item.id) choices[item.id] = choices[item.id] ?? []; break;
+			case 'textbox': choices[id] = choices[id] ?? ''; break;
+			case 'multiple': if (id) choices[id] = choices[id] ?? []; break;
 			case 'range': {
 				const min = item.min, max = item.max;
 				const clamp = (v) => Math.max(min, Math.min(max, v));
 
-				const init = choices[item.id];
-				choices[item.id] = init
+				const init = choices[id];
+				choices[id] = init
 					? [
 						clamp(Number(init[0] ?? min)),
 						clamp(Number(init[1] ?? max))
 					].sort((a, b) => a - b)
 					: [min, max];
 			}
+			break;
+			case "radio":
+				if (item.required) {
+					const init = choices[id];
+					const values = Object.values(item.choices);
+					const off = values.indexOf(init);
+					if (off < 0) choices[id] = values[0];
+				}
 			break;
 		}
 	});
@@ -60,7 +70,7 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 		if (!dontCall) callback();
 		if (isReactive(choices)) refreshHandlers.push(callback);
 	}
-	function onSettingsUpdated(initial, noemit) {
+	function sync(initial, noemit) {
 		if (!initial) {
 			for (const item of refreshHandlers) {
 				item();
@@ -76,6 +86,7 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 	}
 
 	const itemRenderer = item => {
+		const {type, id, name, title, load = AS_IS, save = AS_IS} = item;
 		let row, warning;
 
 		function showWarning(text) {
@@ -86,7 +97,7 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 			}
 		}
 
-		switch (item.type) {
+		switch (type) {
 			case 'element': {
 				row = item.element;
 			}
@@ -96,10 +107,10 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 				const handler = ({target: btn}) => {
 					let value = item.choices[btn.textContent];
 
-					value = state[item.id] === value ? undefined : value;
+					value = load(state[id]) === value ? undefined : value;
 					if (value == null && required) return;
 
-					let err = emit(item.id, value);
+					let err = emit(id, value);
 					if (err) {
 						showWarning(err);
 						return;
@@ -118,20 +129,21 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 						btn.setAttribute('aria-checked', 'true');
 					}
 
-					state[item.id] = value;
+					state[id] = save(value);
 				};
 
-				row = <div className='choice-scroll' role='radiogroup' aria-label={item.name} onClick.children{'button'}={handler}>
+				const initState = load(state[id]);
+				row = <div className='choice-scroll' role='radiogroup' aria-label={name} onClick.children{'button'}={handler}>
 					{Object.entries(item.choices).map(([label, value]) => {
-							const active = state[item.id] === value;
+						const active = initState === value;
 							return <button className={active ? 'chip active' : 'chip'} _val={value}
 										   type='button' role='radio' aria-checked={active}
-										   title={item.title?.[label] || label}>{label}</button>;
+										   title={title?.[label] || label}>{label}</button>;
 						})}
 				</div>;
 
-				addRefreshHandler(item.id, () => {
-					const value = state[item.id];
+				addRefreshHandler(id, () => {
+					const value = load(state[id]);
 					for (let child of row.children) {
 						child.classList.toggle('active', value === child._val);
 					}
@@ -143,8 +155,8 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 					const value = item.choices[btn.textContent];
 
 					let selectedNow;
-					if (item.id) {
-						const arr = [...state[item.id]];
+					if (id) {
+						const arr = [...state[id]];
 
 						const idx = arr.indexOf(value);
 
@@ -152,14 +164,14 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 						if (selectedNow) arr.push(value);
 						else arr.splice(idx, 1);
 
-						let err = emit(item.id, arr);
+						let err = emit(id, arr);
 						if (err) {
 							showWarning(err);
 							return;
 						}
 						warning?.remove();
 
-						state[item.id] = arr;
+						state[id] = arr;
 					} else {
 						let err = emit(value, !state[value]);
 						if (err) {
@@ -175,110 +187,94 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 					btn.setAttribute('aria-checked', !!selectedNow);
 				};
 
-				row = <div className='choice-scroll' role='group' aria-label={item.name} onClick.children{'button'}={handler}>
+				row = <div className='choice-scroll' role='group' aria-label={name} onClick.children{'button'}={handler}>
 					{Object.entries(item.choices).map(([label, value]) => {
-							const selected = item.id ? state[item.id].includes(value) : !!state[value];
+							const selected = id ? state[id].includes(value) : !!state[value];
 							return (<button className={selected ? 'chip active' : 'chip'} type='button' name={value}
 											role='checkbox' aria-checked={selected}
-											title={item.title?.[label] || label}>{label}</button>);
+											title={title?.[label] || label}>{label}</button>);
 						})}
 				</div>;
 
-				addRefreshHandler(item.id, () => {
+				addRefreshHandler(id, () => {
 					for (let child of row.children) {
 						const value = child.name;
-						child.classList.toggle('active', item.id ? state[item.id].includes(value) : !!state[value]);
+						child.classList.toggle('active', id ? state[id].includes(value) : !!state[value]);
 					}
 				}, true);
 			}
 			break;
 			case 'secret':
-			case 'input': {
-				const pattern =
-					item.pattern instanceof RegExp
-						? item.pattern
-						: typeof item.pattern === 'string'
-							? new RegExp(item.pattern)
-							: null;
+			case 'input':
+			case 'textbox': {
+				const {pattern: pat} = item;
 
-				const handler = (e) => {
+				const pattern = typeof pat === 'string'
+					? new RegExp(pat)
+					: pat;
+
+				/**
+				 * @type {string}
+				 */
+				let value;
+				const isInvalid = pattern instanceof RegExp
+					? (val) => !pattern.test(val) && (item.warning || '输入不符合要求')
+					: (val) => {
+						try {
+							let error = pattern(val);
+							if (typeof error !== 'string')
+								[value, error] = error;
+							return error;
+						} catch (e) {
+							return e.message ?? e;
+						}
+					};
+
+				/** @type {HTMLInputElement | HTMLTextAreaElement} */
+				let input;
+				const handler = e => {
 					const doSubmit = e.type === 'change';
-					const val = input.value.trim();
-					let invalid = pattern && val && !pattern.test(val);
-					let warnMessage = item.warning || '输入不符合要求';
+					value = input.value;//.trim();
+					let invalid = pattern && value && isInvalid(value);
 					if (invalid) {
 						if (doSubmit) {
-							input.value = state[item.id];
+							input.value = load(state[id]);
 							invalid = false;
 						}
 					} else {
-						warnMessage = emit(item.id, val);
-						if (warnMessage) invalid = true;
-						else if (doSubmit) state[item.id] = val;
+						invalid = emit(id, value);
+						if (!invalid && doSubmit) state[id] = save(value);
 					}
-					input.classList.toggle('invalid', invalid);
+					input.classList.toggle('invalid', !!invalid);
 
-					if (invalid) showWarning(warnMessage);
+					if (invalid) showWarning(invalid);
 					else warning?.remove();
 				};
 
-				let input;
 				if (item.type === 'secret') {
 					input = <input className='text-input' type='password' placeholder={item.placeholder}
 							   onBlur={function(){this.type="password"}} onFocus={function(){this.type="text"}}
-							   onInput={handler} onChange={handler}/>;
-				} else {
+							   onInput={handler} onChange={handler} autoComplete="off" />;
+				} else if (item.type === 'input') {
 					input = <input className='text-input' type='text' placeholder={item.placeholder}
-							   onInput={handler} onChange={handler}/>;
+							   onInput={handler} onChange={handler} autoComplete="off" />;
+				} else {
+					let filled = !fillPlaceholder;
+					const onFocusBlur = e => {
+						const isFocus = e.type === "focus";
+						if (isFocus && !filled && item.placeholder) {
+							if (!input.value) input.value = item.placeholder;
+							filled = true;
+						}
+						input.style.height = isFocus ? "500px" : "";
+					};
+
+					input = <textarea className='text-input' placeholder={item.placeholder}
+									  onInput={handler} onChange={handler}
+									  onFocus={onFocusBlur} onBlur={onFocusBlur} />;
 				}
 
-				addRefreshHandler(item.id, () => {input.value = state[item.id] ?? '';});
-				row = <div className='input-warp'>{input}</div>;
-			}
-			break;
-			case 'textbox': {
-				const pattern =
-					item.pattern instanceof RegExp
-						? item.pattern
-						: typeof item.pattern === 'string'
-							? new RegExp(item.pattern)
-							: null;
-
-				const handler = e => {
-					const doSubmit = e.type === 'change';
-					const val = input.value;//.trim();
-					let invalid = pattern && val && !pattern.test(val);
-					let warnMessage = item.warning || '输入不符合要求';
-					if (invalid) {
-						if (doSubmit) {
-							input.value = state[item.id];
-							invalid = false;
-						}
-					} else {
-						warnMessage = emit(item.id, val);
-						if (warnMessage) invalid = true;
-						else if (doSubmit) state[item.id] = val;
-					}
-					input.classList.toggle('invalid', invalid);
-
-					if (invalid) showWarning(warnMessage);
-					else warning?.remove();
-				};
-
-				let filled = !fillPlaceholder;
-				const onFocusBlur = e => {
-					const isFocus = e.type === "focus";
-					if (isFocus && !filled && item.placeholder) {
-						if (!input.value) input.value = item.placeholder;
-						filled = true;
-					}
-					input.style.height = isFocus ? "500px" : "";
-				};
-
-				const input = <textarea className='text-input' placeholder={item.placeholder}
-										onInput={handler} onChange={handler} onFocus={onFocusBlur} onBlur={onFocusBlur} />;
-
-				addRefreshHandler(item.id, () => {input.value = state[item.id] ?? '';});
+				addRefreshHandler(id, () => {input.value = load(state[id]) ?? '';});
 				row = <div className='input-warp'>{input}</div>;
 			}
 			break;
@@ -300,8 +296,8 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 				};
 				const syncState = () => {
 					const newValue = slider.valueAsNumber;
-					emit(item.id, newValue);
-					state[item.id] = newValue;
+					emit(id, newValue);
+					state[id] = newValue;
 				};
 
 				const limitMax = e => {
@@ -326,8 +322,8 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 					</div>
 				</div>;
 
-				addRefreshHandler(item.id, () => {
-					const value = state[item.id];
+				addRefreshHandler(id, () => {
+					const value = state[id];
 					slider.valueAsNumber = clamp(value);
 					updateUI();
 				});
@@ -352,8 +348,8 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 				};
 				const syncState = () => {
 					const newValue = [r1.valueAsNumber, r2.valueAsNumber];
-					emit(item.id, newValue);
-					state[item.id] = newValue;
+					emit(id, newValue);
+					state[id] = newValue;
 				};
 
 				const limitMax = e => {
@@ -388,21 +384,21 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 					</div>
 				</div>;
 
-				addRefreshHandler(item.id, () => {
-					[r1.valueAsNumber, r2.valueAsNumber] = state[item.id];
+				addRefreshHandler(id, () => {
+					[r1.valueAsNumber, r2.valueAsNumber] = state[id];
 					updateUI();
 				});
 			}
 			break;
 		}
 
-		const isString = typeof item.id === "string";
-		return (<div className="filter-row" data-id={isString ? item.id : undefined} _key={item.id}>
-			{item.name && (!showTitle
-				? <div className="filter-label" title={typeof item.title === "string" ? item.title : undefined}>{item.name}</div>
+		const isString = typeof id === "string";
+		return (<div className="filter-row" data-id={isString ? id : undefined} _key={id}>
+			{name && (!showTitle
+				? <div className="filter-label" title={typeof title === "string" ? title : undefined}>{name}</div>
 				: <>
-					<div className="filter-label">{item.name}</div>
-					{typeof item.title === "string" ? <div className="filter-label tooltip">{item.title}</div> : undefined}
+					<div className="filter-label">{name}</div>
+					{typeof title === "string" ? <div className="filter-label tooltip">{title}</div> : undefined}
 				</>
 			)}
 			{row}
@@ -410,6 +406,6 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 	};
 
 	const div = <div className="filter">{config.map(itemRenderer)}</div>;
-	div.onSettingsUpdated = onSettingsUpdated;
+	div.sync = sync;
 	return div;
 };

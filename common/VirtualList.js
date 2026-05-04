@@ -3,9 +3,14 @@ import {debugSymbol} from "../runtime_shared.js";
 import "./VirtualList.css";
 
 /**
- * 项目渲染出元素的索引，因为实际有它所以{@link ITEM_KEY}才可以重复
+ * 项目渲染出元素的索引
  */
 export const INDEX = debugSymbol("VL.Index");
+
+/**
+ * 该项目的键，在数组中可以重复，如果和上次结果不同就重新渲染项目
+ */
+const ITEM_VAL = debugSymbol("VL.Item");
 
 /**
  * 该项目的键，在数组中可以重复，如果和上次结果不同就重新渲染项目
@@ -64,9 +69,12 @@ export class VirtualList {
 		// 如果抵消了，也可能需要重渲染
 		if (heightChanged !== false) {
 			this._height += heightChanged;
+			if (Math.abs(heightChanged) < 1) return;
 			const anchor = this._anchor;
-			if (!this._dirty) this.render();
-			if (anchor) this._moveTo(anchor);
+			if (anchor && !this._dirty) {
+				this.render();
+				this._moveTo(anchor);
+			}
 		}
 		return heightChanged;
 	}
@@ -150,7 +158,7 @@ export class VirtualList {
 
 		const value = this.getValue(i);
 		if (!value) return;
-		value[INDEX] = -1;
+		delete value[ITEM_VAL];
 
 		const anchor = this._findAnchor();
 
@@ -236,14 +244,19 @@ export class VirtualList {
 
 	render = () => {
 		this._dirty = true;
-		if (!this._visible) return;
+		let {
+			items,
+			dom: container,
+			overscan,
+			_h: getItemHeight,
+			_visible,
+			itemHeight
+		} = this;
+		if (!_visible || !container.isConnected) return;
 
+		let loop = 0;
 		for(;;) {
 			let {
-				items,
-				dom: container,
-				overscan,
-				_h: getItemHeight,
 				_start: i,
 				_offset: offset,
 				_height: totalHeight,
@@ -252,7 +265,6 @@ export class VirtualList {
 					offsetHeight: viewHeight
 				}
 			} = this;
-			//this._scrollTop = viewStart;
 
 			// 只处理两次滚动之间的差值 O(n) => O(residual) ≈ O(1)
 			if (offset < viewStart) {
@@ -318,8 +330,10 @@ export class VirtualList {
 			container.style = `padding-top:${startHeight}px;padding-bottom:${totalHeight-offset}px`;
 
 			// 在同一帧内尽可能多的更新元素高度以减小闪烁
-			if (!this._updateDOM(container, startIndex, i, items, viewHeight))
+			if (!this._updateDOM(container, startIndex, i, items, viewHeight) || loop++ * itemHeight > viewHeight)
 				break;
+
+			if (this._anchor) this._moveTo(this._anchor);
 		}
 
 		this._anchor = this._findAnchor();
@@ -327,65 +341,68 @@ export class VirtualList {
 	}
 
 	_updateDOM(container, startIndex, endIndex, items, heightLimit) {
-		const reuse = {};
-		// 遍历现有元素，回收不可见或key变化的元素
-		for (const element of Array.from(container.children)) {
-			const i = element[INDEX];
+		const existingItems = new Map;
+		const removeNode = node => {
+			this._ro.unobserve(node);
+			node.remove();
+		};
+
+		const nodes = container.childNodes;
+		nodes.forEach(node => existingItems.set(node[ITEM_VAL], node));
+
+		let anchorNode;
+		const newElements = [];
+		for (let i = startIndex; i < endIndex; i++) {
 			const item = items[i];
 
-			let mustRemove;
-			if (i < startIndex || i >= endIndex || (mustRemove = !this.isSameKey(element, this.keyFunc(item, i)))) {
-				// 不回收Pinned的元素
-				if (!mustRemove && item?.[PINNED]) {
-					const height = item[ITEM_HEIGHT] ?? this.itemHeight;
-					const property = i < startIndex ? 'paddingTop' : 'paddingBottom';
-					container.style[property] = parseFloat(container.style[property]) - height;
-					continue;
+			let node = existingItems.get(item);
+			let key;
+
+			noRender: {
+				if (node) {
+					existingItems.delete(item);
+					if (this.isSameKey(node, key = this.keyFunc(item, i))) {
+						if (node[INDEX] !== i) break noRender;
+						node[INDEX] = i;
+						node[ITEM_KEY] = key;
+						anchorNode = node;
+						continue;
+					} else {
+						removeNode(node);
+					}
 				}
 
-				this._ro.unobserve(element);
-				element.remove();
-			} else {
-				reuse[i] = element;
+				try {
+					node = this.renderer(item, i);
+				} catch (e) {
+					console.error(e, item);
+					continue;
+				}
+				node[ITEM_VAL] = item;
 			}
+
+			// 自身未使用
+			node[INDEX] = i;
+			node[ITEM_KEY] = key ?? this.keyFunc(item, i);
+
+			if (!anchorNode) container.prepend(node);
+			else anchorNode.after(node);
+
+			anchorNode = node;
+
+			newElements.push({target: node});
+			this._ro.observe(node);
 		}
 
-		// 插入新元素
-		const newElements = [];
-		let anchorNode = null;
-		let i = startIndex;
-		for (; i < endIndex/* && heightLimit > 0*/; i++/*, heightLimit -= anchorNode.offsetHeight*/) {
-			if (reuse[i]) {
-				anchorNode = reuse[i];
-				continue; // 未变化则跳过
+		existingItems.forEach(node => {
+			const val = node[ITEM_VAL];
+			if (!val?.[PINNED] || items[node[INDEX]] !== val) {
+				removeNode(node);
 			}
-
-			// 创建或复用元素
-			let element;
-			const item = items[i];
-			try {
-				element = this.renderer(item, i);
-			} catch (e) {
-				console.error(e, item);
-				continue;
-			}
-			element[INDEX] = i;
-			element[ITEM_KEY] = this.keyFunc(item, i);
-			this._ro.observe(element);
-
-			if (!anchorNode) {
-				// 情况1：向上滚动
-				container.prepend(element);
-			} else {
-				// 情况2：向下滚动
-				anchorNode.after(element);
-			}
-			anchorNode = element; // 更新锚点为新元素
-			newElements.push({target: element});
-		}
+		});
 
 		this._start = startIndex;
-		this._end = i;
+		this._end = endIndex;
 		return newElements.length && this._onResize(newElements);
 	}
 }

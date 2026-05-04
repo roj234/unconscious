@@ -70,41 +70,47 @@ function generateStaticHTML(node) {
 			})
 			.join(" ");
 
-		const childrenHtml = node.children.map(child => generateStaticHTML(child)).join("");
+		const childrenHtml = node.children.map(generateStaticHTML).join("");
 		return `<${tagName}${attrs ? " " + attrs : ""}>${childrenHtml}` + (HTML_VOID.has(tagName)?"":`</${tagName}>`);
 	}
-	return "";
+	if (t.isJSXFragment(node)) {
+		return node.children.map(generateStaticHTML).join("");
+	}
+
+	throw new Error("Unknown element type");
 }
 
 function isStaticJSX(path, isChild) {
-	const { node } = path.get("openingElement");
-
-	if (path.scope.bindings[node.name.name])
-		return false;
+	let result = true;
 
 	function isStaticAttribute(val) {
 		if (t.isJSXExpressionContainer(val))
 			val = val.expression;
 
-		return t.isStringLiteral(val) || t.isNumericLiteral(val) || t.isBooleanLiteral(val) || !val;
+		return t.isStringLiteral(val) || t.isNumericLiteral(val) || t.isBooleanLiteral(val) || t.isNullLiteral(val) || !val;
 	}
 
-	let result = true;
+	if (path.isJSXElement()) {
+		const { node } = path.get("openingElement");
 
-	if (node.attributes && !node.attributes.every(attr => {
-		const name = attr.name?.name;
+		const binding = path.scope.getBinding(node.name.name);
+		if (binding) return false;
 
-		// may JSXSpreadAttribute
-		if (name == null) return false;
+		if (node.attributes && !node.attributes.every(attr => {
+			const name = attr.name?.name;
 
-		if (name === "ref") {
-			result = attr.value;
-			return !isChild;
+			// may JSXSpreadAttribute
+			if (name == null) return false;
+
+			if (name === "ref") {
+				result = attr.value;
+				return !isChild;
+			}
+
+			return isStaticAttribute(attr.value);
+		})) {
+			return false;
 		}
-
-		return isStaticAttribute(attr.value);
-	})) {
-		return false;
 	}
 
 	return path.get("children").every(childPath => {
@@ -113,7 +119,7 @@ function isStaticJSX(path, isChild) {
 			return true;
 		}
 
-		if (t.isJSXElement(child)) {
+		if (t.isJSXElement(child) || t.isJSXFragment(child)) {
 			return isStaticJSX(childPath, true);
 		}
 
@@ -165,6 +171,37 @@ function transformJsxChildrenArguments(args, file, i) {
 function createPlugin(_, options) {
 	// 【expr ?? default】 in ES2015
 	const { modulePath = "unconscious" } = options;
+
+	let staticHtmlHandle = function (path, file) {
+		// Skip top-level element
+		if (path.scope === this.rootScope) return;
+
+		const resultOrRef = isStaticJSX(path);
+		if (resultOrRef && path.node.children.length) {
+			const html = generateStaticHTML(path.node);
+			if (html) {
+				let factory = this.existingStaticHtml.get(html);
+				if (!factory) {
+					factory = this.rootScope.generateUidIdentifier('__staticHTML');
+					this.rootScope.push({
+						id: factory,
+						init: t.callExpression(getContext(file, 'id/clone')(), [t.stringLiteral(html)]),
+						kind: 'const',  // 可选，默认是 'let'
+					});
+					this.existingStaticHtml.set(html, factory);
+				}
+
+				let replaceNode = t.callExpression(factory, []);
+
+				if (t.isJSXExpressionContainer(resultOrRef)) {
+					replaceNode = t.assignmentExpression("=", resultOrRef.expression, replaceNode);
+				}
+
+				path.replaceWith(t.inherits(replaceNode, path.node));
+				return true;
+			}
+		}
+	};
 
 	return {
 		name: "unconscious",
@@ -253,6 +290,8 @@ function createPlugin(_, options) {
 
 			JSXFragment: {
 				exit(path, file) {
+					if (staticHtmlHandle.call(this, path, file)) return;
+
 					// createFragment(...children)
 					const args = t.react.buildChildren(path.node);
 					transformJsxChildrenArguments(args, file, 0);
@@ -261,35 +300,7 @@ function createPlugin(_, options) {
 				}
 			},
 			JSXElement: {
-				enter(path, file) {
-					// Skip top-level element
-					if (path.scope === this.rootScope) return;
-
-					const resultOrRef = isStaticJSX(path);
-					if (resultOrRef && path.node.children.length) {
-						const html = generateStaticHTML(path.node);
-						if (html) {
-							let factory = this.existingStaticHtml.get(html);
-							if (!factory) {
-								factory = this.rootScope.generateUidIdentifier('__staticHTML');
-								this.rootScope.push({
-									id: factory,
-									init: t.callExpression(getContext(file, 'id/clone')(), [t.stringLiteral(html)]),
-									kind: 'const',  // 可选，默认是 'let'
-								});
-								this.existingStaticHtml.set(html, factory);
-							}
-
-							let replaceNode = t.callExpression(factory, []);
-
-							if (t.isJSXExpressionContainer(resultOrRef)) {
-								replaceNode = t.assignmentExpression("=", resultOrRef.expression, replaceNode);
-							}
-
-							path.replaceWith(t.inherits(replaceNode, path.node));
-						}
-					}
-				},
+				enter: staticHtmlHandle,
 				exit(path, file) {
 					const node = path.get("openingElement");
 
@@ -410,6 +421,22 @@ function createPlugin(_, options) {
 					}
 				}
 			},
+
+			// a && b => a ? b : null
+			JSXExpressionContainer(path) {
+				const expr = path.get('expression');
+				if (!expr.isLogicalExpression() || expr.node.operator !== '&&') return;
+
+				const rightPath = expr.get('right');
+				// TODO 这里也许可以检测JSX或字符串，可能太严格了
+				if (rightPath.isLogicalExpression() || rightPath.isConditionalExpression()) return;
+
+				expr.replaceWith(t.conditionalExpression(
+					expr.node.left,
+					expr.node.right,
+					t.nullLiteral()
+				));
+			}
 		}
 	};
 }
@@ -689,7 +716,7 @@ function accumulateAttribute(pass, array, attribute, ctx) {
 
 		namespace += key.name.name;
 
-		key = namespace.includes(":") ? t.stringLiteral(namespace) : t.identifier(namespace);
+		key = namespace.includes(":") || namespace.includes("-") ? t.stringLiteral(namespace) : t.identifier(namespace);
 	} else {
 		if (key.name === "ref") {
 			ctx.ref = value;
