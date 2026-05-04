@@ -79,8 +79,8 @@ function generateStaticHTML(node) {
 function isStaticJSX(path, isChild) {
 	const { node } = path.get("openingElement");
 
-	if (path.scope.bindings[node.name.name])
-		return false;
+	const binding = path.scope.getBinding(node.name.name);
+	if (binding) return false;
 
 	function isStaticAttribute(val) {
 		if (t.isJSXExpressionContainer(val))

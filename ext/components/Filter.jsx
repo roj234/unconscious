@@ -10,7 +10,7 @@ import './filter.css';
 
 /**
  * @typedef {HTMLDivElement} Filter
- * @property {(initial: boolean=false) => void} onSettingsUpdated
+ * @property {(initial: boolean=false) => void} sync
  */
 
 /**
@@ -60,7 +60,7 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 		if (!dontCall) callback();
 		if (isReactive(choices)) refreshHandlers.push(callback);
 	}
-	function onSettingsUpdated(initial, noemit) {
+	function sync(initial, noemit) {
 		if (!initial) {
 			for (const item of refreshHandlers) {
 				item();
@@ -410,6 +410,6 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 	};
 
 	const div = <div className="filter">{config.map(itemRenderer)}</div>;
-	div.onSettingsUpdated = onSettingsUpdated;
+	div.sync = sync;
 	return div;
 };

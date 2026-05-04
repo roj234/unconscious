@@ -256,57 +256,11 @@ export function $asyncComponent(
 /**
  * 在调用时执行并自动捕获依赖的$watch
  * @param {function(): void} callback
- * @param {Reactive<any>[]} dependencies=
  */
-export function $effect(callback: () => void, dependencies: Reactive<any>[]): void;
-
-export function createSignal<T>(
-    ref: Reactive<T>,
-): [get: () => T, set: (value: T | ((oldValue: T) => T)) => T];
+export function $effect(callback: () => void): void;
 
 export function createEffect<T>(
     fn: (oldValue: T) => T | void,
     value?: T,
     options?: Partial<{}>
 ): void;
-
-export function createMemo<T>(
-    fn: (oldValue: T) => T,
-    value?: T,
-    options?: Partial<{
-        equals: (prev: T, next: T) => boolean;
-    }>
-): () => T;
-
-export function createResource<T, N>(
-    fetchData: (source: undefined, _: {
-        value: T,
-        refetching: true | N
-    }) => Promise<T>,
-): [
-    data: (() => T) & {
-        loading: boolean;
-        error: false | Error;
-    },
-    _: {
-        mutate: (value: T) => T;
-        refetch: (info: N) => void;
-    }
-];
-
-export function createResource<T, N, S>(
-    source: S,
-    fetchData: (source: S, _: {
-        value: T,
-        refetching: true | N
-    }) => Promise<T>,
-): [
-    data: (() => T) & {
-        loading: boolean;
-        error: false | Error;
-    },
-    _: {
-        mutate: (value: T) => T;
-        refetch: (info: N) => void;
-    }
-];

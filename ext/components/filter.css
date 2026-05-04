@@ -64,7 +64,7 @@
 }
 
 /* 输入框 + 警告 */
-.input-wrap {
+.input-warp {
   display: flex;
   flex-direction: column;
   gap: 6px;

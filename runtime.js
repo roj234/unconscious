@@ -1262,8 +1262,10 @@ function $foreach(list, renderItem, keyFunc = AS_IS, {currentKeys = new Map, mor
 					const reactiveNode = node;
 					const listener = () => {
 						let orig = createChildNode(reactiveNode.value);
-						node.replaceWith(orig);
-						$dispose(node, listenerKey);
+						if (node !== orig) {
+							node.replaceWith(orig);
+							$dispose(node, listenerKey);
+						}
 						node = orig;
 					};
 					const listenerKey = [reactiveNode, listener];
@@ -1658,15 +1660,15 @@ export function $asyncComponent(loader, loading, error) {
 /**
  * 在调用时执行并自动捕获依赖的$watch
  * @param {function(): void} callback
- * @param {Reactive<any>[]} dependencies=
  */
-export function $effect(callback, dependencies) {
+export function $effect(callback) {
 	const prevCapture = dependCapture;
-	if (!dependencies) dependCapture = new Set();
+	dependCapture = new Set();
 
-	callback();
-
-	if (!dependencies) {
+	let dependencies;
+	try {
+		callback();
+	} finally {
 		dependencies = [...dependCapture];
 		dependCapture = prevCapture;
 	}
@@ -1677,130 +1679,12 @@ export function $effect(callback, dependencies) {
 /**
  *
  * @template T
- * @param {Reactive<T>} ref
- * @return {[function(): T, function(T | function(T): T): void]}
- */
-export function createSignal(ref) {
-	return [
-		() => ref.value,
-		(newValue) => {
-			if (typeof newValue === 'function') {
-				newValue = newValue(ref.value);
-			}
-			return ref.value = newValue;
-		}
-	];
-}
-
-/**
- *
- * @template T
  * @param {function(T): T} fn
  * @param {T} value=
  * @param {{}} options
  */
 export function createEffect(fn, value, options) {
-	const prevCapture = dependCapture;
-	dependCapture = new Set();
-
-	const callback = () => value = fn(value);
-
-	callback();
-
-	const dependencies = [...dependCapture];
-	dependCapture = prevCapture;
-
-	$watch(dependencies, callback);
-}
-
-/**
- *
- * @template T
- * @param {function(T): T} fn
- * @param {T} value
- * @param {{equals: function(T, T): boolean}} options
- * @return {function(): T}
- */
-export function createMemo(fn, value, options = { equals: () => false }) {
-	const {equals} = options;
-
-	const state = $computed(oldValue => {
-		if (oldValue === undefined) return value === undefined ? fn() : value;
-		const newValue = fn(oldValue);
-		if (equals(oldValue, newValue)) return undefined;
-		return newValue;
-	});
-	return () => state.value;
-}
-
-export function createResource(arg1, arg2) {
-	let fetcher, source;
-	if (arguments.length === 2) {
-		fetcher = arg2;
-		source = arg1;
-	} else {
-		fetcher = arg1;
-	}
-
-	const inputState = $state(source);
-
-	const realFetcher = (source) => {
-		fetcher(source, {
-			value: state.value,
-			refetching: info
-		})
-	};
-
-	const state = $asyncState(realFetcher, inputState);
-	let info;
-
-	const getData = () => state.value;
-
-	// TODO depend capture
-	Object.defineProperty(getData, "loading", {
-		get: () => state.loading,
-	});
-	Object.defineProperty(getData, "error", {
-		get: () => state.error,
-	});
-
-	return [
-		getData,
-		{
-			mutate: (value) => state.value = value,
-			refetch: (info1) => {
-				info = info1 ?? true;
-				$update(inputState);
-			}
-		}
-	]
-}
-
-const CURRENT_VALUE = /* #__PURE__ */debugSymbol("ContextCurrentValue");
-
-// TODO 实现callableChildren转换器
-
-export function createContext() {
-	const currentValue = [];
-
-	const comp = ({value}, callableChildren) => {
-		currentValue.unshift(value);
-		try {
-			callableChildren();
-		} finally {
-			callableChildren.shift();
-		}
-	};
-
-	Object.defineProperty(comp, CURRENT_VALUE, {
-		get: () => currentValue[0]
-	})
-
-	return comp;
-}
-
-export function useContext(context) {
-	return context[CURRENT_VALUE];
+	$effect(() => value = fn(value));
 }
 
 export function ErrorBoundary({fallback}, callableChildren) {
@@ -1809,7 +1693,7 @@ export function ErrorBoundary({fallback}, callableChildren) {
 		try {
 			state.value = callableChildren();
 		} catch (e) {
-			fallback({error: e, reset});
+			state.value = fallback({error: e, reset});
 		}
 	}
 	reset();
