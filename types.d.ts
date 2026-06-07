@@ -10,6 +10,9 @@ export declare namespace JSX {
 export const PASSIVE_EVENT: {passive: true};
 export const ONCE_EVENT: {once: true};
 
+export const UTF8_TEXT_ENCODER: TextEncoder;
+export const UTF8_TEXT_DECODER: TextDecoder;
+
 /**
  * 开发时获取带名称的符号
  * @param name 符号名称

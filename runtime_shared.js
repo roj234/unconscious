@@ -1,6 +1,9 @@
 export const PASSIVE_EVENT = {passive: true};
 export const ONCE_EVENT = {once: true};
 
+export const UTF8_TEXT_ENCODER = /* #__PURE__ */ new TextEncoder();
+export const UTF8_TEXT_DECODER = /* #__PURE__ */ new TextDecoder('utf-8', { ignoreBOM: true });
+
 export const isPureObject = object => Object.prototype.toString.call(object) === "[object Object]";
 
 /**

@@ -53,7 +53,8 @@
   transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
   scroll-snap-align: start;
 }
-.chip:hover { background: var(--chip-hover); }
+.chip:disabled { cursor: not-allowed; }
+.chip:not(:disabled):hover { background: var(--chip-hover); }
 .chip.active {
   background: var(--chip-active);
   border-color: var(--chip-active-border);

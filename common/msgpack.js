@@ -15,7 +15,7 @@
 
 "use strict";
 
-import {AS_IS} from "../runtime_shared.js";
+import {AS_IS, UTF8_TEXT_DECODER, UTF8_TEXT_ENCODER} from "../runtime_shared.js";
 
 /**
  * Prepares a schema for fast index lookup by adding a `locate` method.
@@ -125,8 +125,6 @@ export const decodeRawMsg = (buf, offset, options = {}) => {
 			throw new Error("自定义类型: 0x"+type.toString(16));
 		})
 	} = options;
-
-	const decoder = new TextDecoder();
 
 	const decode = () => {
 		const tagByte = buf.getInt8(offset++);
@@ -402,7 +400,7 @@ export const decodeRawMsg = (buf, offset, options = {}) => {
 	};
 
 	const readUTF = length => {
-		const utf = decoder.decode(new Uint8Array(buf.buffer, buf.byteOffset + offset, length));
+		const utf = UTF8_TEXT_DECODER.decode(new Uint8Array(buf.buffer, buf.byteOffset + offset, length));
 		offset += length;
 		return utf;
 	};
@@ -410,7 +408,6 @@ export const decodeRawMsg = (buf, offset, options = {}) => {
 	return [decode(), offset];
 };
 
-const encoder = /*#__PURE__*/ new TextEncoder();
 const pow32 = 0x100000000;	 // 2^32
 const ob = /*#__PURE__*/ new Uint8Array(256);
 const buf = /*#__PURE__*/ new DataView(ob.buffer);
@@ -518,7 +515,7 @@ export const encodeRawMsg = (data, onChunk, schema, replacer) => {
 
 	/** @param {string} str */
 	const encodeString = str => {
-		let bytes = encoder.encode(str);
+		let bytes = UTF8_TEXT_ENCODER.encode(str);
 		let length = bytes.length;
 
 		if (length <= 0x1f) {

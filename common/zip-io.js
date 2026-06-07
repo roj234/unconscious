@@ -1,5 +1,6 @@
-
 // duck type 真是太赞了！
+import {UTF8_TEXT_DECODER, UTF8_TEXT_ENCODER} from "../runtime_shared.js";
+
 const isNode = !import.meta.env?.MODE;
 let zlib;
 if (isNode) {
@@ -55,7 +56,6 @@ export function ZipWriter() {
 	let cenSize = 0;
 	const locs = [];
 	const cens = [];
-	const encoder = new TextEncoder();
 
 	return {
 		fileCount() {
@@ -70,8 +70,8 @@ export function ZipWriter() {
 		 * @param {boolean=false} compress 是否Deflate压缩
 		 */
 		async add(name, content, {timestamp, compress = false} = {}) {
-			const nameData = encoder.encode(name);
-			const fileData = typeof content === 'string' ? encoder.encode(content) : content;
+			const nameData = UTF8_TEXT_ENCODER.encode(name);
+			const fileData = typeof content === 'string' ? UTF8_TEXT_ENCODER.encode(content) : content;
 			const crc = crc32(fileData);
 			const { time, date } = getDosTime(new Date(timestamp));
 			const size = fileData.length;
@@ -201,7 +201,6 @@ export async function ZipReader(blob) {
 	if (!isNode && !(blob instanceof Blob)) throw new Error("Input must be Blob");
 	if (isNode && !Buffer.isBuffer(blob)) throw new Error("Input must be Buffer");
 	const entries = new Map();
-	const td = new TextDecoder();
 
 	/**
 	 * 读取指定范围的小段数据并返回 DataView
@@ -286,7 +285,7 @@ export async function ZipReader(blob) {
 		const commentLen = view.getUint16(p + 32, true);
 		const localHeaderOffset = view.getUint32(p + 42, true);
 
-		const name = td.decode(buffer.slice(p + 46, p + 46 + nameLen));
+		const name = UTF8_TEXT_DECODER.decode(buffer.slice(p + 46, p + 46 + nameLen));
 		if (entries.has(name)) throw new Error("Duplicate filename "+name);
 
 		entries.set(name, {
@@ -305,7 +304,7 @@ export async function ZipReader(blob) {
 		async getText(name) {
 			const data = await this.get(name);
 			if (!data) return;
-			return td.decode(data);
+			return UTF8_TEXT_DECODER.decode(data);
 		},
 
 		async getRaw(entry) {

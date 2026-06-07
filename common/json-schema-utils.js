@@ -60,7 +60,7 @@ export const jsonGet = (obj, path) => {
  * 辅助函数：解析路径并操作对象
  * @param {Object} obj
  * @param {string|string[]} path
- * @param {'set' | 'add'| 'append' | 'merge' | 'delete' | 'get'} action
+ * @param {'set' | 'plus' | 'push' | 'merge' | 'delete' | 'get'} action
  * @param {any=} value
  * @return {{value: any, undo: any}}
  */
@@ -85,8 +85,8 @@ export const jsonPathOp = (obj, path, action, value) => {
 	switch (action) {
 		case 'get': return {value: container};
 		case 'set': container = value; break;
-		case 'add': container = Number(container || 0) + Number(value); break;
-		case 'append':
+		case 'plus': container = Number(container || 0) + Number(value); break;
+		case 'push':
 			if (!Array.isArray(container)) {
 				if (container) throw new Error("值 "+path+" 已存在且不是数组！");
 				container = [];

@@ -1,5 +1,5 @@
+import {UTF8_TEXT_ENCODER} from "../runtime_shared.js";
 
-const te = /* #__PURE__ */ new TextEncoder();
 const HEX_CHARS = '0123456789abcdef'.split('');
 const K = new Uint32Array([
 	0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
@@ -51,7 +51,7 @@ export class SHA256 {
 
 		// 字符串统一转为 Uint8Array
 		if (typeof data === 'string') {
-			data = te.encode(data);
+			data = UTF8_TEXT_ENCODER.encode(data);
 		} else if (!(data instanceof Uint8Array)) {
 			throw new TypeError('输入必须为 string 或 Uint8Array');
 		}
