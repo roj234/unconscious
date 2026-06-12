@@ -67,9 +67,9 @@ export function ZipWriter() {
 		 * @param {string} name 文件名
 		 * @param {Uint8Array|string} content 内容
 		 * @param {number=} timestamp 修改时间
-		 * @param {boolean=false} compress 是否Deflate压缩
+		 * @param {number} compress 是否Deflate压缩
 		 */
-		async add(name, content, {timestamp, compress = false} = {}) {
+		async add(name, content, {timestamp, compress = 0} = {}) {
 			const nameData = UTF8_TEXT_ENCODER.encode(name);
 			const fileData = typeof content === 'string' ? UTF8_TEXT_ENCODER.encode(content) : content;
 			const crc = crc32(fileData);
@@ -77,13 +77,38 @@ export function ZipWriter() {
 			const size = fileData.length;
 
 			// 处理压缩
-			let finalData = fileData;
+			let compressedData = fileData;
 			let compressionMethod = 0; // 0 = Store
 			if (compress) {
-				finalData = await compressData(fileData);
-				compressionMethod = 8; // 8 = Deflate
+				compressionMethod = compress === true ? 8 : compress; // 8 = Deflate
+
+				if (compressionMethod === 8) {
+					compressedData = await compressData(fileData);
+				} else if (compressionMethod === 92 && isNode) {
+					compressionMethod = 92;
+					// 构建静态资源用。
+					compressedData = await new Promise((resolve, reject) => {
+						zlib.brotliCompress(fileData, {
+							params: {
+								[zlib.constants.BROTLI_PARAM_QUALITY]: 11,
+								[zlib.constants.BROTLI_PARAM_SIZE_HINT]: fileData.length,
+					},
+						}, (error, compressed) => {
+							if (error) reject(error);
+							resolve(compressed);
+						});
+					});
+				} else {
+					throw new Error("Unsupported method");
+				}
+
+				// 如果无法压缩
+				if (compressedData.length >= fileData.length) {
+					compressedData = fileData;
+					compressionMethod = 0;
+				}
 			}
-			const compressedSize = finalData.length;
+			const compressedSize = compressedData.length;
 
 			// LOC parts
 			{
@@ -105,7 +130,7 @@ export function ZipWriter() {
 
 				locs.push(buffer);
 				locs.push(nameData);
-				locs.push(finalData);
+				locs.push(compressedData);
 			}
 
 			// CEN parts
@@ -138,7 +163,7 @@ export function ZipWriter() {
 				cenSize += 46 + nameData.length;
 			}
 
-			offset += 30 + nameData.length + finalData.length;
+			offset += 30 + nameData.length + compressedData.length;
 		},
 
 		finish() {
@@ -331,12 +356,20 @@ export async function ZipReader(blob) {
 
 			const rawData = await this.getRaw(entry);
 
-			if (entry.method === 8) { // Deflate
+			const compressionMethod = entry.method;
+			if (compressionMethod === 8) { // Deflate
 				return decompressData(rawData);
-			} else if (entry.method === 0) { // Store
+			} else if (compressionMethod === 0) { // Store
 				return isNode ? rawData : new Uint8Array(await rawData.arrayBuffer());
+			} else if (compressionMethod === 92 && isNode) {
+				return new Promise((resolve, reject) => {
+					zlib.brotliDecompress(rawData, (error, decompressed) => {
+						if (error) reject(error);
+						resolve(decompressed);
+					});
+				});
 			} else {
-				throw new Error(`Unsupported compression method: ${entry.method}`);
+				throw new Error(`Unsupported compression method: ${compressionMethod}`);
 			}
 		},
 
