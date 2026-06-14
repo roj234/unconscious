@@ -80,6 +80,27 @@ export function delta(oldVal, newVal, ignoredKeys) {
 
 	const oldType = typeof oldVal;
 	if (oldType !== typeof newVal || oldType !== 'object' || oldVal === null || newVal === null) {
+		if (oldType === 'string' && typeof newVal === 'string') {
+			const oldLen = oldVal.length;
+			const newLen = newVal.length;
+
+			let start = 0;
+			const minLen = Math.min(oldLen, newLen);
+			while (start < minLen && oldVal[start] === newVal[start]) start++;
+
+			let oldEnd = oldLen - 1;
+			let newEnd = newLen - 1;
+			while (oldEnd >= start && newEnd >= start && oldVal[oldEnd] === newVal[newEnd]) {
+				oldEnd--;
+				newEnd--;
+			}
+
+			const deleteCount = oldEnd - start + 1;
+			const substring = newVal.slice(start, newEnd + 1);
+
+			return { $: 'STR', val: [start, deleteCount, substring, oldLen] };
+		}
+
 		return newVal;
 	}
 
@@ -116,7 +137,7 @@ export function delta(oldVal, newVal, ignoredKeys) {
 		const deleteCount = oldEnd - start + 1;
 		const items = newVal.slice(start, newEnd + 1);
 
-		return (deleteCount || items.length) ? {$: 'ARR', val: [start, deleteCount, ...items]} : undefined;
+		return (deleteCount || items.length) ? {$: 'ARR', val: [start, deleteCount, ...items], len: oldLen } : undefined;
 	} else if (isPureObject(oldVal)) {
 		if (!isPureObject(newVal)) return rep();
 
@@ -147,10 +168,17 @@ export function patch(obj, diff, shallowCopy = false) {
 
 	switch (diff?.$) {
 		case 'SET': return diff.val;
-		case 'ARR':
+		case 'ARR': {
+			if (obj.length !== diff.len) throw new Error("data integrity error");
 			if (shallowCopy) obj = [...obj];
 			obj.splice(...diff.val);
 			return obj;
+		}
+		case 'STR': {
+			const [start, deleteCount, substring, len] = diff.val;
+			if (obj.length !== len) throw new Error("data integrity error");
+			return obj.slice(0, start) + substring + obj.slice(start + deleteCount);
+		}
 		case 'DEL':
 			return; // undefined
 		default:

@@ -12,7 +12,7 @@ let start, end;
 let isSelecting;
 
 const _getSelection = () => {
-	if (!end) return null;
+	if (!start || !end) return null;
 
 	const [startLine, startOffset] = start;
 	const [endLine, endOffset] = end;
