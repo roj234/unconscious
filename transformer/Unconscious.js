@@ -33,7 +33,7 @@ const HTML_VOID = new Set("area,base,br,col,embed,hr,img,input,link,meta,source,
 
 function generateStaticHTML(node) {
 	if (t.isJSXText(node)) {
-		return escapeText(node.value.trim());
+		return escapeText(node.value.trim().replaceAll(/^\s+/gm, "").replaceAll(/\s+$/gm, ""));
 	}
 	if (t.isJSXElement(node)) {
 		let tagName = node.openingElement.name.name;
@@ -733,8 +733,10 @@ function accumulateAttribute(pass, array, attribute, ctx) {
 
 			const eventProperties = [];
 
-			for (let i = 0; i < arr.length; i++) {
+			for (let i = arr.length - 1; i >= 0; i--) {
 				const decorator = arr[i];
+				if (typeof decorator !== 'string') continue;
+
 				if (isEventProperty(decorator)) {
 					eventProperties.push(t.objectProperty(
 						t.identifier(decorator.replace("no", "").toLowerCase()),
@@ -748,7 +750,7 @@ function accumulateAttribute(pass, array, attribute, ctx) {
 						expr = t.identifier(decorator);
 					}
 
-					const otherArg = Array.isArray(arr[i+1]) ? arr[++i] : [];
+					const otherArg = Array.isArray(arr[i+1]) ? arr[i+1] : [];
 					value = t.callExpression(expr, [value, ...otherArg]);
 				}
 			}
