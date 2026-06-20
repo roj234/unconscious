@@ -124,7 +124,7 @@ export const appendChildren = (parent, children) => {
 							if (el == null) continue;
 							const newChild = createChildNode(el);
 							parent.insertBefore(newChild, childNode.parentNode && childNode);
-							$disposable(newChild, listenerKey);
+							$cleanup(newChild, listenerKey);
 							elements.push(newChild);
 						}
 
@@ -154,7 +154,7 @@ export const appendChildren = (parent, children) => {
 							parent.appendChild(newChild);
 						}
 
-						$disposable(newChild, listenerKey);
+						$cleanup(newChild, listenerKey);
 						childNode = newChild;
 					}
 				};
@@ -187,7 +187,7 @@ export const appendChildren = (parent, children) => {
 			}
 			const listenerKey = [child, callback];
 			$watch(child, callback);
-			$disposable(parent, listenerKey);
+			$cleanup(parent, listenerKey);
 		} else {
 			const newChild = createChildNode(child);
 			parent.appendChild(newChild);
@@ -330,7 +330,7 @@ export const unconscious = object => {
  * @param {Element|Text} element - 元素
  * @param {[Reactive<any>, Function]|Function} listenerKey - 监听器键
  */
-export const $disposable = (element, listenerKey) => {
+export const $cleanup = (element, listenerKey) => {
 	let set = element[$DISPOSABLE];
 	if (!set) {
 		element.setAttribute?.('disposable', '');
@@ -610,7 +610,7 @@ export const $watch = (objects, listener, triggerNow=true) => {
 export const $watchOn = (object, listener, element) => {
 	let cleanup = listener();
 	object[$LISTENERS].set(listener, cleanup);
-	$disposable(element, [object, listener]);
+	$cleanup(element, [object, listener]);
 };
 
 /**
@@ -623,10 +623,10 @@ export const $unwatch = (object, listener) => {
 	if (!listeners) return;
 	const cleanup = listeners.get(listener);
 	listeners.delete(listener);
-	if (!listeners.size && object[$DISPOSABLE]) {
+	if (!listeners.size && object[$cleanup]) {
 		//console.log("删除不再有效的计算属性", object);
-		const [objects, listener] = object[$DISPOSABLE];
-		//delete object[$DISPOSABLE];
+		const [objects, listener] = object[$cleanup];
+		//delete object[$cleanup];
 
 		for (const obj of objects)
 			if (obj !== object) $unwatch(obj, listener);
@@ -1253,7 +1253,7 @@ export const $foreach = (list, renderItem, keyFunc = AS_IS, {currentKeys = new M
 					const listenerKey = [reactiveNode, listener];
 					$watch(reactiveNode, listener, false);
 					node = createChildNode(unconscious(node));
-					$disposable(node, listenerKey);
+					$cleanup(node, listenerKey);
 				}
 				parent.insertBefore(node, referenceNode);
 			}
@@ -1264,8 +1264,8 @@ export const $foreach = (list, renderItem, keyFunc = AS_IS, {currentKeys = new M
 		parent = self.parentElement;
 		offset = findChildIndex(parent, self);
 		$watch(list, callback);
-		$disposable(parent, [list, callback]);
-		/*$disposable(parent, () => {
+		$cleanup(parent, [list, callback]);
+		/*$cleanup(parent, () => {
 			// FIXME offset != 0 => 失败
 			parent.replaceChildren(observer);
 		});*/

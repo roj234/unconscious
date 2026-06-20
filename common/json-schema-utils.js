@@ -27,51 +27,46 @@ export function* deepEntries(obj, seen = new Set()) {
 /**
  *
  * @param {string} path
- * @param {'.' | '/'} separator
  * @return {string[]}
  */
-export const parseJsonPath = (path, separator = '.') => {
-	const keys = path.split(separator);
-	for (let i = 0; i < keys.length; i++) {
-		const key = keys[i];
-		if (key.endsWith("]")) {
-			const j = key.indexOf("[");
-			const pre = key.slice(0, j);
-			const post = key.slice(j+1, key.length-1);
-			keys.splice(i, 1, pre, post);
-			i++;
-		}
-	}
-	return keys;
+export const parseJsonPointer = (path) => {
+	if (path[0] === '/') path = path.slice(1);
+	if (!path) return [];
+
+	return path.split('/').map(key => key.replaceAll(/~[01]/g, match => match === '~0' ? '~' : '/'));
 }
 
 export const jsonGet = (obj, path) => {
-	const keys = Array.isArray(path) ? path : parseJsonPath(path);
-
-	for (let i = 0; i < keys.length - 1; i++) {
-		obj = obj[keys[i]];
+	const keys = Array.isArray(path) ? path : parseJsonPointer(path);
+	for (let i = 0; i < keys.length; i++) {
 		if (!obj) return;
+		obj = obj[keys[i]];
 	}
-
-	return obj[keys[keys.length - 1]];
+	return obj;
 };
 
 /**
  * 辅助函数：解析路径并操作对象
  * @param {Object} obj
  * @param {string|string[]} path
- * @param {'set' | 'plus' | 'push' | 'merge' | 'delete' | 'get'} action
+ * @param {'get' | 'set' | 'plus' | 'delete'} action
  * @param {any=} value
  * @return {{value: any, undo: any}}
  */
-export const jsonPathOp = (obj, path, action, value) => {
-	const keys = Array.isArray(path) ? path : parseJsonPath(path);
+export const jsonEval = (obj, path, action, value) => {
+	let keys = Array.isArray(path) ? path : parseJsonPointer(path);
+	if (keys.at(-1) === '-') {
+		action = "push";
+		keys = keys.slice(0, -1);
+	}
 
 	let current = obj;
 	for (let i = 0; i < keys.length - 1; i++) {
 		if (!current[keys[i]]) {
 			if (action === "delete") return {value: false};
 			if (action === "get") return {};
+			if (Array.isArray(current))
+				throw 'node at intermediate path is not object (is array)';
 
 			current[keys[i]] = {};
 		}
@@ -85,25 +80,31 @@ export const jsonPathOp = (obj, path, action, value) => {
 	switch (action) {
 		case 'get': return {value: container};
 		case 'set': container = value; break;
-		case 'plus': container = Number(container || 0) + Number(value); break;
+		case 'plus':
+			if (null == container && Array.isArray(current)) throw 'node at intermediate path is not object (is array)';
+			if (container !== undefined && typeof container !== 'number') throw 'node at path is not number';
+			container = Number(container || 0) + Number(value);
+			break;
 		case 'push':
 			if (!Array.isArray(container)) {
-				if (container) throw new Error("值 "+path+" 已存在且不是数组！");
+				if (container)
+					throw 'node at path is not array';
 				container = [];
 			}
 
 			undo = container.length;
 			if (Array.isArray(value)) container.push(...value);
 			else container.push(value);
-			break;
-		case 'merge': container = { ...container, ...value }; break;
+		break;
 		case 'delete': {
+			if (typeof current !== 'object') throw 'node at path is not object';
+
 			if (Array.isArray(current)) {
 				undo = current.splice(parseInt(lastKey), 1);
 				return {
 					undo: {
 						_isArray: true,
-						value: undo
+						value: [...undo]
 					},
 					value: undo
 				}
@@ -141,7 +142,7 @@ export const jsonPathOp = (obj, path, action, value) => {
 export function compileSchema(input, openAIStrict) {
 	for (const [val, own, key] of deepEntries(input)) {
 		const $ref = val?.$ref;
-		if ($ref) own[key] = jsonGet(input, parseJsonPath($ref.slice(2), '/'));
+		if ($ref) own[key] = jsonGet(input, $ref.slice(2));
 
 		// OpenAI 严格模式
 		if (openAIStrict) {
@@ -287,7 +288,11 @@ export function validate(o, schema, issues, path = "$") {
 
 	switch (matchType) {
 		case 'object': {
-			const {required = [], properties, additionalProperties = 1} = schema;
+			let {required = [], properties, additionalProperties = 1} = schema;
+			if (!properties) {
+				if (!required.length) break;
+				properties = {};
+			}
 			const requiredSet = new Set(required);
 			for (const key of Object.keys(o)) {
 				requiredSet.delete(key);
@@ -410,4 +415,165 @@ export function validate(o, schema, issues, path = "$") {
 	}
 
 	return o;
+}
+
+const formatLiteral = v => JSON.stringify(v);
+
+/**
+ * @param {ObjectSchema} schema
+ * @returns {string}
+ */
+export function schemaToTypeScriptDefinition(schema) {
+	const INDENT = '  ';
+	const pad = depth => INDENT.repeat(depth);
+
+	const getType = (node, depth) => {
+		if (!node) return 'any';
+
+		const {$ref, type, const: const_, enum: enum_, allOf} = node;
+
+		if ($ref) return $ref.split('/').at(-1);
+
+		if (const_ != null) return formatLiteral(const_);
+		if (enum_) return enum_.map(formatLiteral).join(' | ');
+
+		const choice = node.oneOf || node.anyOf;
+		if (choice) return choice.map(item => getType(item, 0)).join(' | ');
+		if (allOf) return allOf.map(item => getType(item, 0)).join(' & ');
+
+		if (!type) {
+			if (node.properties) return renderObject(node, depth);
+			if (node.pattern) return 'string';
+		} else if (Array.isArray(type)) {
+			if (type === SCHEMA_VALUES) return 'any';
+			return type.map(item => primitive(item, node, depth + 1)).join(' | ');
+		}
+
+		return primitive(type, node, depth);
+	};
+
+	const primitive = (type, node, depth) => {
+		switch (type) {
+			case 'object':  return renderObject(node, depth);
+			case 'array':   return renderArray(node, depth);
+			default:        return type || 'unknown';
+		}
+	};
+
+	const renderArray = (node, depth) => {
+		const prop = node.items;
+		if (prop) {
+			const itemType = getType(prop, depth);
+			const lines = renderJSDoc(prop);
+			// 造行内注释
+			const inlineComment = lines.length ? ` /* ${lines.join('; ')} */` : "";
+			return `${itemType}[]${inlineComment}`;
+		}
+		return 'any[]';
+	};
+
+	const renderJSDoc = prop => {
+		const annotations = [];
+
+		const {
+			description, example,
+			minimum = NaN, exclusiveMinimum = NaN,
+			maximum = NaN, exclusiveMaximum = NaN,
+			multipleOf,
+			minLength, maxLength, pattern, format,
+			minItems, maxItems, uniqueItems
+		} = prop;
+
+		if (description) annotations.push(description);
+
+		if (example) annotations.push(`@example: ${JSON.stringify(example)}`);
+
+		// 数值约束
+		let rangePrefix = minimum === minimum ? `>= ${minimum}` : exclusiveMinimum === exclusiveMinimum ? `> ${exclusiveMinimum}` : '';
+		let rangeSuffix = maximum === maximum ? `<= ${maximum}` : exclusiveMaximum === exclusiveMaximum ? `< ${exclusiveMaximum}` : '';
+		if (rangePrefix && rangeSuffix) {
+			// "5 <= x < 10"
+			const leftOp = exclusiveMinimum === exclusiveMinimum ? '<' : '<=';
+			const rightOp = exclusiveMaximum === exclusiveMaximum ? '<' : '<=';
+			const leftVal = minimum || exclusiveMinimum;
+			const rightVal = maximum || exclusiveMaximum;
+			annotations.push(`@range: ${leftVal} ${leftOp} value ${rightOp} ${rightVal}`);
+		} else if (rangePrefix || rangeSuffix) {
+			annotations.push(`@range: value ${rangePrefix || rangeSuffix}`);
+		}
+		if (multipleOf) annotations.push(`@multipleOf: ${multipleOf}`);
+
+		// 字符串约束
+		if (minLength || maxLength) {
+			const min = minLength ?? 0;
+			const max = maxLength ?? 'Infinity';
+			annotations.push(`@length: [${min}, ${max}]`);
+		}
+		if (pattern) annotations.push(`@pattern: ${pattern}`);
+		if (format) annotations.push(`@format: ${format}`);
+
+		// 数组约束
+		if (minItems || maxItems) {
+			const min = minItems ?? 0;
+			const max = maxItems ?? 'Infinity';
+			annotations.push(`@items: [${min}, ${max}]`);
+		}
+		if (uniqueItems) annotations.push(`@uniqueItems: true`);
+
+		return annotations;
+	};
+
+	const renderField = (key, prop, depth, requiredList) => {
+		const lines = [];
+		const optional = requiredList && requiredList.indexOf(key) === -1 ? '?' : '';
+
+		const annotations = renderJSDoc(prop, lines, depth);
+
+		if (annotations.length) {
+			if (annotations.length === 1) {
+				lines.push(`${pad(depth)}/** ${annotations[0]} */`);
+			} else {
+				lines.push(`${pad(depth)}/**`);
+				lines.push(...annotations.map(line => `${pad(depth)} * ${line}`));
+				lines.push(`${pad(depth)} */`);
+			}
+		}
+
+		lines.push(`${pad(depth)}${key}${optional}: ${getType(prop, depth)};`);
+		return lines.join('\n');
+	};
+
+	const renderObject = (node, depth) => {
+		const props = node.properties;
+
+		// 无 properties → 检查 additionalProperties (Map 类型)
+		if (!props || Object.keys(props).length === 0) {
+			const additionalProperties = node.additionalProperties;
+			if (additionalProperties) {
+				const valType = getType(additionalProperties, depth);
+				return `{ [key: string]: ${valType} }`;
+			}
+			return '{}';
+		}
+
+		const required = node.required || [];
+		const fields = Object.keys(props).map(k =>
+			renderField(k, props[k], depth + 1, required)
+		);
+
+		return `{\n${fields.join('\n')}\n${pad(depth)}}`;
+	};
+
+	// ==================== 入口 ====================
+
+	// 顶层 object → 直接输出字段 (LLM 友好的精简格式)
+	if (schema.properties && (schema.type === 'object' || !schema.type)) {
+		const required = schema.required || [];
+		return Object.keys(schema.properties).map(k =>
+			renderField(k, schema.properties[k], 0, required)
+		).join('\n');
+	}
+
+	// 顶层非 object
+	return getType(schema, 0);
 }

@@ -200,6 +200,8 @@ export class VirtualList {
 	 * @returns {number}
 	 */
 	findIndex(item) {
+		if (!this._visible && this._dirty) return -1;
+
 		for (let i = this._start; i < this._end; i++) {
 			if (this.items[i] === item) {
 				return i;

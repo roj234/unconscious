@@ -230,8 +230,9 @@ function createPlugin(_, options) {
 					lazyImport("id/eldeco/class", "_classesBehaviour");
 					lazyImport("id/eldeco/className", "_classesBehaviour");
 					lazyImport("id/watch", "$watch");
-					lazyImport("id/disposable", "$disposable");
+					lazyImport("id/disposable", "$cleanup");
 					lazyImport("id/clone", "kloneNode");
+					lazyImport("id/dummyCallback", "AS_IS");
 					function lazyImport(id, functionName) {
 						setContext(state, id, () => {
 							const ast = babelModuleImports.addNamed(path, functionName, modulePath, {
@@ -609,7 +610,7 @@ function unwatchOnDispose(path, pass) {
 			])
 		);
 
-		// 生成 $disposable 调用参数
+		// 生成 $cleanup 调用参数
 		const dependencies = Array.from(dependenciesMap.values()).flatMap(v => [
 			v.list,
 			v.callbackId
@@ -732,6 +733,10 @@ function accumulateAttribute(pass, array, attribute, ctx) {
 			}
 
 			const eventProperties = [];
+
+			if (value.value === true) {
+				value = getContext(pass, 'id/dummyCallback')();
+			}
 
 			for (let i = arr.length - 1; i >= 0; i--) {
 				const decorator = arr[i];

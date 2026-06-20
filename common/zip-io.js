@@ -17,6 +17,11 @@ for (let i = 0; i < 256; i++) {
 }
 
 // 计算 CRC32
+/**
+ *
+ * @param {Uint8Array} data
+ * @returns {number}
+ */
 export function crc32(data) {
 	let crc = 0xFFFFFFFF;
 	for (let i = 0; i < data.length; i++) {

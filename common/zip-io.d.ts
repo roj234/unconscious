@@ -19,9 +19,11 @@ export interface AddOptions {
     timestamp?: number;
     /**
      * Whether the file content should be Deflate-compressed.
-     * Defaults to `false` (Store mode).
+     * Defaults to `false` (Store).
+     * Use `8` or `true` for Deflate.
+     * Use `92` for Brotli (Node.js Only)
      */
-    compress?: boolean;
+    compress?: boolean | number;
 }
 
 /**

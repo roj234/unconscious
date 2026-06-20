@@ -1,6 +1,6 @@
-// modified version of https://www.npmjs.com/package/fast-deep-equal
 import {isPureObject} from "../runtime_shared.js";
 
+// a modified version of https://www.npmjs.com/package/fast-deep-equal
 export const deepEqual = (a, b, ignoredKeys) => {
 	if (a === b) return true;
 
@@ -137,7 +137,7 @@ export function delta(oldVal, newVal, ignoredKeys) {
 		const deleteCount = oldEnd - start + 1;
 		const items = newVal.slice(start, newEnd + 1);
 
-		return (deleteCount || items.length) ? {$: 'ARR', val: [start, deleteCount, ...items], len: oldLen } : undefined;
+		return (deleteCount || items.length) ? {$: 'ARR', val: [[start, deleteCount, ...items], oldLen] } : undefined;
 	} else if (isPureObject(oldVal)) {
 		if (!isPureObject(newVal)) return rep();
 
@@ -169,14 +169,28 @@ export function patch(obj, diff, shallowCopy = false) {
 	switch (diff?.$) {
 		case 'SET': return diff.val;
 		case 'ARR': {
-			if (obj.length !== diff.len) throw new Error("data integrity error");
-			if (shallowCopy) obj = [...obj];
-			obj.splice(...diff.val);
+			const [val, len] = diff.val;
+			const currentLength = obj.length;
+			if (currentLength !== len) {
+				const [start, deleteCount, ...items] = val;
+				const expectedLen = len - deleteCount + items.length;
+
+				if (currentLength !== expectedLen || !deepEqual(obj.slice(start, start + items.length), items))
+					throw new Error("data integrity error");
+			} else {
+				if (shallowCopy) obj = [...obj];
+				obj.splice(...val);
+			}
 			return obj;
 		}
 		case 'STR': {
 			const [start, deleteCount, substring, len] = diff.val;
-			if (obj.length !== len) throw new Error("data integrity error");
+			const currentLength = obj.length;
+			if (currentLength !== len) {
+				const expectedLen = len - deleteCount + substring.length;
+				if (currentLength === expectedLen && obj.startsWith(substring, start)) return obj;
+				throw new Error("data integrity error");
+			}
 			return obj.slice(0, start) + substring + obj.slice(start + deleteCount);
 		}
 		case 'DEL':

@@ -11,7 +11,8 @@ import {
 	$foreach,
 	$forElse,
 	$state,
-	$store, $update,
+	$store,
+	$update,
 	appendChildren,
 	preserveState
 } from "unconscious";
@@ -22,7 +23,7 @@ setInterval(() => {
 }, 100);
 
 // 这是一个异步组件，不过同样支持热重载，现在就试试吧
-// 在F12中对比源代码和转换后的代码，可以让你理解$asyncWithCleanup语法糖和$disposable函数是如何工作的
+// 在F12中对比源代码和转换后的代码，可以让你理解$asyncWithCleanup语法糖和$cleanup函数是如何工作的
 const AsyncCounter = $asyncComponent(
 	() => new Promise((resolve, failure) => setTimeout(() => {
 		if (Math.random() < 0.5) failure("哎呀。网络错误了！");

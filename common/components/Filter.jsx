@@ -15,13 +15,13 @@ import './filter.css';
 
 /**
  * @param {Config[]} config 配置列表
- * @param {Object[]} choices={} 选项值
- * @param {function(string, any, Object[]): void|string} onChange=null 回调
+ * @param {Record<string, any>} choices={} 选项值
+ * @param {function(string, any, Record<string, any>): void|string} onChange=null 回调
  * @param {boolean=false} showTitle
  * @param {boolean=true} fillPlaceholder
  * @return {Filter}
  */
-export default function Filter({config, choices, onChange, showTitle, fillPlaceholder = true}) {
+export function Filter({config, choices, onChange, showTitle, fillPlaceholder = true}) {
 	config.forEach(item => {
 		const {id, type} = item;
 
@@ -108,7 +108,7 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 					let value = item.choices[btn.textContent];
 
 					value = load(state[id]) === value ? undefined : value;
-					if (value == null && required) return;
+					if (value === undefined && required) return;
 
 					let err = emit(id, value);
 					if (err) {
@@ -123,7 +123,7 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 						cur.setAttribute('aria-checked', 'false');
 					}
 
-					if (value != null) {
+					if (value !== undefined) {
 						// 更新同组样式
 						btn.classList.add('active');
 						btn.setAttribute('aria-checked', 'true');
@@ -133,7 +133,7 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 				};
 
 				const initState = load(state[id]);
-				row = <div className='choice-scroll' role='radiogroup' aria-label={name} onClick.children{'button'}={handler}>
+				row = <div className={'choice-scroll'+(required?" radio":"")} role='radiogroup' aria-label={name} onClick.children{'button'}={handler}>
 					{Object.entries(item.choices).map(([label, value]) => {
 						const active = initState === value;
 							return <button className={active ? 'chip active' : 'chip'} _val={value}
@@ -235,13 +235,13 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 				const handler = e => {
 					const doSubmit = e.type === 'change';
 					value = input.value;//.trim();
-					let invalid = pattern && value && isInvalid(value);
+					let invalid = pattern && (value || item.required) && isInvalid(value);
 					if (invalid) {
 						if (doSubmit) {
 							input.value = load(state[id]);
 							invalid = false;
 						}
-					} else {
+					} else if (e.type) {
 						invalid = emit(id, value);
 						if (!invalid && doSubmit) state[id] = save(value);
 					}
@@ -274,8 +274,8 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 									  onFocus={onFocusBlur} onBlur={onFocusBlur} />;
 				}
 
-				addRefreshHandler(id, () => {input.value = load(state[id]) ?? '';});
 				row = <div className='input-warp'>{input}</div>;
+				addRefreshHandler(id, () => {input.value = load(state[id]) ?? ''; handler({})});
 			}
 			break;
 			case 'number': {
@@ -407,5 +407,8 @@ export default function Filter({config, choices, onChange, showTitle, fillPlaceh
 
 	const div = <div className="filter">{config.map(itemRenderer)}</div>;
 	div.sync = sync;
+	div.hasError = () => div.querySelector(".input-warning")
 	return div;
-};
+}
+
+export default Filter;

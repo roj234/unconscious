@@ -64,10 +64,9 @@ export function deepEntries(
 ): Generator<[value: any, obj: Record<string, any>, key: string], void, string>;
 
 /**
- * Parse a JSON path string (dot or slash separated) into key segments,
- * handling bracket notation for array indices.
+ * Parse a JSON pointer string (RFC 6901) into key segments.
  */
-export function parseJsonPath(path: string, separator?: '.' | '/'): string[];
+export function parseJsonPointer(path: string): string[];
 
 /**
  * Retrieve a nested value from an object using a path (string or array).
@@ -78,21 +77,28 @@ export function jsonGet(obj: any, path: string | string[]): any;
 // ---------- Path Operations ----------
 
 /**
- * Perform a JSON path operation (get/set/add/append/merge/delete) on an object.
+ * Perform a JSON path operation (get/set/plus/delete) on an object.
  * Returns the resulting value and undo information.
  */
-export function jsonPathOp(
+export function jsonEval(
     obj: Record<string, any>,
     path: string | string[],
     action: 'get' | 'delete'
 ): { value: any; undo: any };
 
-export function jsonPathOp(
+export function jsonEval(
     obj: Record<string, any>,
     path: string | string[],
-    action: 'set' | 'add' | 'append' | 'merge',
+    action: 'set',
     value: any
 ): { value: any; undo: any };
+
+export function jsonEval(
+    obj: Record<string, any>,
+    path: string | string[],
+    action: 'plus',
+    value: number
+): { value: number; undo: number };
 
 // ---------- Schema Compilation ----------
 
@@ -103,7 +109,14 @@ export function jsonPathOp(
  * - Extracts common properties from `oneOf`/`anyOf` and refactors into `allOf`
  * Returns the same object.
  */
-export function compileSchema<T extends OpenAI.Schema>(input: T, openAIStrict?: boolean): T;
+export function compileSchema<T extends Schema>(input: T, openAIStrict?: boolean): T;
+
+/**
+ * Convert JSON schema to TypeScript type definition format.
+ * - Mostly for LLM, lesser token, better presentation
+ * @param schema
+ */
+export function schemaToTypeScriptDefinition(schema: Schema): string;
 
 // ---------- Validation ----------
 

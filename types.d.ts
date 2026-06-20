@@ -72,7 +72,7 @@ export function kloneNode(node: string): () => JSX.Element;
  * @param element - 元素
  * @param listenerKey - 监听器键
  */
-export function $disposable(element: Element | Text, listenerKey: [Reactive<any>, Function] | Function): void;
+export function $cleanup(element: Element | Text, listenerKey: [Reactive<any>, Function] | Function): void;
 export function $dispose(element: Element | Text, keep?: [Reactive<any>, Function]): void;
 
 export function $state<T>(object: T, deep?: boolean): Reactive<T>;

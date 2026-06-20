@@ -1,21 +1,22 @@
 import {AS_IS} from "../runtime_shared.js";
 
-const WHITESPACE = new Set("\r\n\t ".split(""));
-const NUMBER = new Set("0123456789-.".split(""));
-
-// 我尝试让DeepSeek V4 Pro实现这个
-// 它花了30分钟成功实现了
-// 但用了500行代码，差不多是我的两倍
-// 而且我的实现性能好 ~27%
-
-const EXC = (excepting, found) => {
-	throw new Error("excepting " + excepting + " but found " + JSON.stringify(found));
-};
+const WHITESPACE = new Set("\r\n\t ");
+const NUMBER_START = new Set("0123456789+-.");
+// Infinity or NaN
+const NUMBER_START_JSON5 = new Set("0123456789+-.IN");
+// 用 [0-9eE+-.] 做白名单也行
+// oct+bin+hex+dec+float 的完整状态机有两百多行，已经和这个JsonParser在同一量级了，不值，更不用说JS本身就不适合计算密集型这个问题
+const NUMBER_END = new Set(" \t\r\n+]},/\0");
 
 /**
- * 流式增量 JSON 解析器。
+ * 流式增量 JSON 'push' 模式解析器。
  * 允许在 JSON 数据尚未完整接收时，通过 `write` 方法逐块输入字符，并实时触发回调处理已解析的节点。
  * 特别支持对长字符串值的“部分更新”同步。
+ *
+ * 需要注意的特性：
+ * - 顶层字符串值不会触发增量更新回调
+ * - 字符串接受未转义控制字符 (如换行)
+ * - 不支持 \U{...} 语法
  *
  * @param {function(path: (string|number)[], value: any, is_partial: boolean): void} onValue
  * 当解析到新值或字符串片段时的回调函数。
@@ -26,7 +27,7 @@ const EXC = (excepting, found) => {
  * @param {boolean=false} emitDelta 当解析字符串未完成时，回调完整的已解析字符串(prefix)，还是仅新增部分(delta)
  * - 无论如何，is_partial=false时都是完整字符串
  *
- * @param {boolean=false} allowBareKey 允许不带双引号的key
+ * @param {boolean=false} json5 启用 JSON5 解析 (注：并非所有 JSON5 特性都被禁用，如尾逗号在架构上就允许，检测反而需要额外代价影响性能)
  * @returns {{write: (function(string): void), end: (function(): any), pos: (function(): number)}}
  * 返回一个包含 `write` 和 `end` 方法的对象。
  *
@@ -38,7 +39,7 @@ const EXC = (excepting, found) => {
  * parser.write(`world",}`);
  * const result = parser.end();
  */
-export function createJsonParser(onValue, {emitDelta, allowBareKey} = {}) {
+export function createJsonParser(onValue, {emitDelta, json5} = {}) {
 	let root;
 	const stack = [];
 	const path = [];
@@ -46,15 +47,24 @@ export function createJsonParser(onValue, {emitDelta, allowBareKey} = {}) {
 	const
 		STATE_STR = 0,
 		STATE_STR_ESC = 1,
-		STATE_STR_UNICODE = 2,
-		STATE_LIT = 3,
-		STATE_NUM = 4,
+		STATE_STR_HEX = 2,
+		STATE_STR_UNICODE = 3,
+		STATE_LIT = 4,
+		STATE_NUM = 5,
+		OBJECT_BARE_KEY = 6,
 
-		STATE_NORM = 5,
-		OBJECT_KEY_AFTER = 6,
-		OBJECT_BEGIN = 7,
-		AFTER = 8,
-		ENDED = 9;
+		STATE_NORM = 7,
+		OBJECT_KEY_AFTER = 8,
+		OBJECT_BEGIN = 9,
+		AFTER = 10,
+		ENDED = 11,
+
+		COMMENT_START = 12,
+		COMMENT_MULTI_LINE = 16 | (0 << 5),
+		COMMENT_SINGLE_LINE = 16 | (2 << 5);
+
+	/** @type {number} */
+	let commentBuffer;
 
 	/** @type {string|null} */
 	let key;
@@ -68,11 +78,15 @@ export function createJsonParser(onValue, {emitDelta, allowBareKey} = {}) {
 	let index;
 	let literal;
 	/** @type {string} */
-	let unicode;
+	let escapeBuf;
 
 	let errorIndex = 0;
 
-	function pushValue(obj, partial = false) {
+	const FAIL = (excepting, found) => {
+		throw new Error((path.length?"pointer /"+path.join("/")+": ":"")+"excepting "+excepting+" but found "+JSON.stringify(found));
+	};
+
+	const pushValue = (obj, partial = false) => {
 		buf = '';
 
 		if (root === undefined) {
@@ -100,22 +114,59 @@ export function createJsonParser(onValue, {emitDelta, allowBareKey} = {}) {
 			}
 		}
 		state = AFTER;
-	}
+	};
 
-	function enterStringMode(ch) {
+	const enterStringMode = ch => {
 		enterCh = ch;
 		bufLastPartialSyncIdx = 0;
 		state = STATE_STR;
-	}
+	};
 
-	function write(chars) {
+	const write = chars => {
 		for (const ch of chars) {
 			errorIndex++;
 
-			if (state >= STATE_NORM && WHITESPACE.has(ch)) continue;
+			if (state >= STATE_NORM) {
+				if (state >= COMMENT_MULTI_LINE) {
+					const type = state >>> 5;
+					// 单行注释
+					if (ch === '\n' && type === 2) {
+						state &= 0xF;
+						// 多行注释
+					} else if (type === 1) {
+						if (ch === '/') {
+							state &= 0xF;
+							//console.log(state, ch, commentBuffer);
+						} else {
+							// reset type to 0
+							state &= 0x1F;
+							//commentBuffer += '*';
+						}
+					} else if (ch === '*' && type === 0) {
+						state |= 1 << 5;
+					} else {
+						// 如果有必要可以提取注释内容
+						//commentBuffer += ch;
+					}
+					continue;
+				}
+				if (state === COMMENT_START) {
+					if (ch === '/') state = commentBuffer|COMMENT_SINGLE_LINE;
+					else if (ch === '*') state = commentBuffer|COMMENT_MULTI_LINE;
+					else FAIL("COMMENT", ch);
+					//commentBuffer = '';
+					continue;
+				}
+				if (ch === '/' && json5) {
+					commentBuffer = state;
+					state = COMMENT_START;
+					continue;
+				}
+				if (WHITESPACE.has(ch)) continue;
+			}
 
 			switch (state) {
-				case ENDED: throw "Unexpected non-whitespace character after JSON";
+				case ENDED: FAIL("WHITESPACE", ch);
 				// {" or {}
 				//  ^     ^
 				case OBJECT_BEGIN: {
@@ -127,23 +178,25 @@ export function createJsonParser(onValue, {emitDelta, allowBareKey} = {}) {
 						write(ch);
 						break;
 					} else {
-						if (allowBareKey) {
-							state = OBJECT_KEY_AFTER;
+						if (json5) {
+							state = OBJECT_BARE_KEY;
 						} else {
-							EXC('"\\"" or "}"', ch);
+							FAIL('"\\"" or "}"', ch);
 						}
 					}
 				}
 				// {"a":
 				//     ^
 				// noinspection FallThroughInSwitchStatementJS
+				case OBJECT_BARE_KEY:
 				case OBJECT_KEY_AFTER:
 					if (ch !== ':') {
-						if (allowBareKey) {
-							buf += ch;
+						if (state === OBJECT_BARE_KEY) {
+							if (WHITESPACE.has(ch)) state = OBJECT_KEY_AFTER;
+							else buf += ch;
 							break
 						}
-						EXC('":"', ch);
+						FAIL('":"', ch);
 					} else if (buf) {
 						//console.assert(allowBareKey, "Bare key", buf);
 						pushValue(buf);
@@ -164,7 +217,7 @@ export function createJsonParser(onValue, {emitDelta, allowBareKey} = {}) {
 						continue;
 					}
 
-					if (ch !== ']' && ch !== '}') EXC("TERM", ch);
+					if (ch !== ']' && ch !== '}') FAIL("TERM", ch);
 					state = STATE_NORM;
 					break;
 			}
@@ -210,12 +263,12 @@ export function createJsonParser(onValue, {emitDelta, allowBareKey} = {}) {
 						break;
 						case '}':
 						case ']': {
-							if (key != null) EXC("value", ch);
+							if (key != null) FAIL("VALUE", ch);
 							const last = stack.pop();
 							if (last) {
 								console.assert(typeof last === "object", "stackTop must be object", last);
 								const lastIsArray = Array.isArray(last);
-								if (lastIsArray !== (ch === ']')) EXC(lastIsArray ? '"]"' : '"}"', ch);
+								if (lastIsArray !== (ch === ']')) FAIL(lastIsArray ? '"]"' : '"}"', ch);
 
 								path.pop();
 								state = stack.length ? AFTER : ENDED;
@@ -225,17 +278,17 @@ export function createJsonParser(onValue, {emitDelta, allowBareKey} = {}) {
 						}
 						// noinspection FallThroughInSwitchStatementJS
 						default:
-							if (NUMBER.has(ch)) {
-								buf = ch;
+							if ((json5 ? NUMBER_START_JSON5 : NUMBER_START).has(ch)) {
+								buf = ch === '+' ? '' : ch;
 								state = STATE_NUM;
 								break;
 							}
-							throw "Unexpected token "+JSON.stringify(ch);
+							FAIL("VALUE", ch);
 					}
 				}
 				break;
 				case STATE_LIT: {
-					if (ch !== buf[index]) EXC(JSON.stringify(buf)+" (index "+index+")", ch);
+					if (ch !== buf[index]) FAIL(JSON.stringify(buf)+" (index "+index+")", ch);
 
 					if (++index === buf.length) {
 						pushValue(literal);
@@ -260,29 +313,53 @@ export function createJsonParser(onValue, {emitDelta, allowBareKey} = {}) {
 						//case '"': buf += '"'; break;
 						//case '\\': buf += '\\'; break;
 						//case '/': buf += '/'; break;
+						case '\n': break; // 忽略换行符 (\r\n还挺麻烦又要加状态的先只处理\n吧)
+						case '0': buf += '\0'; break; // 禁止八进制转义
 						case 'b': buf += '\b'; break;
 						case 'f': buf += '\f'; break;
 						case 'n': buf += '\n'; break;
 						case 'r': buf += '\r'; break;
 						case 't': buf += '\t'; break;
-						case 'u': state = STATE_STR_UNICODE; unicode = ''; break;
+						case 'v': buf += '\v'; break;
+						case 'x': case 'X': state = STATE_STR_HEX; escapeBuf = ''; break;
+						case 'u': state = STATE_STR_UNICODE; escapeBuf = ''; break;
 					}
 				}
 				break;
+				case STATE_STR_HEX:
 				case STATE_STR_UNICODE: {
-					if (unicode.length < 4) unicode += ch;
-					if (unicode.length === 4) {
-						const codePoint = parseInt(unicode, 16);
-						if (isNaN(codePoint)) throw `invalid escape \\u${unicode}`;
+					escapeBuf += ch;
+					if (escapeBuf.length === ((state === STATE_STR_HEX) ? 2 : 4)) {
+						const codePoint = parseInt(escapeBuf, 16);
+						if (isNaN(codePoint)) FAIL('ESCAPE', `\\u${escapeBuf}`);
 						buf += String.fromCharCode(codePoint);
 						state = STATE_STR;
 					}
 				}
 				break;
 				case STATE_NUM: {
-					if (ch === ']' || ch === '}' || ch === ',' || ch === '\0') {
-						const num = Number(buf);
-						if (isNaN(num)) throw "invalid number "+buf;
+					if (NUMBER_END.has(ch)) {
+						let num = Number(buf);
+						isOk:
+						if (isNaN(num)) {
+							// 这些都是冷路径，因为大部分JSON里都不会有这些
+							// 我之前设计Tokenizer的时候就没做好冷热分离
+							if (json5) {
+								buf = buf.replaceAll("_", "");
+								num = Number(buf);
+								if (!isNaN(num)) break isOk;
+
+								const neg = buf[0] === '-';
+								if (buf.length <= 4 && buf.endsWith("NaN")) {
+									if (buf[neg ? 1 : 0] === 'N') break isOk;
+								} else if (buf.length <= 9 && buf.endsWith("Infinity")) {
+									num = neg ? -Infinity : Infinity;
+									if (buf[neg ? 1 : 0] === 'I') break isOk;
+								}
+							}
+
+							FAIL('NUMBER', buf);
+						}
 						pushValue(num);
 						if (ch !== '\0') write(ch);
 					} else {
@@ -297,16 +374,18 @@ export function createJsonParser(onValue, {emitDelta, allowBareKey} = {}) {
 			onValue(path, buf.slice(bufLastPartialSyncIdx), true);
 			if (emitDelta) bufLastPartialSyncIdx = buf.length;
 		}
-	}
+	};
 
 	return {
 		pos: () => errorIndex,
 		write,
 		end: (ignoreUnexpected) => {
 			if (state !== ENDED) {
-				if (state === STATE_NUM && root === undefined) {
+				const noValue = root === undefined;
+				if (state === STATE_NUM && noValue) {
 					write('\0');
-				} else if (!ignoreUnexpected) {
+					// 允许注释持续到文件尾
+				} else if ((state < 16 || noValue) && !ignoreUnexpected) {
 					throw "Unexpected end of JSON input";
 				}
 			}
@@ -321,11 +400,11 @@ export function createJsonParser(onValue, {emitDelta, allowBareKey} = {}) {
  * @return {any}
  */
 export const parseJsonLenient = (str) => {
-	const parser = createJsonParser(AS_IS, {allowBareKey: true});
+	const parser = createJsonParser(AS_IS, {json5: true});
 	try {
 		parser.write(str);
 		return parser.end();
 	} catch (e) {
-		throw e+" near index "+parser.pos();
+		throw e+" at position "+parser.pos();
 	}
 }

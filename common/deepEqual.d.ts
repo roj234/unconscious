@@ -4,6 +4,8 @@
  *
  * Optionally ignores specified keys on plain objects.
  *
+ * This function is a modified version of https://www.npmjs.com/package/fast-deep-equal
+ *
  * @param a - First value to compare.
  * @param b - Second value to compare.
  * @param ignoredKeys - A Set of property names to ignore when comparing objects.
@@ -16,11 +18,12 @@ export function deepEqual<T>(
 ): boolean;
 
 /* ── 原子操作 ── */
-type RepOp<T>   = { readonly $: 'REP';   readonly val: T };
-type SpliceOp   = { readonly $: 'SPLICE'; readonly val: [start: number, deleteCount: number, ...rest: unknown[]] };
+type RepOp<T>   = { readonly $: 'REP'; readonly val: T };
+type SpliceOp   = { readonly $: 'ARR'; readonly val: [[start: number, deleteCount: number, ...rest: unknown[]], expectedLength: number] };
+type StringOp   = { readonly $: 'STR'; readonly val: [start: number, deleteCount: number, substring: string, expectedLength: number] };
 type DelOp      = { readonly $: 'DEL' };
 
-type DeltaOp<T = unknown> = RepOp<T> | SpliceOp | DelOp;
+type DeltaOp<T = unknown> = RepOp<T> | SpliceOp | StringOp | DelOp;
 
 /* ── 递归差异类型 ── */
 type Delta<T> =
@@ -48,11 +51,13 @@ export function delta<T>(
 
 /**
  * 将差异应用到对象，返回新值。
+ * This function is idempotent. (patch same object multiple times is safe)
  */
 export function patch<T>(
     obj: T,
     diff: Delta<T> | undefined,
     // 默认直接修改原 Object
-    // 这是浅拷贝（对于嵌套对象可能屁用没有），对于真正要求不可变性的场景，请使用 structuredClone
+    // 浅拷贝对于嵌套对象可能屁用没有，
+    // 需求不可变的场景，建议用 structuredClone
     shallowCopy?: boolean = false
 ): T | undefined;
