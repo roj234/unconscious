@@ -583,14 +583,14 @@ export function $stampLock(state) {
 
 /**
  * 监听响应式变量变化
- * @param {Reactive<any>|Array<Reactive<any>>} objects - 要监听的响应式变量或数组
+ * @param {Reactive<any>|Array<Reactive<any>>|function(): any} objects - 要监听的响应式变量或数组
  * @param {() => Function|void} listener - 变化回调函数（可返回清理函数）
  * @param {boolean} [triggerNow=true] - 是否立即触发回调
  * @note 监听多个响应式变量时，不得返回不允许重复调用的清理函数，可能会被调用多次
  */
 export const $watch = (objects, listener, triggerNow=true) => {
-	if (!Array.isArray(objects))
-		objects = [objects];
+	if (typeof objects === 'function') objects = [$computed(objects)];
+	else if (!Array.isArray(objects)) objects = [objects];
 
 	let cleanup;
 	if (triggerNow) cleanup = listener();
@@ -623,10 +623,10 @@ export const $unwatch = (object, listener) => {
 	if (!listeners) return;
 	const cleanup = listeners.get(listener);
 	listeners.delete(listener);
-	if (!listeners.size && object[$cleanup]) {
+	if (!listeners.size && object[$DISPOSABLE]) {
 		//console.log("删除不再有效的计算属性", object);
-		const [objects, listener] = object[$cleanup];
-		//delete object[$cleanup];
+		const [objects, listener] = object[$DISPOSABLE];
+		//delete object[$DISPOSABLE];
 
 		for (const obj of objects)
 			if (obj !== object) $unwatch(obj, listener);
