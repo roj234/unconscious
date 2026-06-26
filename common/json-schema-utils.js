@@ -293,7 +293,7 @@ export function validate(o, schema, issues, path = "$") {
 				if (!required.length) break;
 				properties = {};
 			}
-			const requiredSet = new Set(required);
+			const requiredSet = new Set(required === true ? Object.keys(properties) : required);
 			for (const key of Object.keys(o)) {
 				requiredSet.delete(key);
 
@@ -317,10 +317,12 @@ export function validate(o, schema, issues, path = "$") {
 			}
 
 			for (const key of requiredSet) {
-				let {default: def} = properties[key];
+				let {default: def, type} = properties[key];
 				if (def !== undefined) {
 					o[key] = def;
 					requiredSet.delete(key);
+				} else if (type === 'object') {
+					o[key] = validate({}, properties[key], issues, path+"."+key);
 				}
 			}
 
@@ -525,7 +527,7 @@ export function schemaToTypeScriptDefinition(schema) {
 
 	const renderField = (key, prop, depth, requiredList) => {
 		const lines = [];
-		const optional = requiredList && requiredList.indexOf(key) === -1 ? '?' : '';
+		const optional = requiredList.includes && !requiredList.includes(key) ? '?' : '';
 
 		const annotations = renderJSDoc(prop, lines, depth);
 
