@@ -14,10 +14,10 @@ export interface StreamJsonParserOptions {
      */
     emitDelta?: boolean;
     /**
-     * 是否允许不带双引号的键名（bare key）。
+     * 启用 JSON5 解析模式（支持注释、尾逗号、无引号键名等）。
      * @default false
      */
-    allowBareKey?: boolean;
+    json5?: boolean;
 }
 
 /**

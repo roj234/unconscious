@@ -64,6 +64,24 @@
         outline: none;
         box-shadow: 0 0 0 2px var(--focus);
     }
+
+    position: relative;
+    & .tooltip {
+        display: none;
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translate(-50%,calc(-100% - 8px));
+        line-height: normal;
+        width: max-content;
+        padding: 0.25rem 0.5rem;
+        background: rgba(0,0,0,0.8);
+        color: #E6EAF3;
+        border-radius: 4px;
+    }
+    &:hover .tooltip {
+        display: block;
+    }
 }
 
 /* 输入框 + 警告 */

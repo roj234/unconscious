@@ -11,6 +11,10 @@ export class SHA256 {
      */
     digest(format?: 'hex' | 'arraybuffer' = 'arraybuffer'): string | ArrayBuffer;
     /**
+     * 输出十六进制哈希字符串（等价于 digest('hex')）
+     */
+    toString(): string;
+    /**
      * 直接进行计算
      */
     static hash(data: string | Uint8Array, format?: 'hex' | 'arraybuffer' = 'arraybuffer'): string | ArrayBuffer;

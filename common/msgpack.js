@@ -93,9 +93,9 @@ export const decodeMsg = (input, options) => {
 	}
 };
 
-const basicToStringAble = {
-	toString: Object.prototype.toString
-};
+const basicToStringAble = Object.create(null);
+basicToStringAble.toString = Object.prototype.toString;
+Object.freeze(basicToStringAble);
 
 const LOOKUP = /*#__PURE__*/ new Uint8Array(256);
 for (let i = 0; i <= 0x7F; i++) LOOKUP[i] = i;

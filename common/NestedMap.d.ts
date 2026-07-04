@@ -3,7 +3,7 @@ export class NestedMap<K = any, V = any> {
      * @param entries 可选的初始 [键, 值] 对迭代器。
      * 键可以是单值，也可以是数组（复合键）。
      */
-    constructor(entries?: Iterable<readonly [K | K[], V]> | null);
+    constructor(entries?: Iterable<readonly [K | K[], V]>);
 
     /**
      * 设置值。
@@ -19,6 +19,13 @@ export class NestedMap<K = any, V = any> {
      * @returns 对应的值，不存在则返回 `undefined`。
      */
     get(keys: K | K[]): V | undefined;
+
+    /**
+     * 获取指定路径下的子树 Map 节点。
+     * @param keys 复合键路径数组
+     * @returns 子树 Map，不存在则返回 undefined
+     */
+    getChildren(keys: K[]): Map<K, any> | undefined;
 
     /**
      * 判断键是否存在。

@@ -29,9 +29,9 @@ export interface VirtualListConfig<T, K> {
      */
     overscan?: number;
     // 渲染函数
-    renderer: (data: T, index: number, recycle: HTMLElement[]) => HTMLElement;
+    renderer: (data: T, index: number) => HTMLElement;
     // 生成唯一索引的函数
-    keyFunc?: (item: T) => K;
+    keyFunc?: (item: T, index: number) => K;
     isSameKey?: (key1: HTMLElement, key2: K) => boolean;
 }
 
@@ -59,7 +59,7 @@ export class VirtualList<T = object> {
     /**
      * 渲染函数
      */
-    readonly renderer: (data: T, index: number, recycle: HTMLElement[]) => HTMLElement;
+    readonly renderer: (data: T, index: number) => HTMLElement;
 
     /**
      * 构造函数
@@ -75,12 +75,17 @@ export class VirtualList<T = object> {
     scrollToBottom(): void;
 
     /**
+     * 滚动到指定位置
+     * @param offset 滚动偏移量
+     */
+    scrollTo(offset: number): void;
+
+    /**
      * 更新数组某项并(立即)更新虚拟列表，如果这项正在渲染
      * @param i 数组索引
      * @param item 新的值（如果为 null/undefined，则使用当前 items[i]）
-     * @param heightUnchanged 高度是否未变
      */
-    setItem(i: number, item: T | null | undefined, heightUnchanged?: boolean): void;
+    setItem(i: number, item?: T | null | undefined): void;
 
     /**
      * 更新数组并(立即)更新虚拟列表

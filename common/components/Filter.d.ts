@@ -24,6 +24,15 @@ export interface FilterProps {
     config: Config[]; // 配置列表
     choices: Record<string, any> | Reactive<Record<string, any>>; // 默认选项值，默认空数组 []
     onChange?: (value: string, data: any, choices: Record<string, any>) => void | string; // 回调函数
+    /**
+     * 显示标题和说明文本（否则仅显示名称）
+     */
+    showTitle?: boolean;
+    /**
+     * 是否用 placeholder 填充 textbox（默认 true）
+     * @default true
+     */
+    fillPlaceholder?: boolean;
 }
 
 export function Filter(props: FilterProps): JSX.Element & {

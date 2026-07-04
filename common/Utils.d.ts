@@ -2,9 +2,6 @@
 export function G(selector: string, element?: HTMLElement): HTMLElement | null;
 export function A(selector: string, element?: HTMLElement): HTMLElement[];
 
-export function addNotification(message: string, duration?: number): { close: () => void };
-export function closeNotification(el: HTMLElement): void;
-
 // parseDate 函数（pattern 为格式字符串，date 为输入字符串，返回解析后的 Date）
 export function parseDate(pattern: string, date: string): Date;
 

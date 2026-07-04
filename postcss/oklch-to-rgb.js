@@ -3,9 +3,9 @@ const plugin = (opts) => {
 		postcssPlugin: "oklch-to-rgb",
 		Declaration(decl) {
 			if (decl.value.startsWith("oklch(")) {
-				const match = /oklch\((\d*\.?\d*)\s+(\d*\.?\d*)\s+(\d*\.?\d*)\s*(?:\/\s*(\d*\.?\d*))?\)/.exec(decl.value);
+				const match = /oklch\((\d*\.?\d*)\s+(\d*\.?\d*)\s+(\d*\.?\d*)(?:deg)?\s*(?:\/\s*(\d*\.?\d*))?\)/.exec(decl.value);
 				if (!match) {
-					console.warn(decl.value);
+					console.warn("[oklch-to-rgb] Could not parse "+decl.value);
 					return;
 				}
 

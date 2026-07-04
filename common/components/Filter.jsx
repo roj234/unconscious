@@ -138,7 +138,8 @@ export function Filter({config, choices, onChange, showTitle, fillPlaceholder = 
 						const active = initState === value;
 							return <button className={active ? 'chip active' : 'chip'} _val={value}
 										   type='button' role='radio' aria-checked={active}
-										   title={title?.[label] || label}>{label}</button>;
+										   title={title?.[label]}
+							>{label}{showTitle && title?.[label] && <div className={"tooltip"}>{title[label]}</div>}</button>;
 						})}
 				</div>;
 
@@ -192,7 +193,8 @@ export function Filter({config, choices, onChange, showTitle, fillPlaceholder = 
 							const selected = id ? state[id].includes(value) : !!state[value];
 							return (<button className={selected ? 'chip active' : 'chip'} type='button' name={value}
 											role='checkbox' aria-checked={selected}
-											title={title?.[label] || label}>{label}</button>);
+											title={title?.[label]}
+									>{label}{showTitle && title?.[label] && <div className={"tooltip"}>{title[label]}</div>}</button>);
 						})}
 				</div>;
 

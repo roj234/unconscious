@@ -18,7 +18,7 @@ export function deepEqual<T>(
 ): boolean;
 
 /* ── 原子操作 ── */
-type RepOp<T>   = { readonly $: 'REP'; readonly val: T };
+type RepOp<T>   = { readonly $: 'SET'; readonly val: T };
 type SpliceOp   = { readonly $: 'ARR'; readonly val: [[start: number, deleteCount: number, ...rest: unknown[]], expectedLength: number] };
 type StringOp   = { readonly $: 'STR'; readonly val: [start: number, deleteCount: number, substring: string, expectedLength: number] };
 type DelOp      = { readonly $: 'DEL' };

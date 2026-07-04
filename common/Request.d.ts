@@ -75,3 +75,15 @@ export function ajax(
     onSuccess?: (data: any, statusText: string) => void,
     onError?: (xhr: XMLHttpRequest, error?: string) => void
 ): void;
+
+/**
+ * Promise 封装的 AJAX 请求
+ * @param config - URL 字符串或 AJAX 配置对象
+ * @returns Promise
+ */
+export function asyncAjax(config: string | AjaxConfig): Promise<any>;
+
+/**
+ * 自定义数据类型的注册表，扩展 dataType 处理
+ */
+export const customDataTypeRegistry: Record<string, (xhr: XMLHttpRequest, config: AjaxConfig) => void>;

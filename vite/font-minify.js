@@ -51,7 +51,7 @@ export function viteFontMinify() {
 
 			if (fontAssets.length === 0) return;
 
-			console.log(`[PurgeIconFont] 扫描到 ${usedUnicodes.size} 个已引用的图标 Unicode`);
+			this.info(`找到 ${usedUnicodes.size} 个引用的字形`);
 
 			const renames = new Map;
 			// 3. 处理字体文件
@@ -75,7 +75,7 @@ export function viteFontMinify() {
 						return glyf.unicode.some(u => usedUnicodes.has(u));
 					});
 
-					console.log(`[PurgeIconFont] ${fileName}: 字形数量从 ${originalGlyfCount} 减少至 ${fontData.glyf.length}`);
+					this.info(`${fileName} 已压缩: 字形数量 ${originalGlyfCount} -> ${fontData.glyf.length}`);
 
 					// 重新生成字体 Buffer
 					const newBuffer = font.write({type});
@@ -89,7 +89,7 @@ export function viteFontMinify() {
 
 					renames.set(fileName, newName);
 				} catch (err) {
-					console.error(`[PurgeIconFont] 处理 ${fileName} 出错:`, err);
+					this.error(`处理 ${fileName} 出错`, err);
 				}
 			}
 

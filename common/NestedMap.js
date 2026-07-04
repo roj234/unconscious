@@ -1,6 +1,6 @@
 import {debugSymbol} from "unconscious";
 
-const DATA_VAL = debugSymbol('DataValue');
+export const NODE_VALUE = debugSymbol('NodeValue');
 
 /**
  * NestedMap - 支持数组作为复合键的 Map
@@ -33,8 +33,8 @@ export class NestedMap {
 					current = next;
 				}
 
-				if (!current.has(DATA_VAL)) this._size++;
-				current.set(DATA_VAL, value);
+				if (!current.has(NODE_VALUE)) this._size++;
+				current.set(NODE_VALUE, value);
 				return this;
 			}
 
@@ -56,13 +56,22 @@ export class NestedMap {
 					current = current.get(key);
 					if (!current) return;
 				}
-				return current.get(DATA_VAL);
+				return current.get(NODE_VALUE);
 			}
 
 			keys = keys[0];
 		}
 
 		return this._simple.get(keys);
+	}
+
+	getChildren(keys) {
+		let current = this._tree;
+		for (let i = 0; i < keys.length; i++) {
+			current = current.get(keys[i]);
+			if (!current) return;
+		}
+		return current;
 	}
 
 	/**
@@ -77,7 +86,7 @@ export class NestedMap {
 					current = current.get(key);
 					if (!current) return false;
 				}
-				return current.has(DATA_VAL);
+				return current.has(NODE_VALUE);
 			}
 
 			keys = keys[0];
@@ -98,17 +107,17 @@ export class NestedMap {
 				let current = this._tree;
 
 				for (const key of keys) {
-					stack.push({ parent: current, key });
+					stack.push([ current, key ]);
 					current = current.get(key);
 					if (!current) return false;
 				}
 
-				if (!current.delete(DATA_VAL)) return false;
+				if (!current.delete(NODE_VALUE)) return false;
 				this._size--;
 
 				// 递归向上删除不再需要的 Map 节点（瘦身）
 				for (let i = stack.length - 1; i >= 0; i--) {
-					const { parent, key } = stack[i];
+					const [ parent, key ] = stack[i];
 					const node = parent.get(key);
 					if (node.size > 0) break;
 					parent.delete(key);
@@ -136,17 +145,15 @@ export class NestedMap {
 		yield* this._traverse(this._tree, []);
 	}
 
-	*_traverse(map, path) {
-		if (map.has(DATA_VAL)) {
-			// TODO 可选 [...path] 复制对象
-			yield [path, map.get(DATA_VAL)];
-		}
-
+	*_traverse(map, path, includeDir) {
 		for (const [key, nextMap] of map.entries()) {
-			if (key !== DATA_VAL) {
+			if (key !== NODE_VALUE) {
+				if (includeDir) yield [path];
 				path.push(key);
-				yield* this._traverse(nextMap, path);
+				yield* this._traverse(nextMap, path, includeDir);
 				path.pop();
+			} else {
+				yield [path, map.get(NODE_VALUE)];
 			}
 		}
 	}
