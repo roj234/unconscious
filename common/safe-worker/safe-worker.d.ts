@@ -1,180 +1,216 @@
+
 /**
  * safe-worker — Safe ESM WebWorker sandbox
  *
- * Bundles ES modules into a sandboxed WebWorker with RPC communication.
- * Zero dependencies, ~10 KiB minified.
+ * Zero-dependency, ~21 KiB minified.
+ * Self-contained ESM tokenizer + transformer, Worker-based isolation,
+ * prototype-chain lockdown, and bidirectional RPC.
  */
+
+// ── Exports ──────────────────────────────────────────────────────────────
 
 /**
- * A module entry that can be bundled into the worker.
- *
- * - If `code` is provided, the module source is bundled and runs inside the
- *   worker.
- * - If only `module` is provided, it is treated as a *host module* — its
- *   functions stay on the main thread and are called via RPC from the worker.
+ * Thrown when a module cannot be parsed (e.g. nested import/export,
+ * unsupported syntax in import/export position).
  */
-export interface Module {
-    /**
-     * Unique identifier for this module.
-     * Auto-generated from the module name if omitted.
-     */
-    id?: string;
+export class ParseError extends Error {
+    readonly name: 'ParseError';
+    constructor(msg: string, mod?: string);
+}
 
-    /**
-     * Marked `true` internally when the module contains executable code
-     * (imported by another module).  You do **not** need to set this manually.
-     */
-    script?: true;
+// ── Low-level Worker ─────────────────────────────────────────────────────
 
-    /**
-     * Marked `true` internally when the module is imported with
-     * `assert { type: 'text' }`.  You do **not** need to set this manually.
-     */
-    text?: true;
+/**
+ * Low-level WebWorker factory.
+ *
+ * Creates a Worker, sets up bidirectional RPC, and returns a request
+ * function + destroy function.  Most users should use {@link createSandbox}
+ * instead.
+ *
+ * @param rpcHandler - Called when the worker sends an RPC request.
+ *   Receives `(method, args, transfer)` where `transfer` is an array the
+ *   handler can push ArrayBuffers into for zero-copy transfer.
+ * @param logHandler - Called for every `console.*` invocation inside the worker.
+ * @param name       - Optional worker name
+ * @returns `[RPC, destroy]`
+ *   - `RPC(method, args, transfer?)` — Send a request *into* the worker.
+ *   - `destroy(reason?)` — Terminate the worker immediately.
+ */
+export function createWorker(
+    rpcHandler: (method: string, args: any[], transfer: ArrayBuffer[]) => any | Promise<any>,
+    logHandler: (line: string) => void,
+    name?: string
+): [
+    RPC: (method: string, args?: any[], transfer?: ArrayBuffer[]) => Promise<any>,
+    destroy: (reason?: any) => void
+];
 
-    /**
-     * JavaScript source code of the module (ESM syntax).
-     * Top-level `import` / `export` are transformed; everything else is kept
-     * verbatim.  Not needed for pure host modules.
-     */
-    code?: string;
+// ── High-level Sandbox ───────────────────────────────────────────────────
 
+/** Permissions that can be granted to the sandbox. */
+export type Permission = 'fs' | 'wasm' | 'net' | 'db';
+
+/**
+ * Handlers provided by the host to service sandbox requests.
+ * All properties are live — they can be updated after construction
+ * without restarting the sandbox.
+ */
+export interface SandboxHandlers {
     /**
-     * Host-side functions exposed to the worker.
+     * Module loader. Called when the sandbox imports a file module
+     * (path starting with `.` or `/`).
      *
-     * Arguments are serialised via the structured clone algorithm.
+     * @param moduleName - The raw specifier from the import statement.
+     * @param isSystemModule - ORIGINAL path is not starting with `.` or `/`
+     * @returns The module's source code as a string.
+     */
+    load(moduleName: string, isSystemModule: boolean): string | Promise<string>;
+
+    /**
+     * RPC endpoint for the emulated `fs` module and any custom RPC calls.
+     *
+     * @param method - One of: `'read' | 'readRaw' | 'write' | 'writeRaw' |
+     *   'append' | 'appendRaw' | 'mkdir' | 'delete' | 'list' | 'stat' | 'copy'`
+     *   or a custom method name.
+     * @param args   - Positional arguments.
+     * @param transfer - Push ArrayBuffers into this array for zero-copy transfer
+     *   back to the worker.
+     */
+    rpc?(method: string, args: any[], transfer: ArrayBuffer[]): any | Promise<any>;
+
+    /**
+     * Console output handler. Called for every `console.log/warn/error/...`
+     * invocation inside the sandbox.
+     *
+     * @param line - A single log line (no trailing newline).
+     */
+    log(line: string): void;
+}
+
+/** Options for {@link createSandbox}. */
+export interface SandboxOptions {
+    /**
+     * indexedDB databases and Cache API caches automatically prefixed with 'prefix'
+     * when the `'db'` or `'net'` permission is granted.
+     */
+    prefix?: string;
+
+    /**
+     * Host-side modules exposed to the sandbox.  Keys are module specifiers,
+     * values are objects whose methods are callable from the sandbox via RPC.
      *
      * @example
      * ```ts
-     * module: {
-     *   fetchData(id: string): Promise<string> {
-     *     return fetch(`/api/${id}`).then(r => r.text());
-     *   }
-     * }
+     * hostModules: new Map([
+     *   ['host-api', { fetchData(id: string): Promise<string> { ... } }]
+     * ])
      * ```
      */
-    module?: Readonly<Record<string, (...args: any[]) => any>>;
+    hostModules?: ReadonlyMap<string, Readonly<Record<string, (...args: any[]) => any>>>;
+
+    name?: string;
 }
 
 /**
- * A handle to a running worker sandbox.
+ * A handle to a running sandbox.
  *
- * Obtained via {@link createModule}.
+ * Obtained via {@link createSandbox}.
  */
-export interface SafeModule<Exports extends Record<string, (...args: any[]) => any> = Record<string, (...args: any[]) => any>> {
+export interface Sandbox {
     /**
-     * Resolves when the worker has booted and the module graph has been
-     * evaluated.  Always `await` this before calling any exported function.
+     * Initialise the sandbox and apply the lockdown.
+     *
+     * **Must be called once** before any other method.
+     * Until `initialize()` completes, the lockdown is NOT active
+     * and the worker's global scope is not restricted.
      */
-    readonly ready: Promise<void>;
+    initialize(): Promise<void>;
 
     /**
-     * A proxy whose keys are the named exports of the entry module.
+     * Pre-load a module into the sandbox's module cache and return a proxy
+     * that allows calling its named exports via RPC.
      *
-     * Every call is automatically turned into an RPC round-trip:
-     * arguments are structured-cloned, the function runs inside the worker,
-     * and the return value (or rejection) is sent back.
-     *
-     * **All calls return `Promise<T>`**, even if the original function is
-     * synchronous.
-     *
-     * @example
-     * ```ts
-     * const sandbox = compileModule(modules, 'entry');
-     * await sandbox.ready;
-     * const answer = await sandbox.module.getAnswer(42);
-     * ```
+     * @param moduleName - The module specifier to load and register.
+     * @returns A Proxy whose property access triggers RPC calls into the
+     *   sandbox.  Each call returns a Promise.
      */
-    readonly module: {
-        readonly [K in keyof Exports]: Exports[K] extends (...args: infer Args) => infer R
-            ? (...args: Args) => Promise<Awaited<R>>
-            : never;
-    };
+    loadModule(moduleName: string): Promise<{ readonly [exportName: string]: (...args: any[]) => Promise<any> }>;
+
+    /**
+     * Execute a piece of code as an ES module inside the sandbox.
+     *
+     * The code goes through the ESM transformer (`parseModule` → `prettifier`),
+     * is wrapped as an async module, and evaluated.
+     *
+     * @param moduleName - Logical path used for relative import resolution
+     *   and error messages.  Use a meaningful name like `'inline.js'`.
+     * @param code       - JavaScript source (ESM syntax).  Top-level
+     *   `import`/`export` are transformed; everything else is kept verbatim.
+     * @param context    - Value bound to `this` inside the module's top-level scope.
+     *   Must be structured-cloneable.  Use for passing parameters without
+     *   editing the source file.
+     * @returns The module's default export, or `{}` if no `export default`.
+     */
+    execute(
+        moduleName: string | undefined,
+        code: string,
+        context?: object
+    ): Promise<any>;
 
     /**
      * Terminate the worker immediately.  All pending RPC calls will reject.
      * After calling this the sandbox is unusable.
+     *
+     * @param reason - Optional reason for destruction (used in error messages).
      */
-    destroy(): void;
+    destroy(reason?: any): void;
 }
 
 /**
- * Compile a module graph into a WebWorker sandbox and return a handle to it.
+ * Create a sandboxed ESM execution environment.
  *
- * The worker boots, executes all side effects in dependency order, and then
- * waits for RPC calls from the main thread.
- *
- * @param modules      - All modules that may be imported (keyed by specifier).
- * @param entryModule  - The key of the entry module inside `modules`.
- * @param workerCode - Source code created by bundleModule. Omit to compile without permissions.
- * @returns A {@link SafeModule} handle.
- *
- * @throws {ParseError} When a module cannot be parsed or a dependency is missing.
+ * @param handlers    - Live handler object (properties can be mutated after creation).
+ * @param permissions - Whitelist of capabilities: `'fs'`, `'wasm'`, `'net'`, `'db'`.
+ *   Everything else is stripped during lockdown.
+ * @param options     - Optional configuration.
+ * @returns A {@link Sandbox} handle.  Call `initialize()` before use.
  *
  * @example
  * ```ts
- * const modules = new Map<string, Module>();
- * modules.set('entry', {
- *   code: `
- *     import { fetch } from 'host';
- *     export async function greet(name: string): Promise<string> {
- *       const data = await fetch('/api/hello');
- *       return data + ', ' + name;
- *     }
- *   `
- * });
- * modules.set('host', {
- *   module: {
- *     fetch(url: string): Promise<string> {
- *       return fetch(url).then(r => r.text());
- *     }
- *   }
- * });
+ * const sandbox = createSandbox({
+ *   load: (name) => fs.readFileSync(name, 'utf-8'),
+ *   rpc:  (method, args) => backend[method](...args),
+ *   log:  (line) => console.log('[worker]', line),
+ * }, ['fs']);
  *
- * const sandbox = compileModule(modules, 'entry');
- * await sandbox.ready;
- * console.log(await sandbox.module.greet('world'));
- * sandbox.destroy();
+ * await sandbox.initialize();
+ *
+ * const result = await sandbox.execute('main.js', `
+ *   import { readFile } from 'fs';
+ *   const config = await readFile('./config.json');
+ *   export default JSON.parse(config);
+ * `);
  * ```
  */
-export function createModule<const TModules extends ReadonlyMap<string, Module>>(
-    modules: TModules,
-    entryModule: string,
-    workerCode?: string
-): SafeModule;
+export function createSandbox(
+    handlers: SandboxHandlers,
+    permissions: Permission[],
+    options?: SandboxOptions
+): Sandbox;
+
+// ── Internals (not exported, documented for completeness) ─────────────────
 
 /**
- * Like {@link createModule}, but returns the generated worker source code
- * as a string instead of creating a live worker.
+ * @internal — Not exported; internal bundler function.
  *
- * Useful for debugging, pre-generating worker blobs, or piping the code
- * through further tooling.
+ * Transform an ES module's source into a self-contained async function body.
  *
- * @param modules     - All modules that may be imported (keyed by specifier).
- * @param entryModule - The key of the entry module inside `modules`.
- * @param namespace   - Prefix that caches and indexedDBs are allow to operate with.
- * @param permissions - Allow worker to use some functions, everything is disabled by default.
- * @returns The complete worker JavaScript source (includes the lockdown
- *          runtime, the loader template, and the bundled module code).
+ * Top-level `import` → `await require(__moduleId, specifier)`
+ * Top-level `export` → assignments to `__exports`
+ * Everything else → verbatim copy.
+ *
+ * @param path - Module identifier (used for `__moduleId`).
+ * @param code - Raw ES module source.
+ * @returns Transpiled JavaScript string.
  */
-export function bundleModule(
-    modules: ReadonlyMap<string, Module>,
-    entryModule: string,
-    namespace: string,
-    permissions: ['wasm', 'net', 'storage']
-): string;
-
-/**
- * Thrown when a module cannot be parsed or a dependency cannot be resolved.
- *
- * The message always includes the offending module name when available.
- */
-export class ParseError extends Error {
-    readonly name: 'ParseError';
-
-    /**
-     * @param msg - Human-readable description of the problem.
-     * @param mod - The module specifier where the error occurred (optional).
-     */
-    constructor(msg: string, mod?: string);
-}
+// declare function bundleModule(path: string, code: string): string;

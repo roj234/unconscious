@@ -399,7 +399,7 @@ export function createJsonParser(onValue, {emitDelta, json5} = {}) {
  * @param {string} str
  * @return {any}
  */
-export const parseJsonLenient = (str) => {
+export const parseJson5 = (str) => {
 	const parser = createJsonParser(AS_IS, {json5: true});
 	try {
 		parser.write(str);

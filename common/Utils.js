@@ -10,95 +10,28 @@
  * @param {HTMLElement=document} element
  * @returns {HTMLElement | null}
  */
-function G(selector, element){return (element??document).querySelector(selector);}
+export const G = (selector, element) => (element ?? document).querySelector(selector);
 /**
  *
  * @param {string} selector
  * @param {HTMLElement=document} element
  * @returns {HTMLElement[]}
  */
-function A(selector, element){return Array.from((element??document).querySelectorAll(selector));}
-
-export {G, A}
+export const A = (selector, element) => Array.from((element ?? document).querySelectorAll(selector));
 
 //region 日期与时间
-const parseSubRx = {
-	"Y": ["(\\d{4})", "setFullYear"],
-	"y": "(\\d{2})",
 
-	"m": "(\\d{2})",
-	"n": "(\\d{1,2})",
-
-	"d": ["(\\d{2})", "setDate"],
-	"j": ["(\\d{1,2})", "setDate"],
-
-	"H": ["(\\d{2})", "setHours"],
-	"i": ["(\\d{2})", "setMinutes"],
-	"s": ["(\\d{2})", "setSeconds"],
-
-	"c": "(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}[+-]\\d{2}:\\d{2})",
-	"P": "([+-]\\d{2}:\\d{2})",
-	"O": "([+-]\\d{4})",
-	"U": "(\\d{0,20})"
-};
-
-const parseDate = function(pattern, date) {
-	var _times = [];
-	var id = 1;
-	pattern = pattern.replace(/\\?([a-zA-Z])/g, (t, s, i) => {
-		var px = parseSubRx[t];
-		if (px) {
-			_times.push({
-				i: id++,
-				type: t,
-				func: px.sort && px[1]
-			});
-			return px.sort ? px[0] : px;
-		}
-		return s;
-	});
-
-	var rx = new RegExp("^" + pattern + "$").exec(date);
-
-	if (rx == null) {
-		throw new Error("Format error, expecting " + pattern);
-	}
-
-	date = new Date(0);
-
-	var o = {};
-	for (var j = 0; j < _times.length; j++) {
-		var t = rx[_times[j].i];
-		if (_times[j].func)
-			date[_times[j].func](parseInt(t, 10));
-		else
-			o[_times[j].type] = t;
-	}
-
-	if (o.c !== undefined) {
-		return strToTimeV2("Y-m-dTH:i:sP", o.c);
-	} else if (o.U !== undefined) {
-		date.setTime(parseInt(o.U, 10) * 1000);
-	} else if (o.m !== undefined) {
-		date.setMonth(parseInt(o.m, 10) - 1);
-	} else if (o.n !== undefined) {
-		date.setMonth(parseInt(o.n, 10) - 1);
-	}
-
-	return date;
-}
-
-var txt_weekdays = "天一二三四五六".split("");
+const txt_weekdays = "天一二三四五六";
 const pad = (n, c) => String(n).padStart(c, "0");
 
-const formatDate = (format, stamp) => {
+export const formatDate = (format, stamp) => {
 	if (null === stamp) return '-';
-	var date = (null == stamp/*undefined*/ ? new Date() : new Date(stamp));
-	var fmt = {
+	const date = (null == stamp/*undefined*/ ? new Date() : new Date(stamp));
+	const fmt = {
 		// Year
 		// 闰年
 		L: () => {
-			var y = fmt.Y();
+			const y = fmt.Y();
 			return (0 === (y & 3) && (y % 1e2 || 0 === (y % 4e2))) ? 1 : 0;
 		},
 		// 2012
@@ -109,26 +42,21 @@ const formatDate = (format, stamp) => {
 		j: () => date.getDate(),
 		d: () => pad(fmt.j(), 2),
 		// Week
-		l: () => "星期" + txt_weekdays[fmt.w()],
+		l: () => "星期"+txt_weekdays[fmt.w()],
 		// 0-6星期
 		w: () => date.getDay(),
 		// 1-7
-		N: () => fmt.w() + 1,
+		N: () => fmt.w()+1,
 		// Month
-		n: () => date.getMonth() + 1,
+		n: () => date.getMonth()+1,
 		m: () => pad(fmt.n(), 2),
 		// 本月有几天
 		t: () => {
-			var n;
-			if ((n = date.getMonth() + 1) === 2) {
-				return 28 + fmt.L();
+			let n = date.getMonth()+1;
+			if (n === 2) {
+				return 28+fmt.L();
 			} else {
-				n = 0 !== (n & 1);
-				if (n && n < 8 || !n && n > 7) {
-					return 31;
-				} else {
-					return 30;
-				}
+				return (!!(n & 1)) === n < 8 ? 31 : 30;
 			}
 		},
 		// Time
@@ -145,18 +73,17 @@ const formatDate = (format, stamp) => {
 		s: () => pad(date.getSeconds(), 2),
 		// timezone offset 2
 		O: () => {
-			var t = pad(Math.abs(date.getTimezoneOffset() / 60 * 100), 4);
-			if (date.getTimezoneOffset() > 0) t = "-" + t;
-			else t = "+" + t;
-			return t;
+			const tzoff = date.getTimezoneOffset();
+			let t = pad(Math.abs(tzoff / 60 * 100), 4);
+			return (tzoff > 0 ? "-" : "+")+t;
 		},
 		// timezone offset
 		P: () => {
-			var tzoff = fmt.O();
-			return (tzoff.slice(0, 3) + ":" + tzoff.slice(3, 2));
+			const tzoff = fmt.O();
+			return (tzoff.slice(0, 3)+":"+tzoff.slice(3, 2));
 		},
 		// UTC
-		c: () => fmt.Y() + "-" + fmt.m() + "-" + fmt.d() + "T" + fmt.H() + ":" + fmt.i() + ":" + fmt.s() + fmt.P(),
+		c: () => fmt.Y()+"-"+fmt.m()+"-"+fmt.d()+"T"+fmt.H()+":"+fmt.i()+":"+fmt.s()+fmt.P(),
 		// Unix
 		U: () => Math.round(date.getTime() / 1000)
 	};
@@ -164,63 +91,45 @@ const formatDate = (format, stamp) => {
 	return format.replace(/\\?([a-zA-Z])/g, (t, s) => t === s && fmt[s] ? fmt[s]() : s);
 };
 
-const tms = {
-	60: " 秒前",
-	1800: " 分前",
-	3600: "半小时前",
-	86400: " 小时前",
-	604800: " 天前"
-};
-const factor = {
-	60: 60,
-	1800: 0,
-	3600: 60,
-	86400: 24,
-	604800: 7
-};
+const times = [60, 1800, 3600, 86400, 604800];
+const names = [" 秒", " 分", "半小时", " 小时", " 天"];
+const factors = [60, 0, 60, 24, 7];
 
-function prettyTime(timestamp) {
+export const prettyTime = timestamp => {
 	if (timestamp === 0) return "-";
 
-	var timeNow = Date.now();
-	var diff = Math.abs((timeNow - timestamp) / 1000);
+	const now = Date.now();
+	const diff = Math.abs((now - timestamp) / 1000);
 	if (diff < 1) return "现在";
-	var val = diff;
-	var flag = false;
-	for (var i in tms) {
-		if (diff < i) {
-			var str = flag ? tms[i] : (Math.round(val) + tms[i]);
-			if (timeNow < timestamp) str = str.replace("前", "后");
+
+	let val = diff;
+	let factor = 1;
+	for (let i = 0; i < times.length; i++) {
+		if (diff < times[i]) {
+			let str = factor ? (Math.round(val) + names[i]) : names[i];
+			str += now < timestamp ? '后' : '前';
 			return str;
 		}
-		if (factor[i] !== 0) {
-			val /= factor[i];
-			flag = false;
-		} else {
-			flag = true;
+		if ((factor = factors[i])) {
+			val /= factors[i];
 		}
 	}
 	return formatDate("Y-m-d H:i:s", timestamp);
-}
+};
 
-export {formatDate, prettyTime, parseDate};
 //endregion
 
-const SCALE = ["B", "KB", "MB", "GB", "TB", "PB", "EB"];
-function formatSize(size) {
-	size = parseInt(size);
+const SCALE = "KMGTPE";
+export const formatSize = size => {
 	if (isNaN(size)) return "NaN";
-	var cap = 1n;
-	var i = 0;
-	for (;i < SCALE.length;) {
-		var next = cap << 10n;
+	let cap = 1n;
+	let i = 0;
+	while (i < SCALE.length) {
+		const next = cap << 10n;
 		if (next > size) break;
-
 		cap = next;
 		i++;
 	}
 
-	return (size / parseFloat(cap)).toFixed(i ? 2 : 0) + SCALE[i];
-}
-
-export {formatSize};
+	return (size / parseFloat(cap)).toFixed(i ? 2 : 0)+(SCALE[i-1]||'')+'B';
+};

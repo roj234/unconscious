@@ -13,8 +13,15 @@ DEC[EQ] = 0;
 export const createBase64Encoder = (urlSafe, bufferCapacity = 1024) => {
 	if (bufferCapacity < 8) bufferCapacity = 8;
 	const buf = new Uint8Array(bufferCapacity);
-	const tab = urlSafe ? B64_URL_TAB : B64_TAB;
-	const pad = urlSafe ? 0 : EQ;
+	let tab, pad;
+	if (typeof urlSafe !== 'number') {
+		tab = urlSafe ? B64_URL_TAB : B64_TAB;
+		pad = urlSafe ? 0 : EQ;
+	} else {
+		tab = (urlSafe&1) ? B64_URL_TAB : B64_TAB;
+		pad = (urlSafe&2) ? EQ : 0;
+	}
+
 	let tail = 0;
 
 	/**
@@ -63,12 +70,18 @@ export const createBase64Encoder = (urlSafe, bufferCapacity = 1024) => {
 		if (tail > 0) {
 			const a = buf[0];
 			const b = tail > 1 ? buf[1] : 0;
-			const c = tail === 2;
 
 			buf[outPtr++] = tab[a >> 2];
 			buf[outPtr++] = tab[((a & 0x03) << 4) | (b >> 4)];
-			if (pad || c) buf[outPtr++] = c ? tab[(b & 0x0f) << 2] : pad;
-			if (pad) buf[outPtr++] = pad;
+			if (tail === 3) {
+				const c = buf[2];
+				buf[outPtr++] = tab[(b & 0x0f) << 2 | c >> 6];
+				buf[outPtr++] = tab[c & 0x3f];
+			} else {
+				const c = tail === 2;
+				if (pad || c) buf[outPtr++] = c ? tab[(b & 0x0f) << 2] : pad;
+				if (pad) buf[outPtr++] = pad;
+			}
 
 			tail = 0;
 		}
@@ -85,10 +98,10 @@ export const createBase64Decoder = (bufferCapacity = 1024) => {
 	let tail = 0;
 
 	const emit4 = () => {
-		const v0 = buf[0],
-			v1 = buf[1],
-			v2 = buf[2],
-			v3 = buf[3];
+		const v0 = DEC[buf[0]],
+			v1 = DEC[buf[1]],
+			v2 = DEC[buf[2]],
+			v3 = DEC[buf[3]];
 
 		const n = v0 << 18 | v1 << 12 | v2 << 6 | v3;
 		//if (n < 0) throw new Error("Invalid chars found");
@@ -108,7 +121,7 @@ export const createBase64Decoder = (bufferCapacity = 1024) => {
 		let outputPtr = 0;
 
 		if (tail) {
-			while (tail < 4 && inputPtr < inputLen) buf[tail++] = DEC[input.charCodeAt(inputPtr++)];
+			while (tail < 4 && inputPtr < inputLen) buf[tail++] = input.charCodeAt(inputPtr++);
 			if (tail < 4) return;
 			emit4();
 			outputPtr = 3;
@@ -134,16 +147,20 @@ export const createBase64Decoder = (bufferCapacity = 1024) => {
 			outputPtr = 0;
 		}
 
-		while (inputPtr < inputLen) buf[tail++] = DEC[input.charCodeAt(inputPtr++)];
+		while (inputPtr < inputLen) buf[tail++] = input.charCodeAt(inputPtr++);
 	}
 
 	const finish = () => {
-		const t = tail;
+		let t = tail;
 		if (!t) return buf.subarray(0, 0);
-		if (t === 1) throw new Error("Invalid padding");
-		buf.fill(EQ, t, 4);
+		while (t && EQ === buf[t-1]) t--;
+
+		const pad = tail - t;
+		if (pad > 2) throw new Error("Invalid padding");
+
+		buf.fill(EQ, tail, 4);
 		emit4();
-		return buf.subarray(0, t - 1);
+		return buf.subarray(0, pad===0?t-1:pad===2?1:2);
 	};
 
 	return {decode, finish};
@@ -171,15 +188,15 @@ export const base64DecodeToUint8Array = (input, bufferCapacity = 4096) => {
 	const fullOutLen = ((input.length + 3) / 4 | 0) * 3;
 	const buffer = new Uint8Array(fullOutLen);
 
-	const encoder = createBase64Decoder(Math.min(fullOutLen, bufferCapacity));
-	const generator = encoder.decode(input);
+	const decoder = createBase64Decoder(Math.min(fullOutLen, bufferCapacity));
+	const generator = decoder.decode(input);
 
 	let index = 0;
 	for (const chunk of generator) {
 		buffer.set(chunk, index);
 		index += chunk.length;
 	}
-	const chunk = encoder.finish();
+	const chunk = decoder.finish();
 	buffer.set(chunk, index);
 	index += chunk.length;
 	return buffer.subarray(0, index);
@@ -191,14 +208,14 @@ export const base64DecodeToString = (input, charset, bufferCapacity = 4096) => {
 	if (typeof input !== 'string') input = ASCII_DECODER.decode(input);
 	const fullOutLen = ((input.length + 3) / 4 | 0) * 3;
 
-	const encoder = createBase64Decoder(Math.min(fullOutLen, bufferCapacity));
-	const generator = encoder.decode(input);
+	const decoder = createBase64Decoder(Math.min(fullOutLen, bufferCapacity));
+	const generator = decoder.decode(input);
 	const dec = new TextDecoder(charset);
 
 	let str = '';
 	for (const chunk of generator) {
 		str += dec.decode(chunk, streamOptions);
 	}
-	str += dec.decode(encoder.finish());
+	str += dec.decode(decoder.finish());
 	return str;
 }

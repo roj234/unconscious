@@ -7,9 +7,9 @@ export type JsonPath = (string | number)[];
  */
 export interface StreamJsonParserOptions {
     /**
-     * 当解析字符串未完成时，控制回调是否传递完整的已解析字符串前缀（prefix），
+     * 当解析字符串未完成时，是否回调完整的已解析字符串前缀（prefix），
      * 还是仅传递新增部分（delta）。
-     * 无论该值如何，当 `isPartial` 为 false 时，`value` 总是完整字符串。
+     * 当 `isPartial` 为 false 时，`value` 总是完整字符串。
      * @default false
      */
     emitDelta?: boolean;
@@ -21,7 +21,7 @@ export interface StreamJsonParserOptions {
 }
 
 /**
- * 当解析到新值或字符串片段时的回调函数签名。
+ * 解析到新值和字符串片段时的回调函数。
  * @param path - 当前值所在的路径，元素为键名（字符串）或数组索引（数字）。
  * @param value - 解析到的值。当 `isPartial` 为 true 时，value 为字符串片段内容。
  * @param isPartial - 是否为部分字符串更新。为 true 时表示 value 仅是字符串的一部分。
@@ -77,4 +77,4 @@ export function createJsonParser(
 /**
  * 宽容解析JSON（例如用户输入）
  */
-export function parseJsonLenient(str: string): any;
+export function parseJson5(str: string): any;

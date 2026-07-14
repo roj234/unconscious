@@ -21,24 +21,25 @@ const K = new Uint32Array([
 ]);
 
 export class SHA256 {
-	constructor() {
-		const buf = new Uint8Array(64);
-		this.buffer = buf;
-		this.view = new DataView(buf.buffer);
-		this.pos = this.lenH = this.lenL = 0;
+	#buffer = new Uint8Array(64);
+	#view = new DataView(this.#buffer.buffer);
+	#pos = 0;
+	#lenH = 0;
+	#lenL = 0;
+	#state = new Uint32Array([
+		0x6a09e667,
+		0xbb67ae85,
+		0x3c6ef372,
+		0xa54ff53a,
+		0x510e527f,
+		0x9b05688c,
+		0x1f83d9ab,
+		0x5be0cd19
+	]);
+	#W = new Uint32Array(64);
+	#result;
 
-		this.state = new Uint32Array([
-			0x6a09e667,
-			0xbb67ae85,
-			0x3c6ef372,
-			0xa54ff53a,
-			0x510e527f,
-			0x9b05688c,
-			0x1f83d9ab,
-			0x5be0cd19
-		]);
-		this.W = new Uint32Array(64);
-	}
+	constructor() {}
 
 	/**
 	 * 追加数据
@@ -46,8 +47,12 @@ export class SHA256 {
 	 * @returns {this}
 	 */
 	update(data) {
-		let {_hash, pos, buffer, lenH, lenL} = this;
-		if (_hash) throw new Error('实例已完成');
+		let result = this.#result,
+			buffer = this.#buffer,
+			pos = this.#pos,
+			lenH = this.#lenH,
+			lenL = this.#lenL;
+		if (result) throw new Error('实例已完成');
 
 		// 字符串统一转为 Uint8Array
 		if (typeof data === 'string') {
@@ -65,7 +70,7 @@ export class SHA256 {
 			offset += toCopy;
 
 			if (pos === 64) {
-				this._processBlock();
+				this.#processChunk();
 
 				lenL = (lenL + 512) >>> 0;
 				if (lenL < 512) {
@@ -75,9 +80,9 @@ export class SHA256 {
 			}
 		}
 
-		this.pos = pos;
-		this.lenL = lenL;
-		this.lenH = lenH;
+		this.#pos = pos;
+		this.#lenL = lenL;
+		this.#lenH = lenH;
 		return this;
 	}
 
@@ -87,9 +92,15 @@ export class SHA256 {
 	 * @returns {string|ArrayBuffer}
 	 */
 	digest(format ) {
-		let {buffer, pos, view, _hash, lenH, lenL, state} = this;
+		let result = this.#result,
+			buffer = this.#buffer,
+			view = this.#view,
+			pos = this.#pos,
+			lenH = this.#lenH,
+			lenL = this.#lenL,
+			state = this.#state;
 
-		if (!_hash) {
+		if (!result) {
 			const bits = pos * 8;
 
 			buffer[pos] = 0x80;
@@ -97,7 +108,7 @@ export class SHA256 {
 
 			// 若剩余空间不足 8 字节存放长度，则处理该块后再开新块
 			if (pos >= 56) {
-				this._processBlock();
+				this.#processChunk();
 				buffer.fill(0, 0, 56);
 			}
 
@@ -108,26 +119,26 @@ export class SHA256 {
 			view.setUint32(56, lenH + carry);
 			view.setUint32(60, sumLow);
 
-			this._processBlock();
+			this.#processChunk();
 
 			const out = new Uint8Array(state.buffer);
 			const outView = new DataView(state.buffer);
 			for (let i = 0; i < 8; i++) {
 				outView.setUint32(i * 4, state[i]);
 			}
-			_hash = this._hash = out;
+			result = this.#result = out;
 		}
 
 		if (format === 'hex') {
 			let hex = '';
 			for (let i = 0; i < 32; i++) {
-				const byte = _hash[i];
+				const byte = result[i];
 				hex += HEX_CHARS[(byte >>> 4)] + HEX_CHARS[(byte & 0xf)];
 			}
 			return hex;
 		} else if (format === 'arraybuffer') {
 		}
-		return _hash.buffer;
+		return result.buffer;
 	}
 
 	toString() {
@@ -135,8 +146,8 @@ export class SHA256 {
 	}
 
 	/** 处理一个 64 字节块，更新内部状态 */
-	_processBlock() {
-		const {W, view, state} = this;
+	#processChunk() {
+		const W = this.#W, view = this.#view, state = this.#state;
 
 		for (let i = 0; i < 16; i++) {
 			W[i] = view.getUint32(i * 4);

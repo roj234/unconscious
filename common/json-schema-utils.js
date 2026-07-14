@@ -1,5 +1,5 @@
 import {deepEqual} from "./deepEqual.js";
-import {isPureObject} from "unconscious";
+import {isPureObject} from "../runtime_shared.js";
 
 // llama.cpp的value替换为 type: SCHEMA_VALUES
 const SCHEMA_VALUES = ["object", "array", "string", "number", "boolean", "null"];
@@ -152,16 +152,16 @@ export function compileSchema(input, openAIStrict) {
 					if (own["additionalProperties"] == null)
 						own["additionalProperties"] = false;
 				}
-			} else
+			}
 
-			if (key === "const") {
+			else if (key === "const") {
 				delete own[key];
 				own["enum"] = [val];
 				own["type"] = typeof val;
 
-			} else
+			}
 
-			if (key === "enum") {
+			else if (key === "enum") {
 				if (own["type"] == null) {
 					const set = new Set;
 					val.forEach(item => set.add(typeof item));
@@ -170,10 +170,14 @@ export function compileSchema(input, openAIStrict) {
 					if (!result.length) throw new Error("enum must nonempty");
 				}
 			}
+
+			else if (key === "required" && val === true) {
+				own[key] = Object.keys(own.properties);
+			}
 		}
 
 		// 尝试提取公共前缀
-		if (key === "oneOf" || key === "anyOf") {
+		/*if (key === "oneOf" || key === "anyOf") {
 			const [first] = val;
 			if (typeof first !== 'object' || first === null) continue;
 
@@ -207,7 +211,7 @@ export function compileSchema(input, openAIStrict) {
 
 				delete own[key];
 			}
-		}
+		}*/
 	}
 	return input;
 }

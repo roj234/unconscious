@@ -1,10 +1,4 @@
-
-export declare namespace JSX {
-    interface Element extends HTMLElement {}
-    interface IntrinsicElement {
-
-    }
-}
+import "./jsx";
 
 //region micro模块包含的部分
 export const PASSIVE_EVENT: {passive: true};
@@ -14,9 +8,13 @@ export const UTF8_TEXT_ENCODER: TextEncoder;
 export const UTF8_TEXT_DECODER: TextDecoder;
 
 /**
+ * 编译器消除ref警告的黑科技
+ */
+export function ref(): Element;
+
+/**
  * 开发时获取带名称的符号
  * @param name 符号名称
- * @returns {symbol}
  */
 export function debugSymbol(name: string): symbol;
 

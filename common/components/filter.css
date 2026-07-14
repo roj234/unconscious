@@ -12,12 +12,16 @@
 
 .filter-label {
     font-size: 13px;
-    color: var(--muted);
+    color: var(--text);
     margin-bottom: 8px;
     display: flex;
     align-items: center;
     gap: 8px;
     white-space: pre-line;
+
+    &.secondary {
+        color: var(--muted);
+    }
 }
 
 .choice-scroll {
@@ -64,24 +68,27 @@
         outline: none;
         box-shadow: 0 0 0 2px var(--focus);
     }
+}
 
+:has(> .tooltip) {
     position: relative;
-    & .tooltip {
-        display: none;
-        position: absolute;
-        top: 0;
-        left: 50%;
-        transform: translate(-50%,calc(-100% - 8px));
-        line-height: normal;
-        width: max-content;
-        padding: 0.25rem 0.5rem;
-        background: rgba(0,0,0,0.8);
-        color: #E6EAF3;
-        border-radius: 4px;
-    }
-    &:hover .tooltip {
-        display: block;
-    }
+}
+:not(:hover) .tooltip {
+    display: none;
+}
+.tooltip {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translate(-50%,calc(-100% - 8px));
+    line-height: normal;
+    width: max-content;
+    padding: 0.25rem 0.5rem;
+    background: rgba(0,0,0,0.8);
+    color: #E6EAF3;
+    border-radius: 4px;
+    white-space: pre-line;
+    text-align: left;
 }
 
 /* 输入框 + 警告 */
@@ -99,28 +106,30 @@
     padding: 0 12px;
     border-radius: 10px;
     font-size: 14px;
-}
-.text-input::placeholder { color: var(--muted); }
-.text-input:focus {
-    outline: none;
-    border-color: var(--focus);
-    box-shadow: 0 0 0 2px rgba(122,178,255,0.25);
-}
-.text-input.invalid {
-    border-color: var(--error);
-    box-shadow: 0 0 0 2px rgba(255,107,107,0.18);
+
+    &::placeholder { color: var(--muted); }
+    &:focus {
+        outline: none;
+        border-color: var(--focus);
+        box-shadow: 0 0 0 2px rgba(122,178,255,0.25);
+    }
+    &.invalid {
+        border-color: var(--error);
+        box-shadow: 0 0 0 2px rgba(255,107,107,0.18);
+    }
 }
 
 textarea.text-input {
-    height: 68px;
+    height: 64px;
     resize: none;
     white-space: pre-wrap;
     font-size: 14px;
     padding: 8px 16px;
     transition: all 0.15s ease;
-}
-textarea.text-input:not(:focus) {
-    overflow: hidden;
+
+    &:not(:focus) {
+        overflow: hidden;
+    }
 }
 
 .input-warning {
@@ -169,24 +178,25 @@ textarea.text-input:not(:focus) {
     width: 100%;
     background: transparent;
     pointer-events: none;
-}
-.range-slider input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    pointer-events: auto;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: #fff;
-    border: 2px solid var(--accent);
-    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
-}
-.range-slider input[type="range"]::-moz-range-thumb {
-    pointer-events: auto;
-    width: 16px; height: 16px;
-    border-radius: 50%;
-    background: #fff;
-    border: 2px solid var(--accent);
+
+    &::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        pointer-events: auto;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #fff;
+        border: 2px solid var(--accent);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    }
+    &::-moz-range-thumb {
+        pointer-events: auto;
+        width: 16px; height: 16px;
+        border-radius: 50%;
+        background: #fff;
+        border: 2px solid var(--accent);
+    }
 }
 .range-values {
     display: flex;
@@ -194,18 +204,20 @@ textarea.text-input:not(:focus) {
     gap: 8px;
     color: var(--muted);
     font-size: 12px;
-}
-.range-values input[type="number"] {
-    width: 80px;
-    height: 30px;
-    background: var(--chip-bg);
-    border: 1px solid transparent;
-    color: var(--text);
-    border-radius: 8px;
-    padding: 0 8px;
-}
-.range-values input[type="number"]:focus {
-    outline: none;
-    border-color: var(--focus);
-    box-shadow: 0 0 0 2px rgba(122,178,255,0.25);
+
+    & input[type="number"] {
+        min-width: 80px;
+        height: 30px;
+        background: var(--chip-bg);
+        border: 1px solid transparent;
+        color: var(--text);
+        border-radius: 8px;
+        padding: 0 8px;
+
+        &:focus {
+            outline: none;
+            border-color: var(--focus);
+            box-shadow: 0 0 0 2px rgba(122,178,255,0.25);
+        }
+    }
 }

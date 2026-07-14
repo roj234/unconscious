@@ -199,16 +199,16 @@ export async function makeBrotliZip(zipWriter, folderPath, filter) {
 			if (entry.isDirectory()) {
 				await walk(fullPath);
 			} else if (entry.isFile()) {
-				const compress = filter(relPath);
+				const compression = filter(relPath);
 				// 明确返回 false / null / undefined 则跳过
-				if (compress === false || compress == null) continue;
+				if (compression === false || compression == null) continue;
 
 				const stats = await stat(fullPath);
 				const content = await readFile(fullPath);
 				// Buffer 继承自 Uint8Array，可直接传入
 				promises.push(zipWriter.add(relPath, content, {
-					timestamp: stats.mtimeMs,
-					compress,
+					lastModified: stats.mtimeMs,
+					compression,
 				}));
 			}
 			// 符号链接、socket 等其他类型自动忽略

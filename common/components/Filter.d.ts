@@ -1,4 +1,4 @@
-import {JSX, Reactive} from "unconscious";
+import {Reactive} from "unconscious";
 
 // Config 类型定义
 export interface Config {
@@ -25,17 +25,15 @@ export interface FilterProps {
     choices: Record<string, any> | Reactive<Record<string, any>>; // 默认选项值，默认空数组 []
     onChange?: (value: string, data: any, choices: Record<string, any>) => void | string; // 回调函数
     /**
-     * 显示标题和说明文本（否则仅显示名称）
-     */
-    showTitle?: boolean;
-    /**
      * 是否用 placeholder 填充 textbox（默认 true）
      * @default true
      */
     fillPlaceholder?: boolean;
 }
 
-export function Filter(props: FilterProps): JSX.Element & {
-    sync: (initial: boolean, noEmit: boolean) => void;
-    hasError: () => boolean;
-};
+export interface FilterInstance extends JSX.Element {
+    sync: (readFromChoices?: boolean = false, skipEmit?: boolean = false) => void;
+    hasError: () => JSX.Element;
+}
+
+export default function Filter(props: FilterProps): FilterInstance;

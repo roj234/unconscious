@@ -48,9 +48,21 @@ export interface ZipWriterInstance {
     ): Promise<void>;
 
     /**
+     * Copy a compressed entry to the ZIP archive.
+     * @param name
+     * @param reader
+     * @param entry
+     */
+    add(
+        name: string,
+        reader: ZipReaderInstance,
+        entry: ZipEntry
+    ): Promise<void>;
+
+    /**
      * Finalize the archive and return a `Blob` representing the complete ZIP file.
      */
-    finish(): Blob;
+    finish(mimeType = 'application/zip'): Blob;
 }
 
 /**
@@ -65,11 +77,11 @@ export interface ZipEntry {
     /**
      * Compression method: 0 = Store, 8 = Deflate.
      */
-    method: number;
+    compression: number;
     /**
      * CRC32 checksum of the uncompressed content.
      */
-    crc: number;
+    crc32: number;
     /**
      * Size of the compressed data in bytes.
      */
@@ -122,6 +134,8 @@ export interface ZipReaderInstance {
  *
  * In a browser, pass a `Blob` object.
  * In Node.js, pass a `Buffer`.
+ *
+ * 注意：若传入的ZIP数据不符合规范（Unsorted_CD），那么行为是未定义的。
  *
  * @returns A promise that resolves to a reader instance.
  */

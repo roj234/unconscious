@@ -2,26 +2,13 @@ import {AS_IS, isReactive, preserveState, unconscious} from "unconscious";
 import './filter.css';
 
 /**
- * @typedef {Object} Config
- * @property {string} id
- * @property {string} name
- * @property {string} type
- */
-
-/**
- * @typedef {HTMLDivElement} Filter
- * @property {(initial: boolean=false) => void} sync
- */
-
-/**
  * @param {Config[]} config 配置列表
- * @param {Record<string, any>} choices={} 选项值
- * @param {function(string, any, Record<string, any>): void|string} onChange=null 回调
- * @param {boolean=false} showTitle
- * @param {boolean=true} fillPlaceholder
- * @return {Filter}
+ * @param {Record<string, any> | Reactive<Record<string, any>>} [choices] 默认选项值，默认空数组
+ * @param {boolean} [fillPlaceholder=true] 是否用 placeholder 填充 textbox
+ * @param {(value: string, data: any, choices: Record<string, any>) => void | string} onChange 回调函数
+ * @return {FilterInstance}
  */
-export function Filter({config, choices, onChange, showTitle, fillPlaceholder = true}) {
+export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 	config.forEach(item => {
 		const {id, type} = item;
 
@@ -40,6 +27,14 @@ export function Filter({config, choices, onChange, showTitle, fillPlaceholder = 
 						clamp(Number(init[1] ?? max))
 					].sort((a, b) => a - b)
 					: [min, max];
+			}
+			break;
+			case 'number': {
+				const min = item.min, max = item.max;
+				const clamp = (v) => Math.max(min, Math.min(max, v));
+
+				const init = choices[id];
+				choices[id] = clamp(Number.isFinite(init) ? init : item.default);
 			}
 			break;
 			case "radio":
@@ -105,7 +100,7 @@ export function Filter({config, choices, onChange, showTitle, fillPlaceholder = 
 			case 'radio': {
 				const required = !!item.required;
 				const handler = ({target: btn}) => {
-					let value = item.choices[btn.textContent];
+					let value = item.choices[btn.firstChild.textContent];
 
 					value = load(state[id]) === value ? undefined : value;
 					if (value === undefined && required) return;
@@ -139,7 +134,7 @@ export function Filter({config, choices, onChange, showTitle, fillPlaceholder = 
 							return <button className={active ? 'chip active' : 'chip'} _val={value}
 										   type='button' role='radio' aria-checked={active}
 										   title={title?.[label]}
-							>{label}{showTitle && title?.[label] && <div className={"tooltip"}>{title[label]}</div>}</button>;
+							>{label}{title?.[label] && <div className={"tooltip"}>{title[label]}</div>}</button>;
 						})}
 				</div>;
 
@@ -153,7 +148,7 @@ export function Filter({config, choices, onChange, showTitle, fillPlaceholder = 
 			break;
 			case 'multiple': {
 				const handler = ({target: btn}) => {
-					const value = item.choices[btn.textContent];
+					const value = item.choices[btn.firstChild.textContent];
 
 					let selectedNow;
 					if (id) {
@@ -194,7 +189,7 @@ export function Filter({config, choices, onChange, showTitle, fillPlaceholder = 
 							return (<button className={selected ? 'chip active' : 'chip'} type='button' name={value}
 											role='checkbox' aria-checked={selected}
 											title={title?.[label]}
-									>{label}{showTitle && title?.[label] && <div className={"tooltip"}>{title[label]}</div>}</button>);
+									>{label}{title?.[label] && <div className={"tooltip"}>{title[label]}</div>}</button>);
 						})}
 				</div>;
 
@@ -286,32 +281,34 @@ export function Filter({config, choices, onChange, showTitle, fillPlaceholder = 
 				const clamp = (v) => Math.max(min, Math.min(max, v));
 				const pct = (v) => ((v - min) / (max - min)) * 100;
 
-				const trackFill = <div className='range-track-fill'></div>;
+				const trackFill = <div className='range-track-fill' />;
 
-				const slider = <input type='range' min={min} max={max} step={step} />;
-				const input = <input type='number' min={min} max={max} step={step} />;
-
+				let isZero;
 				const updateUI = () => {
 					const myMin = slider.valueAsNumber;
-					input.valueAsNumber = myMin;
+					if (input.value !== String(myMin))
+						input.valueAsNumber = myMin;
+					isZero = !myMin;
 					trackFill.style.width = `${pct(myMin)}%`;
 				};
 				const syncState = () => {
-					const newValue = slider.valueAsNumber;
+					let newValue = slider.valueAsNumber;
+					if (step !== 1) newValue = Math.round(newValue / step) * step;
 					emit(id, newValue);
 					state[id] = newValue;
 				};
 
 				const limitMax = e => {
-					slider.valueAsNumber = clamp(Number(e.target.value));
+					const value = e.target.value;
+					slider.value = clamp(Number(isZero && e.inputType === 'insertText' ? value.replace("0", "") : value));
 					updateUI();
 				};
 
-				slider.addEventListener('input', limitMax);
-				input.addEventListener('input', limitMax);
-
-				slider.addEventListener('change', syncState);
-				input.addEventListener('change', syncState);
+				const slider = <input type='range' min={min} max={max} step={step>1?1:step} onInput={step !== 1 ? () => {
+					slider.value = Math.round(slider.valueAsNumber / step) * step;
+					updateUI();
+				} : updateUI} onChange={syncState} />;
+				const input = <input type='number' min={min} max={max} step={step} onInput={limitMax} onChange={syncState} />;
 
 				row = <div className='range-wrap'>
 					<div className='range-slider'>
@@ -337,38 +334,50 @@ export function Filter({config, choices, onChange, showTitle, fillPlaceholder = 
 				const clamp = (v) => Math.max(min, Math.min(max, v));
 				const pct = (v) => ((v - min) / (max - min)) * 100;
 
+				let minIsZero, maxIsZero;
 				const updateUI = () => {
 					const myMin = r1.valueAsNumber;
 					const myMax = r2.valueAsNumber;
 
-					nMin.valueAsNumber = myMin;
-					nMax.valueAsNumber = myMax;
+					if (nMin.value !== String(myMin))
+						nMin.valueAsNumber = myMin;
+					if (nMax.value !== String(myMax))
+						nMax.valueAsNumber = myMax;
+					minIsZero = !myMin;
+					maxIsZero = !myMax;
 
 					const left = pct(myMin), right = pct(myMax);
 					trackFill.style.left = `${left}%`;
 					trackFill.style.width = `${right - left}%`;
 				};
 				const syncState = () => {
-					const newValue = [r1.valueAsNumber, r2.valueAsNumber];
+					let newValue = [r1.valueAsNumber, r2.valueAsNumber];
+					if (step !== 1) newValue = newValue.map(v => Math.round(v / step) * step);
 					emit(id, newValue);
 					state[id] = newValue;
 				};
 
 				const limitMax = e => {
-					let v = clamp(Number(e.target.value));
-					r1.valueAsNumber = Math.min(v, r2.valueAsNumber);
+					let value = clamp(Number(e.target.value));
+					r1.value = Math.min(Number(minIsZero && e.inputType === 'insertText' ? value.replace("0", "") : value), r2.valueAsNumber);
 					updateUI();
 				};
 				const limitMin = e => {
-					let v = clamp(Number(e.target.value));
-					r2.valueAsNumber = Math.max(v, r1.valueAsNumber);
+					let value = clamp(Number(e.target.value));
+					r2.value = Math.max(Number(maxIsZero && e.inputType === 'insertText' ? value.replace("0", "") : value), r1.valueAsNumber);
 					updateUI();
 				};
 
-				const trackFill = <div className='range-track-fill'></div>;
+				const trackFill = <div className='range-track-fill' />;
 
-				const r1 = <input type='range' min={min} max={max} step={step} onInput={limitMax} onChange={syncState} />;
-				const r2 = <input type='range' min={min} max={max} step={step} onInput={limitMin} onChange={syncState} />;
+				const r1 = <input type='range' min={min} max={max} step={step>1?1:step} onInput={step !== 1 ? () => {
+					r1.value = Math.round(r1.valueAsNumber / step) * step;
+					updateUI();
+				} : updateUI} onChange={syncState} />;
+				const r2 = <input type='range' min={min} max={max} step={step>1?1:step} onInput={step !== 1 ? () => {
+					r2.value = Math.round(r2.valueAsNumber / step) * step;
+					updateUI();
+				} : updateUI} onChange={syncState} />;
 
 				const nMin = <input type='number' min={min} max={max} onInput={limitMax} onChange={syncState} />;
 				const nMax = <input type='number' min={min} max={max} onInput={limitMin} onChange={syncState} />;
@@ -396,13 +405,10 @@ export function Filter({config, choices, onChange, showTitle, fillPlaceholder = 
 
 		const isString = typeof id === "string";
 		return (<div className="filter-row" data-id={isString ? id : undefined} _key={id}>
-			{name && (!showTitle
-				? <div className="filter-label" title={typeof title === "string" ? title : undefined}>{name}</div>
-				: <>
+			{name && (<>
 					<div className="filter-label">{name}</div>
-					{typeof title === "string" ? <div className="filter-label tooltip">{title}</div> : undefined}
-				</>
-			)}
+					{typeof title === "string" && <div className="filter-label secondary">{title}</div>}
+				</>)}
 			{row}
 		</div>);
 	};

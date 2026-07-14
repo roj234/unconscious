@@ -2,13 +2,13 @@
  * safe-worker
  * Safe ESM WebWorker sandbox in 10 KiB (minified).
  */
-
-import loader_template from "./worker-setup.js?minjs";
+import SandboxWorker from './worker/sandbox.js?worker';
 
 /**
  * @typedef {Object} ModuleResolver
  * @property {string} exports
- * @property {string|null} runtimeImportFunc
+ * @property {(output: string[], tokens: string[]) => void} [runtimeImportFunc]
+ * @property {(output: string[], tokens: string[]) => void} [importMeta]
  * @property {(name?: string) => string} nextTmp
  * @property {(name: string, options?: { type: string }) => string} resolveModule
  */
@@ -23,7 +23,7 @@ export class ParseError extends Error {
 //region Tokenizer & Transformer
 // Character classifiers
 const
-	SPACE = /\s/,
+	SPACE = new Set(' \t\r\n'),
 	IDENT_START = /[a-zA-Z_$]/,
 	IDENT_PART = /[a-zA-Z\d_$]/,
 	DIGIT = /\d/,
@@ -61,16 +61,31 @@ function parseModule(code, ctx) {
 	/** @type {null|RegExp} */
 	let inStmt;
 
-	const parseDescents = (re) => {
+	let prevTokenIndex = 0, prevIndex = 0;
+
+	const parseDescents = (re, initDepth = 0) => {
 		const outLen = tokens.length;
 		const prevInStmt = inStmt;
 		const prevDepth = depth;
 		inStmt = re;
-		depth = 0;
+		depth = initDepth;
 		parse();
 		depth = prevDepth;
 		inStmt = prevInStmt;
 		return outLen;
+	};
+
+	const beforeMutate = (start) => {
+		if (inStmt) return;
+		tokens.length = prevTokenIndex;
+		const str = code.slice(prevIndex, start);
+		if (str) tokens.push(str);
+	};
+
+	const afterMutate = () => {
+		if (inStmt) return;
+		prevTokenIndex = tokens.length;
+		prevIndex = pos;
 	};
 
 	const parse = () => {
@@ -78,17 +93,25 @@ function parseModule(code, ctx) {
 			const ch = code[pos];
 
 			// ---- Whitespace ----
-			if (SPACE.test(ch)) { pos++; continue; }
+			if (SPACE.has(ch)) { pos++; continue; }
 
 			// ---- Comment ----
 			if (ch === '/') {
 				if (code[pos + 1] === '/') {
 					pos = code.indexOf('\n', pos+1)+1;
+					if (pos < 1) {
+						pos = len;
+						break;
+					}
 					continue;
 				}
 
 				if (code[pos + 1] === '*') {
 					pos = code.indexOf('*/', pos+1)+2;
+					if (pos < 2) {
+						pos = len;
+						break;
+					}
 					continue;
 				}
 			}
@@ -116,7 +139,7 @@ function parseModule(code, ctx) {
 
 					else if (c1 === '$' && code[pos] === '{') {
 						pos ++;
-						tokens.length = parseDescents(/\0/);
+						tokens.length = parseDescents(/}/, 1);
 					}
 				}
 
@@ -128,10 +151,11 @@ function parseModule(code, ctx) {
 			if (DIGIT.test(ch) || (ch === '.' && DIGIT.test(code[pos + 1]))) {
 				const start = pos;
 
-				while (/[0-9.]/.test(code[pos])) pos++;
+				while (/[0-9_.]/.test(code[pos])) pos++;
 
 				let c1 = code[pos];
 				if (/[xob]/i.test(c1)) {
+					pos++;
 					while (/[0-9a-fA-F]/.test(code[pos])) pos++;
 				} else if (c1 === 'e' || c1 === 'E') {
 					c1 = code[pos++];
@@ -179,35 +203,65 @@ function parseModule(code, ctx) {
 				while (pos < len && IDENT_PART.test(code[pos])) pos++;
 				const identifier = code.slice(start, pos);
 
-				const ERR = () => {throw new ParseError('Only top-level import/export allowed');};
+				const ERR = () => {throw new ParseError('Only top-level import/export allowed (or not end with semicolon)');};
+
+				if (tokens.at(-1) !== '.')
 
 				if (identifier === 'import') {
-					while (pos < len && SPACE.test(code[pos])) pos++;
+					while (pos < len && SPACE.has(code[pos])) pos++;
+
+					beforeMutate(start);
 
 					// import.meta
-					if (code[pos] === '.') {tokens.push(identifier);continue;}
+					if (code[pos] === '.') {
+						const importMeta = ctx.importMeta;
+						pos++;
+						const outLen = parseDescents({ test() {return true;} });
+						const statement = tokens.splice(outLen);
+						if (importMeta && statement[0] === 'meta') importMeta(tokens, statement);
+						else tokens.push('undefined.', ...statement);
+						afterMutate();
+						continue;
+					}
 					if (code[pos] === '(') {
 						const outLen = parseDescents(/\)/);
 						const statement = tokens.splice(outLen);
 						parseDynamicImport(statement, tokens, ctx);
+						afterMutate();
 						continue;
 					}
 
 					// Actually we SUPPORT but not ALLOW it...
-					if (depth) ERR();
-					const outLen = parseDescents(/;/);
-					const statement = tokens.splice(outLen);
-					parseImport(statement, tokens, ctx);
+					if (depth || inStmt) {
+						if (code[pos] === '{' || IDENT_START.test(code[pos]))
+							ERR();
+						tokens.push('undefined');
+					} else {
+						const func = ctx.runtimeImportFunc;
+						if (!func) throw new ParseError('import() is not supported');
+						const outLen = parseDescents(/;/);
+						const statement = tokens.splice(outLen);
+						parseImport(statement, tokens, ctx);
+					}
+					afterMutate();
 					continue;
-				}
+				} else
 
 				if (identifier === 'export') {
-					if (depth) ERR();
-					while (pos < len && SPACE.test(code[pos])) pos++;
+					while (pos < len && SPACE.has(code[pos])) pos++;
 
-					const outLen = parseDescents(/;/);
+					beforeMutate(start);
+
+					if (depth || inStmt) {
+						if (code[pos] === '{' || IDENT_START.test(code[pos]))
+							ERR();
+						tokens.push('undefined');
+					}
+
+					const outLen = parseDescents(/[};]/);
 					const statement = tokens.splice(outLen);
 					parseExport(statement, tokens, ctx);
+					afterMutate();
 					continue;
 				}
 
@@ -224,25 +278,22 @@ function parseModule(code, ctx) {
 				continue;
 			}
 
-			// Single character — track depth
-			if (ch === '{' || ch === '(' || ch === '[') depth++;
-			else if (ch === '}' || ch === ')' || ch === ']') {
-				if (depth === 0) {
-					if (inStmt) break;
-					throw new Error("Invalid syntax at "+pos);
-				}
-				depth--;
-			}
-
 			pos++;
 			tokens.push(ch);
 
-			if (inStmt && depth === 0 && inStmt.test(ch)) break;
+			// Single character — track depth
+			if (ch === '{' || ch === '(' || ch === '[') depth++;
+			else if (ch === '}' || ch === ')' || ch === ']') {
+				if (--depth < 0) throw new Error("Invalid syntax at "+code.slice(0, pos));
+			}
+
+			if (!depth && inStmt?.test(ch)) break;
 		}
 	};
 
 	parse();
 
+	beforeMutate(pos);
 	return tokens;
 }
 
@@ -302,7 +353,7 @@ const prettifier = (tokens, prettify = true) => {
 const parseDynamicImport = (tokens, output, ctx) => {
 	const func = ctx.runtimeImportFunc;
 	if (!func) throw new ParseError('import() is not supported');
-	output.push(func, ...tokens);
+	func(output, tokens);
 };
 
 /**
@@ -355,13 +406,13 @@ const parseImport = (tokens, output, ctx) => {
 		EXCEPT(":");
 
 		const type = unquote(EXCEPT(STRING));
-		if (type !== 'text') throw new ParseError("Only text assertion is supported now");
+		//if (type !== 'text') throw new ParseError("Only text assertion is supported now");
 
 		{
-			if (namespace || namedImport) throw new ParseError('cannot use namespace or named import with text assertion');
+			if (namespace || namedImport) throw new ParseError('cannot use namespace or named import with type assertion');
 
 			const text = ctx.resolveModule(moduleName, {type});
-			if (text == null) throw new ParseError('Module "'+moduleName+'" has no text content');
+			if (text == null) throw new ParseError('Module "'+moduleName+'" has no assertion content');
 
 			if (defaultImport) emit(`const ${defaultImport} = ${text};`);
 			else emit(`/* text import: ${moduleName} */`);
@@ -375,10 +426,27 @@ const parseImport = (tokens, output, ctx) => {
 			const tmp = namespace || ctx.nextTmp();
 
 			emit(`const ${tmp} = ${module};`);
-			if (defaultImport) emit(`const ${defaultImport} = ${tmp}.default;`);
-			if (namedImport) emit(`const ${namedDestruct(namedImport)} = ${tmp};`);
+
+			const imports = [ ...namedImport || [] ];
+
+			if (defaultImport) {
+				imports.push(['default', defaultImport]);
+				emit(`let ${defaultImport} = ${tmp}.default;`);
+			}
+			if (namedImport) {
+				emit(`let ${namedDestruct(namedImport)} = ${tmp};`);
+			}
+
+			if (imports.length > 0) {
+				let str = '';
+				for (const [name, alias] of imports) {
+					str += `${alias} = ${tmp}.${name};\n`;
+				}
+
+				emit(`__onload(${JSON.stringify(moduleName)}, () => {${str}});`);
+			}
 		} else {
-			// side-effect
+			emit(module+';');
 		}
 	}
 
@@ -473,7 +541,11 @@ const parseExport = (tokens, output, ctx) => {
 		let token = tokens[i];
 		if (/const|let|var/.test(token)) {
 			for (const name of parseVariableDecl(tokens, i+1)) {
-				emit(`${field}.${name} = ${name};`);
+				if (token !== 'const') {
+					emit(`Object.defineProperty(${field}, ${JSON.stringify(name)}, { get: () => ${name}, set: () => false });`);
+				} else {
+					emit(`${field}.${name} = ${name};`);
+				}
 			}
 		} else {
 			const name = tokens[i + (token === 'async' ? 2 : 1)];
@@ -541,181 +613,88 @@ const parseSpecifiers = (src, i) => {
  * @param {Array<[string, string]>} specifiers
  * @returns {string}
  */
-const namedDestruct = specifiers => `{ ${specifiers.map(([name, alias]) => name === alias ? name : `${alias}: ${name}`).join(', ')} }`;
+const namedDestruct = specifiers => `{ ${specifiers.map(([name, alias]) => name === alias ? name : `${name}: ${alias}`).join(', ')} }`;
 //endregion
 
 /**
- * @param {Map<string, Module>} modules
- * @param {string} entryName
- * @param {boolean=} allowCircularImport
- * @param {boolean=} prettify
- * @returns {{bundle: string, exports: string, externalModules: string[]}}
- */
-function bundle(modules, entryName, allowCircularImport, prettify = false) {
-	const entry = modules.get(entryName);
-	if (!entry) throw new ParseError('Module not found: ' + entryName);
-
-	const externalModules = [];
-	const loadOrder = new Set([entryName]);
-
-	function resolve(importPath, fromModule) {
-		if (modules.has(importPath)) return importPath;
-		if (modules.has(importPath+'.js')) return importPath+'.js';
-		if (fromModule) {
-			const base = fromModule.replace(/\/[^/]*$/, '/');
-			const resolved = resolveRelative(base + importPath);
-			if (resolved) return resolved;
-		}
-		return null;
-	}
-
-	function resolveRelative(path) {
-		const parts = path.split('/').filter(s => s && s !== '.');
-		const out = [];
-		for (let i = 0; i < parts.length; i++) {
-			const part = parts[i];
-			if (part === '..') out.pop();
-			else out.push(part);
-		}
-		return resolve(out.join('/'));
-	}
-
-	const dependOn = (name, module) => {
-		if (!loadOrder.has(name)) {
-			loadOrder.add(name);
-			if (module.code) importModule(name, module);
-			else externalModules.push(name);
-		} else {
-			//throw new ParseError("Circular import including "+name);
-		}
-	};
-
-	const moduleId = (name, module) => module.id || (module.id = name.replaceAll(/[^a-zA-Z_]/g, '_') + "_" + Math.random().toString(36).slice(2, 6));
-
-	const importModule = (name, module) => {
-		let tmpCounter = 0;
-		module.transformed = parseModule(module.code, {
-			runtimeImportFunc: 'require',
-			exports: name !== entryName && allowCircularImport ? 'exports' : '__mod_'+moduleId(name, module),
-			resolveModule(r, {type} = {}) {
-				let special = r.lastIndexOf('?');
-				if (special > 0) {
-					type = r.slice(special+1);
-					r = r.slice(0, special);
-				}
-
-				const path = resolve(r, name);
-				if (path == null) throw new ParseError('Module not found: '+r, name);
-
-				const module = modules.get(path);
-				dependOn(path, module);
-
-				if (module.code) {
-					if (type === 'text') {
-						module.text = true;
-						return `__mod_${moduleId(path, module)}.__text`;
-					}
-
-					module.script = true;
-					return `__mod_${moduleId(path, module)}`;
-				}
-
-				if (type) throw new ParseError("External module does not support type assertion");
-				return `require(${quote(path)})`;
-			},
-			nextTmp: () =>'__tmp' + (tmpCounter++)
-		});
-	};
-
-	entry.script = true;
-	importModule(entryName, entry);
-
-	let prefix, code = '';
-
-	if (allowCircularImport) {
-		throw new Error("Not implemented yet");
-	} else {
-		prefix = [];
-		for (let name of [...loadOrder].reverse()) {
-			const module = modules.get(name);
-			if (module.code) {
-				prefix.push(module.id);
-				if (prettify) code += '// '+name+'\n';
-				if (module.script) {
-					code += '(()=>{\n'+prettifier(module.transformed, prettify).trim()+'\n})();\n';
-				}
-				if (module.text) {
-					code += "__mod_"+module.id+".__text="+quote(module.code)+";\n";
-				}
-			}
-		}
-		prefix = 'const '+prefix.map(id => "__mod_"+id+"={}").join(",")+";\n";
-	}
-
-	return {
-		bundle: prefix + code,
-		exports: '__mod_'+entry.id,
-		externalModules
-	}
-}
-
-/**
  *
- * @param bundle
- * @param exports
- * @param externalModules
- * @param {string|null} moduleNamespace
- * @param {("wasm"|"net"|"storage")[]} modulePermissions
+ * @param {string} path
+ * @param {string} code
+ * @param {boolean} prettifyCode
  * @returns {string}
  */
-function generateWorkerCode({bundle, exports, externalModules}, moduleNamespace, modulePermissions) {
-	return [
-		loader_template.replace("AA", `new Set(${JSON.stringify(externalModules)}),${JSON.stringify(moduleNamespace)},new Set(${modulePermissions?JSON.stringify(modulePermissions):""})`).replace("BB", exports),
-		bundle,
-		'postMessage({ready:1});'
-	].join('\n');
-}
+function bundleModule(path, code, prettifyCode = true) {
+	let temp = 0;
+	let exportUsed, metaUsed = '';
+	const tokens = parseModule(code, {
+		get exports() {
+			exportUsed = 1;
+			return "exports";
+		},
+		importMeta(output, tokens) {
+			tokens.shift();
+			output.push("__meta", ...tokens);
+			metaUsed = 'const __meta = {url:"file://"+__moduleId};\n';
+		},
+		runtimeImportFunc(output, tokens) {
+			output.push('require', '(', '__moduleId', ',', ...tokens.slice(1));
+		},
+		nextTmp() {
+			return "__tmp_"+temp++;
+		},
+		resolveModule(name, {type} = {}) {
+			if (type) {
+				return `(await require(__moduleId, ${JSON.stringify(name)}, { with: { type: ${JSON.stringify(type)} }})).default`;
+			} else {
+				return `await require(__moduleId, ${JSON.stringify(name)})`;
+			}
+		},
+	});
+	let out = prettifier(tokens, prettifyCode);
 
-function createWorker(workerJs) {
-	const blob = new Blob([workerJs], {type: 'application/javascript'});
-	const url = URL.createObjectURL(blob);
-	const w = new Worker(url);
-	URL.revokeObjectURL(url);
-	return w;
+	return `const __moduleId=${JSON.stringify(path)};\n`+metaUsed+out;
 }
 
 /**
- *
- * @param {ReadonlyMap<string, Module>} modules
- * @param {string} entryModule
- * @param {string=} workerCode
- * @returns {SafeModule}
+ * 创建沙盒和RPC组件
+ * @param {function('load' | 'exec' | string, any[], Transferable[]): any|Promise<any>} rpcHandler
+ * @param {function(string): void} logHandler
+ * @param {string} [name]
+ * @returns {[Function, Function]}
  */
-export function createModule(modules, entryModule, workerCode) {
-	if (!workerCode) {
-		const bundleResult = bundle(modules, entryModule);
-		workerCode = generateWorkerCode(bundleResult);
-	}
-	const worker = createWorker(workerCode);
+export function createWorker(rpcHandler, logHandler, name) {
+	const worker = new SandboxWorker({name});
+	const post = worker.postMessage.bind(worker);
 
 	let rpcId = 0;
 	const rpcTasks = new Map();
-	let readyOk, readyFail;
-	const ready = new Promise((resolve, reject) => { readyOk = resolve; readyFail = reject; });
 
-	const post = worker.postMessage.bind(worker);
+	/**
+	 * Send a request to the Worker thread and wait for the result.
+	 * @param {string} method
+	 * @param {any} args
+	 * @param {ArrayBuffer[]=} transfer
+	 * @returns {Promise<any>}
+	 */
+	const RPC = (method, args, transfer) => new Promise((resolve, reject) => {
+		if (destroyed) return Promise.reject(destroyed);
+		const id = ++rpcId;
+		rpcTasks.set(id, [resolve, reject]);
+		post({id, method, args}, transfer || {});
+	});
+
 	worker.onmessage = ({data}) => {
-		if (data.ready) { readyOk(); return; }
-		const id = data.id;
-		if (data.func) {
-			const resolve = (v) => post({id, value: v});
-			const reject = (e) => post({id, error: e && e.message || String(e)});
+		if ('log' in data) return logHandler(data.log);
 
-			const fn = modules.get(data.module)?.module[data.func];
-			if (!fn) { reject('Export not found: '+data.name); return; }
+		const id = data.id;
+		const method = data.method;
+		if (method) {
+			const transfer = [];
+			const resolve = (v) => post({id, value: v}, transfer);
+			const reject = (e) => post({id, error: e});
 
 			try {
-				const result = fn.apply(null, data.args);
+				const result = rpcHandler(method, data.args, transfer);
 				if (result instanceof Promise) result.then(resolve, reject);
 				else resolve(result);
 			} catch (e) {
@@ -727,50 +706,105 @@ export function createModule(modules, entryModule, workerCode) {
 
 			rpcTasks.delete(id);
 			if ('error' in data) {
-				task[1](new Error(data.error));
+				task[1](data.error);
 			} else {
 				task[0](data.value);
 			}
 		}
 	};
 
-	let destroyed = false;
+	/** @type {undefined|Error} */
+	let destroyed;
 	const onError = (e) => {
-		const err = new Error(e.message || 'Worker error');
-		rpcTasks.forEach((p) => p[1](err));
+		destroyed = new Error(e.message || String(e) || 'Worker error');
+		rpcTasks.forEach((p) => p[1](destroyed));
 		rpcTasks.clear();
-		if (!destroyed) readyFail(e);
-		destroyed = true;
 	};
 	worker.onerror = onError;
 
-	let handler = {
-		get(stub, name) {
-			if (typeof name !== 'string') return;
-			return stub[name] || (stub[name] = (...args) => {
-				if (destroyed) return Promise.reject(new Error('Worker destroyed'));
-
-				return new Promise((resolve, reject) => {
-					rpcTasks.set(++rpcId, [resolve, reject]);
-					post({id: rpcId, func: name, args});
-				})
-			});
+	return [
+		RPC,
+		(e) => {
+			worker.terminate();
+			onError(e||'Worker destroyed');
 		}
+	]
+}
+
+/**
+ *
+ * @param {Object} handlers - 外部可实时更新不需要重启沙盒的 handlers
+ * @param {function(string, boolean): string|Promise<string>} handlers.load - 模块文件加载器
+ * @param {function(string, any[], Transferable[]): any|Promise<any>} [handlers.rpc] - 文件系统 RPC 提供者
+ * @param {function(string): void} handlers.log - 控制台打印处理程序
+ * @param {string[]} permissions - 脚本权限
+ * @param {string} [prefix] - 数据库允许使用的命名空间前缀
+ * @param {ReadonlyMap<string, Record<string, Function>>} [hostModules] - 主机侧模块
+ * @param name
+ * @returns {Sandbox}
+ */
+export function createSandbox(
+	handlers,
+	permissions,
+	{
+		prefix,
+		hostModules,
+		name
+	} = {}
+) {
+
+	const [RPC, destroy] = createWorker(async (method, data, transfer) => {
+		if (method === 'load') {
+			const [name, type, isSystemModule] = data;
+			const code = await handlers.load(name, isSystemModule);
+			return type ? code : bundleModule(name, code, !isSystemModule);
+		} else if (method === 'exec') {
+			const [mod, func, args] = data;
+			const fn = hostModules.get(mod)?.[func];
+			if (!fn) throw new Error('Export not found: '+mod+"::"+func);
+			return fn.apply(null, args);
+		}
+
+		const rpc = handlers.rpc;
+		if (rpc) return rpc(method, data, transfer);
+		else throw new Error('RPC endpoint not found');
+	}, (log) => handlers.log(log), name);
+
+	let initialized
+	const initialize = () => {
+		if (initialized) return;
+		initialized = true;
+		return RPC('init', [
+			permissions,
+			hostModules && [...hostModules.keys()],
+			prefix
+		]);
 	};
+
+	const loadModule = async (moduleName) => {
+		const exported = new Set(await RPC('load', [
+			moduleName,
+			bundleModule(moduleName, await handlers.load(moduleName))
+		]));
+
+		return new Proxy(Object.create(null), {
+			get(stub, name) {
+				if (!exported.has(name)) return;
+				return stub[name] || (stub[name] = (...args) => RPC('call', [moduleName, name, args]));
+			}
+		});
+	};
+
+	const execute = (moduleName, code, context) => RPC('eval', [
+		moduleName,
+		bundleModule(moduleName, code),
+		context
+	]);
 
 	return {
-		ready,
-		module: new Proxy({}, handler),
-		destroy: () => {
-			worker.terminate();
-			destroyed = true;
-			onError('Worker destroyed');
-		}
+		initialize,
+		loadModule,
+		execute,
+		destroy
 	};
 }
-
-export function bundleModule(modules, entryModule, namespace, permissions) {
-	const result = bundle(modules, entryModule);
-	return generateWorkerCode(result, namespace, permissions);
-}
-

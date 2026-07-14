@@ -6,12 +6,14 @@ export const UTF8_TEXT_DECODER = /* #__PURE__ */ new TextDecoder('utf-8', { igno
 
 export const isPureObject = object => Object.prototype.toString.call(object) === "[object Object]";
 
+export const ref = () => null;
+
 /**
  * 开发时获取带名称的符号
  * @param name 符号名称
  * @returns {symbol}
  */
-export const debugSymbol = name => import.meta.env.DEV ? Symbol(name) : Symbol();
+export const debugSymbol = name => import.meta.env?.DEV ? Symbol(name) : Symbol();
 
 /**
  * 存储简单类型时可使用AS_IS序列化器

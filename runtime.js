@@ -1404,7 +1404,10 @@ const initStores = () => {
 	// 从其它页面同步数据
 	addEventListener('storage', (e) => {
 		const store = stores.get(e.key);
-		if (store) store.value = store[STORE_DESER](e.newValue);
+		if (store) {
+			const newValue = e.newValue;
+			store.value = newValue != null ? store[STORE_DESER](newValue) : undefined;
+		}
 	});
 
 	addEventListener('beforeunload', saveStores);
