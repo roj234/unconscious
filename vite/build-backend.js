@@ -51,7 +51,7 @@ export function stripComments(code) {
 			if (char === '\\') {
 				escaped = true;
 			}
-		} else if (char === '/') {
+		} else if (char === '/' && code[i - 1] !== '\\') {
 			const next = code[i + 1];
 			if (next === '/' || next === '*') {
 				let j = i;

@@ -15,7 +15,7 @@
 
 "use strict";
 
-import {AS_IS, UTF8_TEXT_DECODER, UTF8_TEXT_ENCODER} from "../runtime_shared.js";
+import {AS_IS, UTF8_TEXT_DECODER, UTF8_TEXT_ENCODER} from "../shared.js";
 
 /**
  * Prepares a schema for fast index lookup by adding a `locate` method.
@@ -70,7 +70,7 @@ export const bakeSchema = schema => {
 /**
  * Decode a MsgPack‑encoded message from an Array, TypedArray, Buffer, or DataView.
  *
- * @param {Array<number>|TypedArray|Buffer|DataView} input - The input data.
+ * @param {Array<number>|Uint8Array|Buffer|DataView} input - The input data.
  * @param {MsgpackDecodeOptions} [options] - Decoding options.
  * @returns {any|any[]} The decoded value, or an array of values if `multiple` is true.
  * @throws {Error} If the input type is not supported.
@@ -95,6 +95,7 @@ export const decodeMsg = (input, options) => {
 
 const basicToStringAble = Object.create(null);
 basicToStringAble.toString = Object.prototype.toString;
+basicToStringAble.valueOf = Object.prototype.valueOf;
 Object.freeze(basicToStringAble);
 
 const LOOKUP = /*#__PURE__*/ new Uint8Array(256);
@@ -104,7 +105,55 @@ for (let i = 0x90; i <= 0x9F; i++) LOOKUP[i] = 0xBE;
 for (let i = 0xA0; i <= 0xBF; i++) LOOKUP[i] = 0xBF;
 for (let i = 0xC0; i <= 0xFF; i++) LOOKUP[i] = i;
 
-const {MAX_SAFE_INTEGER} = Number;
+const MAX_SAFE_INTEGER = Number.MAX_SAFE_INTEGER;
+
+/**
+ * @param {Uint8Array} bytes
+ * @returns {number}
+ */
+const djb2Hash = (bytes) => {
+	let hash = 5381;
+	for (let i = 0; i < bytes.length; i++) {
+		hash = Math.imul(hash, 33) ^ bytes[i];
+	}
+	return hash >>> 0;
+};
+
+/**
+ * @param {Map<number, [Uint8Array, string, boolean?]>} buckets
+ * @param {Uint8Array} bytes
+ * @returns {string}
+ */
+const stringDecodeCache = (buckets, bytes) => {
+	const length = bytes.length;
+	if (length > 64) return UTF8_TEXT_DECODER.decode(bytes);
+
+	const slot = djb2Hash(bytes);
+	const cached = buckets.get(slot);
+
+	if (cached) {
+		const [key, str] = cached;
+		notFound:
+		if (key.length === length) {
+			for (let i = 0; i < length; i++)
+				if (bytes[i] !== key[i]) break notFound;
+			return str;
+		}
+	}
+
+	const str = UTF8_TEXT_DECODER.decode(bytes);
+	const isAscii = bytes.length === str.length;
+
+	if (buckets.size >= 10000) buckets.delete(buckets.keys().next().value);
+	buckets.set(slot, [bytes.slice(), str]);
+
+	return str;
+}
+
+/**
+ * @type {Map<number, [Uint8Array, string, boolean]>}
+ */
+const keyCache = new Map();
 
 /**
  * Low‑level MsgPack decoder that decodes a single value starting at a given offset.
@@ -301,7 +350,6 @@ export const decodeRawMsg = (buf, offset, options = {}) => {
 						break ok;
 					}
 				}
-				schema = null;
 				value = decode();
 			}
 
@@ -400,7 +448,7 @@ export const decodeRawMsg = (buf, offset, options = {}) => {
 	};
 
 	const readUTF = length => {
-		const utf = UTF8_TEXT_DECODER.decode(new Uint8Array(buf.buffer, buf.byteOffset + offset, length));
+		const utf = stringDecodeCache(keyCache, new Uint8Array(buf.buffer, buf.byteOffset + offset, length));
 		offset += length;
 		return utf;
 	};
@@ -409,8 +457,347 @@ export const decodeRawMsg = (buf, offset, options = {}) => {
 };
 
 const pow32 = 0x100000000;	 // 2^32
-const ob = /*#__PURE__*/ new Uint8Array(256);
-const buf = /*#__PURE__*/ new DataView(ob.buffer);
+const STATIC_BUFFER = 256;
+
+class MsgpackEncoder {
+	#buf = new Uint8Array(STATIC_BUFFER);
+	#view = new DataView(this.#buf.buffer);
+	/** @type {number} */
+	#off;
+
+	/** @type {(chunk: Uint8Array, shared?: boolean) => void} */
+	#onChunk;
+
+	/** @type {MsgpackSchema|null} */
+	#schema;
+	/** @type {(obj: Object) => Object} */
+	#replacer;
+	/** @type {boolean} */
+	#sortKeys;
+	/** @type {boolean} */
+	#ignoreUndefined;
+	/** @type {boolean} */
+	#useFloat32;
+
+	/**
+	 * @param {any} data
+	 * @param {(chunk: Uint8Array, shared?: boolean) => void} onChunk
+	 * @param {Object} [options]
+	 * @param {MsgpackSchema} [options.schema] 可选 schema，用整数键编码对象字段。
+	 * @param {Function} [options.replacer] 编码前转换对象的钩子。
+	 * @param {boolean} [options.sortKeys=false] 是否对对象键排序。
+	 * @param {boolean} [options.ignoreUndefined=true] 忽略值为 undefined 的字段。
+	 * @param {boolean} [options.useFloat32=false] 浮点用 float32 而不是 float64。
+	 */
+	encode(data, onChunk, options = {}) {
+		if (data === undefined) return;
+
+		this.#off = 0;
+		this.#onChunk = onChunk;
+
+		this.#schema = options.schema;
+		this.#replacer = options.replacer ?? AS_IS;
+		this.#sortKeys = options.sortKeys;
+		this.#ignoreUndefined = options.ignoreUndefined ?? true;
+		this.#useFloat32 = options.useFloat32;
+
+		this.#encode(data);
+		this.#flush(1/0);
+
+		this.#onChunk =
+		this.#schema =
+		this.#replacer = null;
+	}
+
+	/**
+	 * @param {number} capacity
+	 */
+	#flush(capacity) {
+		if (STATIC_BUFFER < this.#off + capacity && this.#off) {
+			this.#onChunk(this.#buf.subarray(0, this.#off), true);
+			this.#off = 0;
+		}
+	}
+
+	/**
+	 * 写入一整块字节。
+	 * 若内部缓冲区为空，则直接把 bytes 交给回调（零拷贝）。
+	 * @param {Uint8Array} bytes
+	 */
+	#writeBytes(bytes) {
+		const length = bytes.length;
+		this.#flush(length + 16);
+		if (!this.#off) { this.#onChunk(bytes); return; }
+		this.#buf.set(bytes, this.#off);
+		this.#off += length;
+	}
+
+	#encode(val) {
+		this.#flush(16);
+		switch (typeof val) {
+			case "boolean": this.#buf[this.#off++] = val ? 0xc3 : 0xc2; break;
+			case "number": this.#encodeNumber(val); break;
+			case "bigint": this.#encodeBigint(val); break;
+			case "string": this.#encodeString(val); break;
+			case "object":
+				if (val != null) {
+					val = this.#replacer(val);
+					const cr = val.constructor;
+					if (!cr || cr === Object) {
+						this.#encodeObject(val);
+					} else if (val instanceof Uint8Array || val instanceof Uint8ClampedArray) {
+						this.#encodeBinArray(val);
+					} else if (Array.isArray(val) || ArrayBuffer.isView(val)) {
+						this.#encodeArray(val);
+					} else if (val instanceof Date) {
+						this.#encodeDate(val);
+					} else {
+						throw new TypeError("Not know "+Object.prototype.toString.call(val));
+					}
+					break;
+				}
+			// fallthrough: null / undefined
+			default: this.#buf[this.#off++] = 0xc0;
+		}
+	}
+
+	/** @param {number} val */
+	#encodeNumber(val) {
+		if (Number.isSafeInteger(val)) {
+			// 整数
+			if (val >= -0x20 && val <= 0x7f) {
+				this.#buf[this.#off++] = val;
+			} else if (val >= -128 && val <= 255) {
+				this.#buf[this.#off++] = val < 0 ? 0xD0 : 0xCC;
+				this.#buf[this.#off++] = val;
+			} else if (val >= -32768 && val <= 65535) {
+				this.#buf[this.#off++] = val < 0 ? 0xD1 : 0xCD;
+				this.#view.setUint16(this.#off, val);
+				this.#off += 2;
+			} else if (val >= -2147483648 && val <= 4294967295) {
+				this.#buf[this.#off++] = val < 0 ? 0xD2 : 0xCE;
+				this.#view.setUint32(this.#off, val);
+				this.#off += 4;
+			} else {
+				this.#buf[this.#off++] = 0xd3;
+				this.#view.setBigInt64(this.#off, BigInt(val));
+				this.#off += 8;
+			}
+		} else {
+			if (this.#useFloat32) {
+				this.#buf[this.#off++] = 0xca;
+				this.#view.setFloat32(this.#off, val);
+				this.#off += 4;
+			} else {
+				this.#buf[this.#off++] = 0xcb;
+				this.#view.setFloat64(this.#off, val);
+				this.#off += 8;
+			}
+		}
+	}
+
+	/** @param {bigint} val */
+	#encodeBigint(val) {
+		this.#buf[this.#off++] = 0xD3;
+		this.#view.setBigInt64(this.#off, val);
+		this.#off += 8;
+	}
+
+	/** @param {number} length */
+	#encodeStringLength(length) {
+		if (length <= 0x1f) {
+			this.#buf[this.#off++] = 0xa0 | length;
+		} else if (length <= 0xff) {
+			this.#buf[this.#off++] = 0xD9;
+			this.#buf[this.#off++] = length;
+		} else if (length <= 0xffff) {
+			this.#buf[this.#off++] = 0xDA;
+			this.#view.setUint16(this.#off, length);
+			this.#off += 2;
+		} else {
+			this.#buf[this.#off++] = 0xDB;
+			this.#view.setUint32(this.#off, length);
+			this.#off += 4;
+		}
+	}
+
+	/** @param {string} str */
+	#encodeString(str) {
+		const length = str.length;
+		let i = 0;
+
+		const bufferSpace = STATIC_BUFFER - this.#off - 5;
+		noPureAscii:
+		if (length <= bufferSpace) {
+			const initialOffset = this.#off;
+			this.#encodeStringLength(length);
+
+			while (i < length) {
+				let c = str.charCodeAt(i);
+				if (c > 0x7F) { this.#off = initialOffset; break noPureAscii; }
+				i++;
+				this.#buf[this.#off++] = c;
+			}
+
+			return;
+		}
+
+		let utfLength = length;
+		while (i < length) {
+			let c = str.charCodeAt(i++);
+
+			if (c >= 0xd800 && c <= 0xdbff) {
+				c = (((c << 10) + str.charCodeAt(i++)) - 0x35fdc00) | 0;
+				utfLength--;
+			}
+
+			if (c <= 0x7FF) {
+				if (c > 0x7F) utfLength++;
+			} else {
+				if (c > 0xFFFF) utfLength += 3;
+				else utfLength += 2;
+			}
+		}
+
+		this.#encodeStringLength(utfLength);
+		this.#flush(utfLength);
+		if (utfLength < STATIC_BUFFER) {
+			UTF8_TEXT_ENCODER.encodeInto(str, this.#buf.subarray(this.#off));
+			this.#off += utfLength;
+			this.#flush(16);
+		} else {
+			this.#writeBytes(UTF8_TEXT_ENCODER.encode(str));
+		}
+	}
+
+	/** @param {ArrayLike} arr */
+	#encodeArray(arr) {
+		const length = arr.length;
+
+		if (length <= 0xf) {
+			this.#buf[this.#off++] = 0x90 | length;
+		} else if (length <= 0xffff) {
+			this.#buf[this.#off++] = 0xDC;
+			this.#view.setUint16(this.#off, length);
+			this.#off += 2;
+		} else {
+			this.#buf[this.#off++] = 0xDD;
+			this.#view.setUint32(this.#off, length);
+			this.#off += 4;
+		}
+
+		for (let i = 0; i < length; i++) this.#encode(arr[i]);
+	}
+
+	/** @param {Uint8Array} arr */
+	#encodeBinArray(arr) {
+		const length = arr.length;
+
+		if (length <= 0xff) {
+			this.#buf[this.#off++] = 0xC4;
+			this.#buf[this.#off++] = length;
+		} else if (length <= 0xffff) {
+			this.#buf[this.#off++] = 0xC5;
+			this.#view.setUint16(this.#off, length);
+			this.#off += 2;
+		} else {
+			this.#buf[this.#off++] = 0xC6;
+			this.#view.setUint32(this.#off, length);
+			this.#off += 4;
+		}
+
+		this.#writeBytes(arr);
+	}
+
+	/** @param {Object} obj */
+	#encodeObject(obj) {
+		let keys = Object.keys(obj);
+		if (this.#ignoreUndefined) keys = keys.filter(key => obj[key] !== undefined);
+		if (this.#sortKeys) keys.sort();
+		const length = keys.length;
+
+		if (length <= 0xf) {
+			this.#buf[this.#off++] = 0x80 | length;
+		} else if (length <= 0xffff) {
+			this.#buf[this.#off++] = 0xDE;
+			this.#view.setUint16(this.#off, length);
+			this.#off += 2;
+		} else {
+			this.#buf[this.#off++] = 0xDF;
+			this.#view.setUint32(this.#off, length);
+			this.#off += 4;
+		}
+
+		const currSchema = this.#schema;
+		if (currSchema) {
+			for (let key of keys) {
+				let index = currSchema.locate(key);
+				let value = obj[key];
+
+				let nextSchema = currSchema;
+				if (index >= 0) {
+					this.#encodeNumber(index);
+
+					const subSchema = currSchema[index];
+					if (Array.isArray(subSchema)) {
+						nextSchema = subSchema[1];
+						const valueSchema = subSchema[2];
+						if (valueSchema) {
+							index = valueSchema.locate(value);
+							if (index >= 0) value = index;
+						}
+					}
+				} else {
+					this.#encodeString(key);
+				}
+
+				this.#schema = nextSchema;
+				this.#encode(value);
+				this.#schema = currSchema;
+			}
+		} else {
+			for (let key of keys) {
+				this.#encodeString(key);
+				this.#encode(obj[key]);
+			}
+		}
+	}
+
+	/**
+	 * @param {Date} date
+	 */
+	#encodeDate(date) {
+		let sec = date.getTime() / 1000;
+		if (date.getMilliseconds() === 0 && sec >= 0 && sec < pow32) {
+			// 32 位秒 timestamp（timestamp 32）
+			this.#view.setUint16(this.#off, 0xD6FF);
+			this.#off += 2;
+			this.#view.setUint32(this.#off, sec);
+			this.#off += 4;
+		} else if (sec >= 0 && sec < 0x400000000) {
+			// 30 位纳秒 + 34 位秒 timestamp（timestamp 64）
+			const ns = date.getMilliseconds() * 1000000;
+			this.#writeBytes([
+				0xd7, 0xff,
+				ns >>> 22, ns >>> 14, ns >>> 6,
+				((ns << 2) >>> 0) | (sec / pow32),
+				sec >>> 24, sec >>> 16, sec >>> 8, sec,
+			]);
+		} else {
+			// 32 位纳秒 + 64 位秒 timestamp（timestamp 96，允许负数）
+			this.#buf[this.#off++] = 0xC7;
+			this.#buf[this.#off++] = 12;
+			this.#buf[this.#off++] = 0xFF;
+			this.#view.setUint32(this.#off, date.getMilliseconds() * 1000000);
+			this.#off += 4;
+			this.#view.setBigInt64(this.#off, BigInt(Math.floor(sec)));
+			this.#off += 8;
+		}
+	}
+}
+
+const sharedEncoder = /*#__PURE__*/ new MsgpackEncoder();
+const sharedBuffer = new Uint8Array(4096);
 
 /**
  * Low‑level streaming encoder that writes MsgPack bytes via a callback.
@@ -419,265 +806,33 @@ const buf = /*#__PURE__*/ new DataView(ob.buffer);
  * @param {function(Uint8Array, boolean=): void} onChunk - Callback invoked with encoded chunks.
  *        The second argument is `true` for the final chunk (allows the caller to flush buffers).
  *        Receives the object and must return the (possibly modified) object.
- * @param {MsgpackSchema} [schema] - Optional schema for integer‑key encoding of objects.
- * @param {function(Object): Object} [replacer=AS_IS] - Hook to transform objects before encoding.
- *        Receives the object and must return the (possibly modified) object.
+ * @param {MsgpackEncodeOptions} [options]
  */
-export const encodeRawMsg = (data, onChunk, schema, replacer) => {
-	if (data === undefined) return;
-
-	if (!replacer) replacer = AS_IS;
-
-	let offset = 0;
-
-	//region Encoder
-	const ensureCapacity = capacity => {
-		if (ob.length < capacity && offset) {
-			onChunk(ob.subarray(0, offset), true);
-			offset = 0;
-		}
-	};
-	const writeByte = byte => {ob[offset++] = byte;};
-	const writeBytes = bytes => {
-		const length = bytes.length;
-		ensureCapacity(offset+length + 64);
-		if (offset === 0) { onChunk(bytes); return; }
-		ob.set(bytes, offset);
-		offset += length;
-	};
-
-	const encode = val => {
-		ensureCapacity(offset + 9);
-		switch (typeof val) {
-			case "boolean": writeByte(val ? 0xc3 : 0xc2); break;
-			case "number": encodeNumber(val); break;
-			case "bigint": encodeBigint(val); break;
-			case "string": encodeString(val); break;
-			case "object":
-				if (val != null) {
-					if (val instanceof Date) encodeDate(val);
-					else if (Array.isArray(val)) encodeArray(val);
-					else if (ArrayBuffer.isView(val)) {
-						if (val instanceof Uint8Array || val instanceof Uint8ClampedArray) encodeBinArray(val);
-						else encodeArray(val);
-					} else {
-						encodeObject(replacer(val));
-					}
-					break;
-				}
-			// undefined
-			// noinspection FallThroughInSwitchStatementJS
-			default: writeByte(0xc0);
-		}
-	};
-
-	/** @param {Number} val */
-	const encodeNumber = val => {
-		if (isFinite(val) && Number.isSafeInteger(val)) {
-			// Integer
-			if (val >= -0x20 && val <= 0x7f) { // Tiny
-				writeByte(val);
-			}
-			else if (val >= -128 && val <= 255) { // int8
-				writeByte(val < 0 ? 0xD0 : 0xCC);
-				writeByte(val);
-			}
-			else if (val >= -32768 && val <= 65535) {	 // int16
-				writeByte(val < 0 ? 0xD1 : 0xCD);
-				buf.setUint16(offset, val);
-				offset += 2;
-			}
-			else if (val >= -2147483648 && val <= 4294967295) { // int32
-				writeByte(val < 0 ? 0xD2 : 0xCE);
-				buf.setUint32(offset, val);
-				offset += 4;
-			}
-			else { // int64
-				writeByte(0xd3);
-				buf.setBigInt64(offset, BigInt(val));
-				offset += 8;
-			}
-		}
-		else {
-			// Float
-			writeByte(0xcb);
-			buf.setFloat64(offset, val);
-			offset += 8;
-		}
-	};
-
-	/** @param {BigInt} val */
-	const encodeBigint = val => {
-		writeByte(0xD3);
-		buf.setBigInt64(offset, val);
-		offset += 8;
-	};
-
-	/** @param {string} str */
-	const encodeString = str => {
-		let bytes = UTF8_TEXT_ENCODER.encode(str);
-		let length = bytes.length;
-
-		if (length <= 0x1f) {
-			writeByte(0xa0 | length);
-		} else if (length <= 0xff) {
-			writeByte(0xD9);
-			writeByte(length);
-		} else if (length <= 0xffff) {
-			writeByte(0xDA);
-			buf.setUint16(offset, length);
-			offset += 2;
-		} else {
-			writeByte(0xDB);
-			buf.setUint32(offset, length);
-			offset += 4;
-		}
-
-		writeBytes(bytes);
-	};
-
-	/** @param {Array} arr */
-	const encodeArray = arr => {
-		const length = arr.length;
-
-		if (length <= 0xf) {
-			writeByte(0x90 | length);
-		} else if (length <= 0xffff) {
-			writeByte(0xDC);
-			buf.setUint16(offset, length);
-			offset += 2;
-		} else {
-			writeByte(0xDD);
-			buf.setUint32(offset, length);
-			offset += 4;
-		}
-
-		for (let i = 0; i < length; i++) encode(arr[i]);
-	};
-
-	/** @param {Uint8Array | Uint8ClampedArray} arr */
-	const encodeBinArray = arr => {
-		const length = arr.length;
-
-		if (length <= 0xff) {
-			writeByte(0xC4);
-			writeByte(length);
-		} else if (length <= 0xffff) {
-			writeByte(0xC5);
-			buf.setUint16(offset, length);
-			offset += 2;
-		} else {
-			writeByte(0xC6);
-			buf.setUint32(offset, length);
-			offset += 4;
-		}
-
-		writeBytes(arr);
-	};
-
-	/** @param {Object} obj */
-	const encodeObject = obj => {
-		const keys = Object.keys(obj).filter(key => obj[key] !== undefined);
-		let length = keys.length;
-
-		if (length <= 0xf) {
-			writeByte(0x80 | length);
-		} else if (length <= 0xffff) {
-			writeByte(0xDE);
-			buf.setUint16(offset, length);
-			offset += 2;
-		} else {
-			writeByte(0xDF);
-			buf.setUint32(offset, length);
-			offset += 4;
-		}
-
-		if (schema) {
-			const currSchema = schema;
-			for (let key of keys) {
-				let index = currSchema.locate(key);
-				let value = obj[key];
-				if (index >= 0) {
-					encodeNumber(index);
-
-					const s = currSchema[index];
-					if (Array.isArray(s)) {
-						let key_, valueSchema;
-						[key_, schema, valueSchema] = s;
-						if (valueSchema) {
-							index = valueSchema.locate(value);
-							if (index >= 0) value = index;
-						}
-					} else {
-						schema = null;
-					}
-				} else {
-					encodeString(key);
-					schema = null;
-				}
-
-				encode(value);
-				schema = currSchema;
-			}
-		} else {
-			for (let key of keys) {
-				encodeString(key);
-				encode(obj[key]);
-			}
-		}
-	};
-
-	/** @param {Date} date */
-	const encodeDate = date => {
-		let sec = date.getTime() / 1000;
-		if (date.getMilliseconds() === 0 && sec >= 0 && sec < pow32) {	 // 32 bit seconds
-			buf.setUint16(offset, 0xD6FF);
-			offset += 2;
-			buf.setUint32(offset, sec);
-			offset += 4;
-		}
-		else if (sec >= 0 && sec < 0x400000000) {	 // 30 bit nanoseconds, 34 bit seconds
-			let ns = date.getMilliseconds() * 1000000;
-			writeBytes([0xd7, 0xff, ns >>> 22, ns >>> 14, ns >>> 6, ((ns << 2) >>> 0) | (sec / pow32), sec >>> 24, sec >>> 16, sec >>> 8, sec]);
-		}
-		else {	 // 32 bit nanoseconds, 64 bit seconds, negative values allowed
-			ensureCapacity(offset + 15);
-			writeByte(0xC7);
-			writeByte(12);
-			writeByte(0xFF);
-			buf.setUint32(offset, date.getMilliseconds() * 1000000);
-			offset += 4;
-			buf.setBigInt64(offset, BigInt(Math.floor(sec)));
-			offset += 8;
-		}
-	};
-	//endregion
-
-	encode(data);
-	ensureCapacity(1/0);
-};
+export const encodeRawMsg = (data, onChunk, options) => sharedEncoder.encode(data, onChunk, options);
 
 /**
  * Encode a value into a single MsgPack Uint8Array.
  *
  * @param {any} data - The value to encode.
- * @param {MsgpackSchema} [schema] - Optional schema for integer‑key encoding of objects.
+ * @param {MsgpackSchema} [schema_or_options] - Optional schema for integer‑key encoding of objects.
  * @param {function(Object): Object} [replacer=AS_IS] - Hook to transform objects before encoding.
  *        Receives the object and must return the (possibly modified) object.
  * @returns {Uint8Array} The encoded bytes.
  */
-export const encodeMsg = (data, schema, replacer) => {
+export const encodeMsg = (data, schema_or_options, replacer) => {
 	let globalOffset = 0;
-	let buffer = new Uint8Array(1024);
+	let bufferIsShared = true;
+	let buffer = sharedBuffer;
 	encodeRawMsg(data, (array) => {
 		const length = array.length;
 		if (globalOffset + length > buffer.length) {
 			const newBuffer = new Uint8Array(Math.max(globalOffset + length + 1024, buffer.length * 1.5));
 			newBuffer.set(buffer.subarray(0, globalOffset));
 			buffer = newBuffer;
+			bufferIsShared = false;
 		}
 		buffer.set(array, globalOffset);
 		globalOffset += length;
-	}, schema, replacer);
-	return buffer.subarray(0, globalOffset);
+	},  schema_or_options?.locate ? {schema: schema_or_options, replacer} : schema_or_options);
+	return buffer[bufferIsShared?'slice':'subarray'](0, globalOffset);
 }

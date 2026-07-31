@@ -1,4 +1,4 @@
-import {isPureObject} from "../runtime_shared.js";
+import {isPureObject} from "../shared.js";
 
 // a modified version of https://www.npmjs.com/package/fast-deep-equal
 export const deepEqual = (a, b, ignoredKeys) => {

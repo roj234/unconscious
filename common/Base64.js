@@ -1,4 +1,4 @@
-import {UTF8_TEXT_ENCODER} from "../runtime_shared.js";
+import {UTF8_TEXT_ENCODER} from "../shared.js";
 
 const B64_TAB = /* #__PURE__ */ UTF8_TEXT_ENCODER.encode("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/");
 const B64_URL_TAB = /* #__PURE__ */ UTF8_TEXT_ENCODER.encode("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_");

@@ -1,4 +1,4 @@
-import {UTF8_TEXT_ENCODER} from "../runtime_shared.js";
+import {UTF8_TEXT_ENCODER} from "../shared.js";
 
 const HEX_CHARS = '0123456789abcdef';
 const K = new Uint32Array([

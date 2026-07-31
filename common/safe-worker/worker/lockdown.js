@@ -131,6 +131,7 @@ export const lockdown = (globals) => {
 	killConstructor((async function*(){}));
 
 	const stopAt = EventTarget.prototype;
+	const toFreeze = [];
 	while (win !== stopAt) {
 		for (const [name, {value, configurable}] of object.entries(object.getOwnPropertyDescriptors(win))) {
 			if (!SAFE_SET.has(name) && configurable && !name.endsWith("Error")) {
@@ -142,9 +143,9 @@ export const lockdown = (globals) => {
 			}
 		}
 		win = win.__proto__;
-		// 移动到这里，不冻结 self 方便修改全局作用域（如有需要）
-		object.freeze(win);
+		toFreeze.push(win);
 	}
+	toFreeze.forEach(x => Object.freeze(x));
 
 	// 一些可能被库修改的值不能不 writable
 	// 函数执行堵上之后已经很安全了，这些代码主要是为了防止代码玩花活抗审计之类的

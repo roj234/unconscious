@@ -26,6 +26,8 @@ export function normalizePath(path) {
 			paths.splice(j, 1);
 			if (j > 0 && !isWindowsPartition(paths[j - 1])) {
 				paths.splice(--j, 1);
+			} else {
+				throw new Error("Forbidden: Path traversal");
 			}
 		} else {
 			j++;

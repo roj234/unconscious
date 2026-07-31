@@ -27,7 +27,7 @@ const
 	IDENT_START = /[a-zA-Z_$]/,
 	IDENT_PART = /[a-zA-Z\d_$]/,
 	DIGIT = /\d/,
-	OPERATORS = /===|!==|\.\.\.|&&|\|\||\?[?.]|(?:<<|>>>?|\*\*|[-+*/%><!=])=?/y;
+	OPERATORS = /=>|===|!==|\.\.\.|&&|\|\||\?[?.]|(?:<<|>>>?|\*\*|[-+*/%><!=])=?/y;
 
 // Regex context: characters/tokens after which '/' starts a regex literal
 // This is not fully compliant, but enough for now.
@@ -62,6 +62,11 @@ function parseModule(code, ctx) {
 	let inStmt;
 
 	let prevTokenIndex = 0, prevIndex = 0;
+
+	if (code.startsWith("#!")) {
+		prevIndex = pos = code.indexOf('\n');
+		if (pos < 0) return tokens;
+	}
 
 	const parseDescents = (re, initDepth = 0) => {
 		const outLen = tokens.length;
@@ -162,7 +167,7 @@ function parseModule(code, ctx) {
 					if (c1 === '+' || c1 === '-') pos++;
 					while (/[0-9.]/.test(code[pos])) pos++;
 				}
-				else if (c1 === 'n') pos++;
+				if (code[pos] === 'n') pos++;
 
 				tokens.push(code.slice(start, pos));
 				continue;
@@ -485,6 +490,7 @@ const parseExport = (tokens, output, ctx) => {
 		if (name === 'async') name = tokens[++i];
 		if (name === 'function' || name === 'class') {
 			name = tokens[++i];
+			if (name === '*') name = tokens[++i];
 			if (LITERAL.test(name)) {
 				emitExpression(start);
 				emit(`${field}.default = ${name};`);
@@ -548,7 +554,11 @@ const parseExport = (tokens, output, ctx) => {
 				}
 			}
 		} else {
-			const name = tokens[i + (token === 'async' ? 2 : 1)];
+			let j = i+1;
+			if (token === 'async') j++;
+			if (tokens[j] === '*') j++;
+
+			const name = tokens[j];
 			emit(`${field}.${name} = ${name};`);
 		}
 
@@ -573,8 +583,8 @@ const parseVariableDecl = (tokens, i) => {
 	for (; i < tokens.length; i++) {
 		const token = tokens[i];
 		if (name == null) names.push(name = token);
-		else if (token === '{' || token === '[') {depth++;}
-		else if (token === '}' || token === ']') {depth--;}
+		else if (token === '{' || token === '[' || token === '(') {depth++;}
+		else if (token === '}' || token === ']' || token === ')') {depth--;}
 		else if (token === ',' && depth === 0) name = null;
 	}
 	return names;

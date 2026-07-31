@@ -1,4 +1,4 @@
-import {AS_IS} from "../runtime_shared.js";
+import {AS_IS} from "../shared.js";
 
 const WHITESPACE = new Set("\r\n\t ");
 const NUMBER_START = new Set("0123456789+-.");
@@ -28,8 +28,7 @@ const NUMBER_END = new Set(" \t\r\n+]},/\0");
  * - 无论如何，is_partial=false时都是完整字符串
  *
  * @param {boolean=false} json5 启用 JSON5 解析 (注：并非所有 JSON5 特性都被禁用，如尾逗号在架构上就允许，检测反而需要额外代价影响性能)
- * @returns {{write: (function(string): void), end: (function(): any), pos: (function(): number)}}
- * 返回一个包含 `write` 和 `end` 方法的对象。
+ * @returns {StreamJsonParserInstance}
  *
  * @example
  * const parser = StreamJsonParser((path, val, partial) => {

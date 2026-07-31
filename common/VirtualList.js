@@ -1,4 +1,4 @@
-import {debugSymbol} from "../runtime_shared.js";
+import {debugSymbol} from "../shared.js";
 
 import "./VirtualList.css";
 
@@ -91,7 +91,8 @@ export class VirtualList {
 		// 必须在写入真实高度前，用旧高度模型确定当前可视锚点。
 		// overscan 中位于锚点前的项目高度变化时，需要同步补偿 scrollTop，
 		// 否则这些项目从估算高度切换到真实高度会推动可视内容瞬移。
-		const scrollAnchorIndex = this._getScrollAnchorIndex(viewTop);
+		// 移动到下方懒加载以优化宽度resize时的性能
+		let scrollAnchorIndex;
 		let heightChanged = 0;
 		let beforeAnchorHeightChanged = 0;
 		let hasHeightChanged = false;
@@ -107,8 +108,8 @@ export class VirtualList {
 			const measuredHeight = targetRect + (typeof gap === "function" ? gap.call(this, target) : gap);
 			let expectedHeight = item[ITEM_HEIGHT] ?? this.itemHeight;
 			if (null == expectedHeight) {
-				this.itemHeight = measuredHeight;
-				queueMicrotask(() => {
+				if (measuredHeight) this.itemHeight = measuredHeight;
+				requestAnimationFrame(() => {
 					this._start = this._offset = this._height = 0;
 					this.render();
 				});
@@ -120,6 +121,7 @@ export class VirtualList {
 				item[ITEM_HEIGHT] = measuredHeight;
 				heightChanged += delta;
 				hasHeightChanged = true;
+				if (null == scrollAnchorIndex) scrollAnchorIndex = this._getScrollAnchorIndex(viewTop);
 				if (itemIndex < scrollAnchorIndex) beforeAnchorHeightChanged += delta;
 			}
 		}
@@ -179,12 +181,19 @@ export class VirtualList {
 
 	/**
 	 * @param {HTMLElement} wrapper
+	 * @param {boolean} [skipIO]
 	 */
-	attach(wrapper) {
+	attach(wrapper, skipIO) {
 		this._wrapper = wrapper;
 		wrapper.addEventListener('scroll', this.render);
-		this.#io.observe(wrapper);
+		if (!skipIO) this.#io.observe(wrapper);
+		else this._visible = true;
 		this.#mainRo.observe(wrapper);
+	}
+
+	startMove() {
+		const wrapper = this._wrapper;
+		this.#mainRo.unobserve(wrapper);
 	}
 
 	resize() {

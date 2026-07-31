@@ -63,6 +63,8 @@ export function deepEntries(
     seen?: Set<object>
 ): Generator<[value: any, obj: Record<string, any>, key: string], void, string>;
 
+export const JSON_POINTER_PATTERN = /^(?:\/(?:[^/~]|~[01])*)*$/;
+
 /**
  * Parse a JSON pointer string (RFC 6901) into key segments.
  */
@@ -83,22 +85,23 @@ export function jsonGet(obj: any, path: string | string[]): any;
 export function jsonEval(
     obj: Record<string, any>,
     path: string | string[],
-    action: 'get' | 'delete'
-): { value: any; undo: any };
-
-export function jsonEval(
-    obj: Record<string, any>,
-    path: string | string[],
-    action: 'set',
+    action: 'delete' | 'set',
     value: any
-): { value: any; undo: any };
+): { value: any; undo: Object };
 
 export function jsonEval(
     obj: Record<string, any>,
     path: string | string[],
     action: 'plus',
     value: number
-): { value: number; undo: number };
+): { value: number; undo: Object };
+
+export function jsonEvalUndo(
+    obj: Record<string, any>,
+    path: string | string[],
+    action: 'delete' | 'set' | 'plus',
+    undo: Object
+): void;
 
 // ---------- Schema Compilation ----------
 

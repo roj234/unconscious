@@ -27,7 +27,11 @@ const createObject = (o) => Object.freeze(Object.assign(Object.create(null), o))
 const createFunction = (code, name) => {
 	let fn = codeCache.get(code);
 	if (!fn) {
-		codeCache.set(code, fn = fun('return async function '+(name ? name.replaceAll(/[^a-zA-Z]/g, '_') : 'unnamedModule')+"(__onload, exports){"+code+"};")());
+		try {
+			codeCache.set(code, fn = fun('return async function '+(name ? name.replaceAll(/[^a-zA-Z]/g, '_') : 'unnamedModule')+"(__onload, exports){"+code+"\n};")());
+		} catch (e) {
+			throw new Error("Failed to load module "+name+": "+e.message);
+		}
 		if (codeCache.size > 200) codeCache.delete(codeCache.keys().next().value);
 	}
 	return fn;
@@ -171,7 +175,7 @@ const onload = (module, callback) => moduleCache.get(module)?.then?.(callback);
 const _eval = async ([path, code, context]) => {
 	const fn = createFunction(code);
 	try {
-		const promise = fn.call(context, onload);
+		const promise = fn.call(context, onload, {});
 		if (path) moduleCache.set(path, promise);
 		return await promise;
 	} finally {
@@ -277,6 +281,8 @@ const global = {
 	navigator: navigator1,
 	require(owner, name, attributes) {
 		if (typeof name !== 'string') throw new Error('Illegal argument');
+		if (name.startsWith("data:")) throw new Error('Content security policy violation');
+
 		let type = attributes?.with?.type;
 
 		let isSystemModule = name[0] !== '.' && name[0] !== '/';

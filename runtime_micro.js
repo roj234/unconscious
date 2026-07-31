@@ -1,13 +1,7 @@
-import {
-	ID_CLASSLIST,
-	ID_DANGEROUSLY_SET_INNERHTML,
-	ID_EVENTHANDLER,
-	ID_NAMESPACE,
-	ID_STYLELIST
-} from "./constant.js";
-import {isPureObject} from "./runtime_shared.js";
+import {ID_CLASSLIST, ID_DANGEROUSLY_SET_INNERHTML, ID_EVENTHANDLER, ID_NAMESPACE, ID_STYLELIST} from "./constant.js";
+import {isPureObject} from "./shared.js";
 
-export * from './runtime_shared.js';
+export * from './shared.js';
 
 /**
  * 创建 DOM 元素

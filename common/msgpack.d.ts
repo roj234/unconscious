@@ -57,6 +57,38 @@ export interface MsgpackDecodeOptions {
     multiple?: boolean;
 }
 
+/**
+ * Options for encoding a MsgPack message.
+ */
+export interface MsgpackEncodeOptions {
+    /**
+     * Optional schema for integer key/value encoding of objects.
+     * @default null
+     */
+    schema?: MsgpackSchema;
+    /**
+     * Hook to transform objects before encoding.
+     * Receives the object and must return the (possibly modified) object.
+     * If not provided, the identity function is used.
+     */
+    replacer?: (obj: Object) => Object;
+    /**
+     * Use float32 instead of float64 to save non-integral numbers.
+     * @default false
+     */
+    useFloat32?: boolean;
+    /**
+     * Sort object keys before encoding. (canonical represent)
+     * @default false
+     */
+    sortKeys?: boolean;
+    /**
+     * Ignore undefined keys in object, like what JSON.stringify do
+     * @default true
+     */
+    ignoreUndefined?: boolean;
+}
+
 /** Supported input types for decoding. */
 export type MsgpackInput = number[] | ArrayBufferView | DataView | Buffer;
 
@@ -92,16 +124,12 @@ export function decodeRawMsg(
  * @param onChunk   Callback invoked with each encoded chunk (`Uint8Array`).
  *                  The second argument (`shared`) is `true` for internal shared buffer,
  *                  如果需要在异步函数中使用，请先复制一份.
- * @param schema    Optional schema for integer‑key encoding of objects.
- * @param replacer  Hook to transform objects before encoding.
- *                  Receives the object and must return the (possibly modified) object.
- *                  If not provided, the identity function is used.
+ * @param options
  */
 export function encodeRawMsg(
     data: any,
     onChunk: (chunk: Uint8Array, shared?: boolean) => void,
-    schema?: MsgpackSchema,
-    replacer?: (obj: object) => object
+    options?: MsgpackEncodeOptions
 ): void;
 
 /**
@@ -117,5 +145,10 @@ export function encodeRawMsg(
 export function encodeMsg(
     data: any,
     schema?: MsgpackSchema,
-    replacer?: (obj: object) => object
+    replacer?: (obj: Object) => Object
+): Uint8Array;
+
+export function encodeMsg(
+    data: any,
+    options?: MsgpackDecodeOptions,
 ): Uint8Array;

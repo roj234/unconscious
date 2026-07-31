@@ -1,5 +1,5 @@
 import {deepEqual} from "./deepEqual.js";
-import {isPureObject} from "../runtime_shared.js";
+import {isPureObject} from "../shared.js";
 
 // llama.cpp的value替换为 type: SCHEMA_VALUES
 const SCHEMA_VALUES = ["object", "array", "string", "number", "boolean", "null"];
@@ -24,6 +24,8 @@ export function* deepEntries(obj, seen = new Set()) {
 	}
 }
 
+export const JSON_POINTER_PATTERN = /^(?:\/(?:[^/~]|~[01])*)*$/;
+
 /**
  *
  * @param {string} path
@@ -47,82 +49,150 @@ export const jsonGet = (obj, path) => {
 
 /**
  * 辅助函数：解析路径并操作对象
+ * 返回的 `undo` 为结构化撤销信息（JSON 可序列化）
+ *
  * @param {Object} obj
  * @param {string|string[]} path
- * @param {'get' | 'set' | 'plus' | 'delete'} action
+ * @param {'push' | 'set' | 'plus' | 'delete'} action
  * @param {any=} value
- * @return {{value: any, undo: any}}
+ * @return {{value: any, undo: Object}}
  */
 export const jsonEval = (obj, path, action, value) => {
+	if (value === undefined) throw 'value is undefined';
+
+	let keys = Array.isArray(path) ? path : parseJsonPointer(path);
+	if (keys.at(-1) === '-') {
+		action = "push";
+		keys = keys.slice(0, -1);
+	}
+	let container = obj;
+	let created;
+	for (let i = 0; i < keys.length - 1; i++) {
+		let next = container[keys[i]];
+		if (typeof next !== 'object' || next === null) {
+			if (next !== undefined) throw `intermediate node is not valid object (but ${JSON.stringify(next)})`;
+			// not created actually
+			if (action === "delete") return {value: false, undo: { create: i }};
+
+			container[keys[i]] = next = {};
+			if (created == null) created = i;
+		} else {
+			if (Array.isArray(container)) throw 'intermediate node is not object (but array)';
+		}
+
+		container = next;
+	}
+	const lastKey = keys.at(-1);
+
+	let target = container[lastKey];
+	const containerType = typeof target;
+	let undo;
+
+	switch (action) {
+		case 'set':
+			undo = target;
+			target = value;
+			if (Array.isArray(container) && parseInt(lastKey) > container.length)
+				throw `array index out of bounds (> ${container.length}), equal is fine`;
+		break;
+		case 'plus':
+			if (containerType !== 'number') {
+				if (target !== undefined) {
+					throw `target is not number (${containerType})`;
+				} else {
+					if (Array.isArray(container)) throw `container is an array and missing index ${lastKey} will not be automatically created`;
+				}
+			}
+			undo = target;
+			target = Number(target || 0) + Number(value);
+		break;
+		case 'push': {
+			const arrayCreated = !Array.isArray(target);
+			if (arrayCreated) {
+				if (target !== undefined) throw 'target is not array';
+				target = [];
+			}
+			undo = arrayCreated ? -1 : target.length;
+			if (Array.isArray(value)) target.push(...value);
+			else target.push(value);
+			break;
+		}
+		case 'delete': {
+			if (typeof container !== 'object') throw `container is not object (${typeof container})`;
+
+			if (Array.isArray(container)) {
+				const start = parseInt(lastKey);
+				if (!Number.isSafeInteger(start)) throw `index is not number (${start})`;
+				if (start >= container.length) throw `array index out of bounds (>= ${container.length})`;
+
+				const removed = container.splice(start, 1)[0];
+				return {value: removed, undo: {value: structuredClone(removed)}};
+			}
+
+			const value = container[lastKey];
+			const deleted = value !== undefined;
+			delete container[lastKey];
+			return {value: deleted, undo: deleted ? {value: structuredClone(value)} : {}};
+		}
+	}
+
+	container[lastKey] = target;
+	return {
+		value: target,
+		undo: created != null ? {created} : {value: structuredClone(undo)}
+	};
+};
+
+/**
+ * 辅助函数：撤销上次 JsonEval 操作
+ *
+ * @param {Object} obj
+ * @param {string|string[]} path
+ * @param {'push' | 'set' | 'plus' | 'delete'} action
+ * @param {Object} undo
+ */
+export const jsonEvalUndo = (obj, path, action, undo) => {
 	let keys = Array.isArray(path) ? path : parseJsonPointer(path);
 	if (keys.at(-1) === '-') {
 		action = "push";
 		keys = keys.slice(0, -1);
 	}
 
+	let created = undo.created;
 	let current = obj;
 	for (let i = 0; i < keys.length - 1; i++) {
-		if (!current[keys[i]]) {
-			if (action === "delete") return {value: false};
-			if (action === "get") return {};
-			if (Array.isArray(current))
-				throw 'node at intermediate path is not object (is array)';
-
-			current[keys[i]] = {};
-		}
+		if (i === created) return delete current[keys[i]];
 		current = current[keys[i]];
+		if (typeof current !== 'object' || current === null)
+			throw ("Intermediate node is not valid object");
 	}
-	const lastKey = keys[keys.length - 1];
-
-	let container = current[lastKey];
-	let undo = container;
+	const lastKey = keys.at(-1);
 
 	switch (action) {
-		case 'get': return {value: container};
-		case 'set': container = value; break;
+		case 'set':
 		case 'plus':
-			if (null == container && Array.isArray(current)) throw 'node at intermediate path is not object (is array)';
-			if (container !== undefined && typeof container !== 'number') throw 'node at path is not number';
-			container = Number(container || 0) + Number(value);
-			break;
-		case 'push':
-			if (!Array.isArray(container)) {
-				if (container)
-					throw 'node at path is not array';
-				container = [];
-			}
-
-			undo = container.length;
-			if (Array.isArray(value)) container.push(...value);
-			else container.push(value);
-		break;
-		case 'delete': {
-			if (typeof current !== 'object') throw 'node at path is not object';
-
-			if (Array.isArray(current)) {
-				undo = current.splice(parseInt(lastKey), 1);
-				return {
-					undo: {
-						_isArray: true,
-						value: [...undo]
-					},
-					value: undo
-				}
+			if (undo.value !== undefined) current[lastKey] = undo.value;
+			else if (Array.isArray(current) && parseInt(lastKey) === current.length-1) {
+				current.pop();
 			} else {
-				undo = current[lastKey];
-				return {
-					undo,
-					value: delete current[lastKey]
-				};
+				delete current[lastKey];
 			}
-		}
-	}
 
-	current[lastKey] = container;
-	return {
-		undo,
-		value: container
-	};
+		break;
+		case 'push':
+			const value = undo.value;
+			if (value < 0) delete current[lastKey];
+			else current[lastKey].length = value;
+		break;
+		case 'delete':
+			if (Array.isArray(current)) {
+				let idx = parseInt(lastKey);
+				if (idx < 0) idx += current.length + 1;
+				current.splice(idx, 0, undo.value);
+			}
+			else if (undo.value !== undefined) current[lastKey] = undo.value;
+		break;
+	}
 };
 
 /**
@@ -173,6 +243,10 @@ export function compileSchema(input, openAIStrict) {
 
 			else if (key === "required" && val === true) {
 				own[key] = Object.keys(own.properties);
+			}
+
+			else if (key === "pattern" && typeof val === "string") {
+				own["type"] = "string";
 			}
 		}
 
@@ -273,7 +347,7 @@ export function validate(o, schema, issues, path = "$") {
 			case 'integer':
 				return typeof o === 'bigint' || Number.isInteger(o);
 		}
-	}
+	};
 	let matchType;
 
 	checkTypeMatch:{
@@ -288,6 +362,7 @@ export function validate(o, schema, issues, path = "$") {
 		}
 
 		error("type must be "+JSON.stringify(types));
+		return o;
 	}
 
 	switch (matchType) {
@@ -365,9 +440,9 @@ export function validate(o, schema, issues, path = "$") {
 			const {minimum = NaN, maximum = NaN, exclusiveMinimum = NaN, exclusiveMaximum = NaN, multipleOf} = schema;
 			if (o < minimum || o <= exclusiveMinimum || o > maximum || o >= exclusiveMaximum) {
 				let str;
-				str = exclusiveMinimum !== exclusiveMinimum ? '[' + (minimum || '') : '(' + exclusiveMinimum;
+				str = exclusiveMinimum !== exclusiveMinimum ? '[' + (isFinite(minimum) ? minimum : '') : '(' + exclusiveMinimum;
 				str += ', ';
-				str += exclusiveMaximum !== exclusiveMaximum ? (maximum || '') + ']' : exclusiveMaximum + ')';
+				str += exclusiveMaximum !== exclusiveMaximum ? (isFinite(maximum) ? maximum : '') + ']' : exclusiveMaximum + ')';
 				error(`value(${o}) must in `+str);
 			}
 			if (multipleOf && (o % multipleOf)) {

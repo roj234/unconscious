@@ -834,14 +834,7 @@ interface VideoHTMLAttributes<T> extends MediaHTMLAttributes<T> {
     disablePictureInPicture?: boolean;
 }
 
-// this list is "complete" in that it contains every SVG attribute
-// that React supports, but the types can be improved.
-// Full list here: https://facebook.github.io/react/docs/dom-elements.html
-//
-// The three broad type categories are (in order of restrictiveness):
-//   - "number | string"
-//   - "string"
-//   - union of string literals
+// TODO 哪些属性需要连字符，哪些不需要？
 interface SVGAttributes<T> extends AriaAttributes, DOMAttributes<T> {
     // Attributes which also defined in HTMLAttributes
     // See comment in SVGDOMPropertyConfig.js
@@ -1043,13 +1036,13 @@ interface SVGAttributes<T> extends AriaAttributes, DOMAttributes<T> {
     strikethroughThickness?: number | string;
     string?: number | string;
     stroke?: string;
-    strokeDasharray?: string | number;
-    strokeDashoffset?: string | number;
-    strokeLinecap?: "butt" | "round" | "square" | "inherit";
-    strokeLinejoin?: "miter" | "round" | "bevel" | "inherit";
-    strokeMiterlimit?: number | string;
-    strokeOpacity?: number | string;
-    strokeWidth?: number | string;
+    'stroke-dasharray'?: string | number;
+    'stroke-dashoffset'?: string | number;
+    'stroke-linecap'?: "butt" | "round" | "square" | "inherit";
+    'stroke-linejoin'?: "miter" | "round" | "bevel" | "inherit";
+    'stroke-miterlimit'?: number | string;
+    'stroke-opacity'?: number | string;
+    'stroke-width'?: number | string;
     surfaceScale?: number | string;
     systemLanguage?: number | string;
     tableValues?: number | string;

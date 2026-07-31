@@ -111,6 +111,7 @@ export default (options = {}) => {
         resolve: {
           alias: {
             'unconscious/common': scriptPath+'/common',
+            'unconscious/shared.js': scriptPath+'/shared.js',
             ...theLibrary,
           }
         },

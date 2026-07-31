@@ -108,7 +108,7 @@ export class VirtualList<T = object> {
     /**
      * lazy附加到容器
      */
-    attach(wrapper: HTMLElement): void;
+    attach(wrapper: HTMLElement, skipIntersectionCheck?: boolean = false): void;
 
     /**
      * 清理资源（断开观察器和事件监听）

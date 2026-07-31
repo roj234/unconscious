@@ -1,5 +1,5 @@
 import {base64DecodeToUint8Array, base64Encode} from "../../Base64.js";
-import {UTF8_TEXT_DECODER, UTF8_TEXT_ENCODER} from "../../../runtime_shared.js";
+import {UTF8_TEXT_DECODER, UTF8_TEXT_ENCODER} from "../../../shared.js";
 
 const _TE = UTF8_TEXT_ENCODER;
 const UTF8_TD = UTF8_TEXT_DECODER;
