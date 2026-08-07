@@ -36,9 +36,10 @@ export class NestedMap<K = any, V = any> {
     /**
      * 删除键值对。
      * @param keys 单键或复合键（数组）。
+     * @param includeDescents 删除子键
      * @returns 删除成功返回 `true`，键不存在则返回 `false`。
      */
-    delete(keys: K | K[]): boolean;
+    delete(keys: K | K[], includeDescents?: boolean): boolean;
 
     /** 储存的键值对总数。 */
     readonly size: number;

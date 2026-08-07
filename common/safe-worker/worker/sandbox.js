@@ -281,7 +281,7 @@ const global = {
 	navigator: navigator1,
 	require(owner, name, attributes) {
 		if (typeof name !== 'string') throw new Error('Illegal argument');
-		if (name.startsWith("data:")) throw new Error('Content security policy violation');
+		if (name.startsWith("data:")) throw new Error('\"data:\" is not allowed');
 
 		let type = attributes?.with?.type;
 

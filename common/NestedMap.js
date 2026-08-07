@@ -6,12 +6,12 @@ export const NODE_VALUE = debugSymbol('NodeValue');
  * NestedMap - 支持数组作为复合键的 Map
  */
 export class NestedMap {
-	constructor(entries = []) {
-		this._tree = new Map();
-		this._simple = new Map();
-		this._size = 0;
+	#tree = new Map();
+	#simple = new Map();
+	//#size = 0;
 
-		for (const [keys, value] of entries) {
+	constructor(entries) {
+		if (entries) for (const [keys, value] of entries) {
 			this.set(keys, value);
 		}
 	}
@@ -24,7 +24,7 @@ export class NestedMap {
 	set(keys, value) {
 		if (Array.isArray(keys)) {
 			if (keys.length > 1) {
-				let current = this._tree;
+				let current = this.#tree;
 				for (const key of keys) {
 					let next = current.get(key);
 					if (!next) {
@@ -33,14 +33,14 @@ export class NestedMap {
 					current = next;
 				}
 
-				if (!current.has(NODE_VALUE)) this._size++;
+				//if (!current.has(NODE_VALUE)) this.#size++;
 				current.set(NODE_VALUE, value);
 				return this;
 			}
 
 			keys = keys[0];
 		}
-		this._simple.set(keys, value);
+		this.#simple.set(keys, value);
 		return this;
 	}
 
@@ -51,7 +51,7 @@ export class NestedMap {
 	get(keys) {
 		if (Array.isArray(keys)) {
 			if (keys.length > 1) {
-				let current = this._tree;
+				let current = this.#tree;
 				for (const key of keys) {
 					current = current.get(key);
 					if (!current) return;
@@ -62,11 +62,11 @@ export class NestedMap {
 			keys = keys[0];
 		}
 
-		return this._simple.get(keys);
+		return this.#simple.get(keys);
 	}
 
 	getChildren(keys) {
-		let current = this._tree;
+		let current = this.#tree;
 		for (let i = 0; i < keys.length; i++) {
 			current = current.get(keys[i]);
 			if (!current) return;
@@ -81,7 +81,7 @@ export class NestedMap {
 	has(keys) {
 		if (Array.isArray(keys)) {
 			if (keys.length > 1) {
-				let current = this._tree;
+				let current = this.#tree;
 				for (const key of keys) {
 					current = current.get(key);
 					if (!current) return false;
@@ -92,19 +92,20 @@ export class NestedMap {
 			keys = keys[0];
 		}
 
-		return this._simple.has(keys);
+		return this.#simple.has(keys);
 
 	}
 
 	/**
 	 * 删除键值对
 	 * @param {any|any[]} keys
+	 * @param {boolean} includeDescents
 	 */
-	delete(keys) {
+	delete(keys, includeDescents) {
 		if (Array.isArray(keys)) {
 			if (keys.length > 1) {
 				const stack = []; // 用于后续清理空节点
-				let current = this._tree;
+				let current = this.#tree;
 
 				for (const key of keys) {
 					stack.push([ current, key ]);
@@ -112,8 +113,14 @@ export class NestedMap {
 					if (!current) return false;
 				}
 
-				if (!current.delete(NODE_VALUE)) return false;
-				this._size--;
+				let ok = true;
+				if (includeDescents) {
+					ok = current.size > 0;
+					current.clear();
+				} else {
+					if (!current.delete(NODE_VALUE)) return false;
+					//this.#size--;
+				}
 
 				// 递归向上删除不再需要的 Map 节点（瘦身）
 				for (let i = stack.length - 1; i >= 0; i--) {
@@ -123,34 +130,34 @@ export class NestedMap {
 					parent.delete(key);
 				}
 
-				return true;
+				return ok;
 			}
 
 			keys = keys[0];
 		}
 
-		return this._simple.delete(keys);
+		return this.#simple.delete(keys);
 
 	}
 
-	get size() {
-		return this._size + this._simple.size;
-	}
+	/*get size() {
+		return this.#size + this.#simple.size;
+	}*/
 
 	/**
 	 * 迭代器实现 (DFS)
 	 */
 	*[Symbol.iterator]() {
-		yield* this._simple[Symbol.iterator]();
-		yield* this._traverse(this._tree, []);
+		yield* this.#simple[Symbol.iterator]();
+		yield* this.#traverse(this.#tree, []);
 	}
 
-	*_traverse(map, path, includeDir) {
+	*#traverse(map, path, includeDir) {
 		for (const [key, nextMap] of map.entries()) {
 			if (key !== NODE_VALUE) {
 				if (includeDir) yield [path];
 				path.push(key);
-				yield* this._traverse(nextMap, path, includeDir);
+				yield* this.#traverse(nextMap, path, includeDir);
 				path.pop();
 			} else {
 				yield [path, map.get(NODE_VALUE)];
@@ -159,7 +166,8 @@ export class NestedMap {
 	}
 
 	clear() {
-		this._tree.clear();
-		this._size = 0;
+		this.#tree.clear();
+		this.#simple.clear();
+		//this.#size = 0;
 	}
 }

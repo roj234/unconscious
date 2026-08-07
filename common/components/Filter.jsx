@@ -1,5 +1,9 @@
-import {AS_IS, isReactive, preserveState, unconscious} from "unconscious";
+import {AS_IS, preserveState, unconscious} from "unconscious";
 import './filter.css';
+
+const DEFAULT_REQUIRE_FUNC = (name, item) => {
+	if (!name) return item.warning || '字段不得留空';
+}
 
 /**
  * @param {Config[]} config 配置列表
@@ -63,7 +67,7 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 	const refreshHandlers = [];
 	function addRefreshHandler(id, callback, dontCall) {
 		if (!dontCall) callback();
-		if (isReactive(choices)) refreshHandlers.push(callback);
+		refreshHandlers.push(callback);
 	}
 	function sync(initial, noemit) {
 		if (!initial) {
@@ -85,11 +89,8 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 		let row, warning;
 
 		function showWarning(text) {
-			if (warning?.isConnected) warning.innerText = text;
-			else {
-				warning = <div className='input-warning' aria-live='polite'>{text}</div>;
-				row.append(warning);
-			}
+			if (warning?.parentElement) warning.innerText = text;
+			else row.append(warning = <div className='input-warning' aria-live='polite'>{text}</div>);
 		}
 
 		switch (type) {
@@ -204,7 +205,7 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 			case 'secret':
 			case 'input':
 			case 'textbox': {
-				const {pattern: pat} = item;
+				const {pattern: pat = DEFAULT_REQUIRE_FUNC} = item;
 
 				const pattern = typeof pat === 'string'
 					? new RegExp(pat)
@@ -218,8 +219,8 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 					? (val) => !pattern.test(val) && (item.warning || '输入不符合要求')
 					: (val) => {
 						try {
-							let error = pattern(val);
-							if (typeof error !== 'string')
+							let error = pattern(val, item);
+							if (Array.isArray(error))
 								[value, error] = error;
 							return error;
 						} catch (e) {

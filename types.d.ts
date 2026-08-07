@@ -74,7 +74,7 @@ export function $cleanup(element: Element | Text, listenerKey: [Reactive<any>, F
 export function $dispose(element: Element | Text, keep?: [Reactive<any>, Function]): void;
 
 export function $state<T>(object: T, deep?: boolean): Reactive<T>;
-export function $stampLock<T>(state: Reactive<T>): Reactive<T>;
+export function $stampLock<T>(state: Reactive<T>, value?: T): Reactive<T>;
 export function $watch(objects: Reactive<any> | Reactive<any>[] | (() => any), listener: () => Function | void, triggerNow?: boolean): void;
 export function $watchOn(object: Reactive<any>, listener: () => void, element: HTMLElement): void;
 export function $unwatch(object: Reactive<any>, listener: Function): void;

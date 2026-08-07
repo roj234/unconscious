@@ -83,7 +83,7 @@ export function selectableVirtualListMixin(virtualList, getRawText, hasLineNumbe
 	};
 
 	const _getLineCols = (node, offset) => {
-		const lineEl = node.nodeType === Node.ENTITY_NODE ? node.closest('.line') : node.parentElement?.closest('.line');
+		const lineEl = (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)?.closest('.line');
 		if (!lineEl) return null;
 
 		const lines = parseInt(lineEl[INDEX]);

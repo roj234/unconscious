@@ -1,12 +1,20 @@
 import {AS_IS} from "../shared.js";
 
-const WHITESPACE = new Set("\r\n\t ");
-const NUMBER_START = new Set("0123456789+-.");
+const WHITESPACE = 1, NUMBER_START = 2, NUMBER_START_JSON5 = 4, NUMBER_END = 8;
+
+const CHAR_TRAITS = new Uint8Array(128);
+const fill = (chars, flag) => {
+	for (let i = 0; i < chars.length; i++) {
+		CHAR_TRAITS[chars.charCodeAt(i)] |= flag;
+	}
+};
+fill("\r\n\t ", WHITESPACE);
+fill("0123456789+-.", NUMBER_START);
 // Infinity or NaN
-const NUMBER_START_JSON5 = new Set("0123456789+-.IN");
+fill("IN", NUMBER_START_JSON5);
 // 用 [0-9eE+-.] 做白名单也行
 // oct+bin+hex+dec+float 的完整状态机有两百多行，已经和这个JsonParser在同一量级了，不值，更不用说JS本身就不适合计算密集型这个问题
-const NUMBER_END = new Set(" \t\r\n+]},/\0");
+fill(" \t\r\n+]},/\0", NUMBER_END);
 
 /**
  * 流式增量 JSON 'push' 模式解析器。
@@ -28,6 +36,7 @@ const NUMBER_END = new Set(" \t\r\n+]},/\0");
  * - 无论如何，is_partial=false时都是完整字符串
  *
  * @param {boolean=false} json5 启用 JSON5 解析 (注：并非所有 JSON5 特性都被禁用，如尾逗号在架构上就允许，检测反而需要额外代价影响性能)
+ * @param {boolean=false} jsonl 启用 JSONL 解析 (在 onValue 中用 !path.length 分割)
  * @returns {StreamJsonParserInstance}
  *
  * @example
@@ -38,7 +47,7 @@ const NUMBER_END = new Set(" \t\r\n+]},/\0");
  * parser.write(`world",}`);
  * const result = parser.end();
  */
-export function createJsonParser(onValue, {emitDelta, json5} = {}) {
+export function createJsonParser(onValue, {emitDelta, json5, jsonl} = {}) {
 	let root;
 	const stack = [];
 	const path = [];
@@ -63,7 +72,7 @@ export function createJsonParser(onValue, {emitDelta, json5} = {}) {
 		COMMENT_SINGLE_LINE = 16 | (2 << 5);
 
 	/** @type {number} */
-	let commentBuffer;
+	let priorCommentState;
 
 	/** @type {string|null} */
 	let key;
@@ -79,7 +88,7 @@ export function createJsonParser(onValue, {emitDelta, json5} = {}) {
 	/** @type {string} */
 	let escapeBuf;
 
-	let errorIndex = 0;
+	let diagnosticPos = 0;
 
 	const FAIL = (excepting, found) => {
 		throw new Error((path.length?"pointer /"+path.join("/")+": ":"")+"excepting "+excepting+" but found "+JSON.stringify(found));
@@ -121,51 +130,71 @@ export function createJsonParser(onValue, {emitDelta, json5} = {}) {
 		state = STATE_STR;
 	};
 
-	const write = chars => {
-		for (const ch of chars) {
-			errorIndex++;
+	/**
+	 * @param {string} input
+	 */
+	const write = input => {
+		let i = 0;
+		const length = input.length;
+		for (; i < length; i++, diagnosticPos++) {
+			let ch = input[i];
 
 			if (state >= STATE_NORM) {
 				if (state >= COMMENT_MULTI_LINE) {
+					const prevI = i;
 					const type = state >>> 5;
 					// 单行注释
-					if (ch === '\n' && type === 2) {
+					if (type === 2) {
+						i = input.indexOf('\n', i);
+						const end = i < 0 ? length : i;
+						diagnosticPos += end - prevI;
+						//handleComment(chars.slice(prevI, end));
+						if (i < 0) return;
 						state &= 0xF;
-						// 多行注释
-					} else if (type === 1) {
-						if (ch === '/') {
-							state &= 0xF;
-							//console.log(state, ch, commentBuffer);
-						} else {
-							// reset type to 0
-							state &= 0x1F;
-							//commentBuffer += '*';
-						}
-					} else if (ch === '*' && type === 0) {
-						state |= 1 << 5;
 					} else {
-						// 如果有必要可以提取注释内容
-						//commentBuffer += ch;
+						if (type === 1) {
+							// 遇到了星号
+							if (ch === '/') {
+								state &= 0xF;
+								continue;
+							} else {
+								//handleComment('*');
+								// reset type to 0
+								state &= 0x1F;
+							}
+						}
+
+						i = input.indexOf('*/', i);
+						const end = i < 0 ? length : i;
+						diagnosticPos += end - prevI;
+						//handleComment(chars.slice(prevI, end));
+						if (i < 0) {
+							if (input.endsWith('*')) state |= 1 << 5;
+							return;
+						}
+
+						state &= 0xF;
+						i++;
 					}
+
 					continue;
 				}
 				if (state === COMMENT_START) {
-					if (ch === '/') state = commentBuffer|COMMENT_SINGLE_LINE;
-					else if (ch === '*') state = commentBuffer|COMMENT_MULTI_LINE;
+					if (ch === '/') state = priorCommentState|COMMENT_SINGLE_LINE;
+					else if (ch === '*') state = priorCommentState|COMMENT_MULTI_LINE;
 					else FAIL("COMMENT", ch);
-					//commentBuffer = '';
+
 					continue;
 				}
 				if (ch === '/' && json5) {
-					commentBuffer = state;
+					priorCommentState = state;
 					state = COMMENT_START;
 					continue;
 				}
-				if (WHITESPACE.has(ch)) continue;
+				if (CHAR_TRAITS[ch.charCodeAt(0)] & WHITESPACE) continue;
 			}
 
 			switch (state) {
-				case ENDED: FAIL("WHITESPACE", ch);
 				// {" or {}
 				//  ^     ^
 				case OBJECT_BEGIN: {
@@ -174,7 +203,6 @@ export function createJsonParser(onValue, {emitDelta, json5} = {}) {
 						continue;
 					} else if (ch === '}') {
 						state = STATE_NORM;
-						write(ch);
 						break;
 					} else {
 						if (json5) {
@@ -189,17 +217,35 @@ export function createJsonParser(onValue, {emitDelta, json5} = {}) {
 				// noinspection FallThroughInSwitchStatementJS
 				case OBJECT_BARE_KEY:
 				case OBJECT_KEY_AFTER:
-					if (ch !== ':') {
-						if (state === OBJECT_BARE_KEY) {
-							if (WHITESPACE.has(ch)) state = OBJECT_KEY_AFTER;
-							else buf += ch;
-							break
+					if (state === OBJECT_BARE_KEY) {
+						const prevI = i;
+						i = input.indexOf(':', i);
+						if (i < 0) {
+							diagnosticPos += length - prevI;
+							buf += input.slice(prevI);
+							return;
 						}
-						FAIL('":"', ch);
-					} else if (buf) {
-						//console.assert(allowBareKey, "Bare key", buf);
+
+						buf += input.slice(prevI, i);
+						if (!buf) FAIL("KEY", ':');
+
+						let j = 0;
+						while (j < buf.length && !(CHAR_TRAITS[buf.charCodeAt(j++)] & WHITESPACE)) {
+							// no-op
+						}
+						for (; j < buf.length; j++) {
+							if (!(CHAR_TRAITS[buf.charCodeAt(j++)] & WHITESPACE)) {
+								diagnosticPos += j;
+								FAIL('":"', buf[j]);
+							}
+						}
+
+						diagnosticPos += i - prevI;
 						pushValue(buf);
+					} else {
+						if (ch !== ':') FAIL('":"', ch);
 					}
+
 					state = STATE_NORM;
 					continue;
 				// {"a":1  or [1
@@ -221,6 +267,10 @@ export function createJsonParser(onValue, {emitDelta, json5} = {}) {
 					break;
 			}
 			switch (state) {
+				case ENDED:
+					if (!jsonl) FAIL("WHITESPACE", ch);
+					root = undefined;
+				// noinspection FallThroughInSwitchStatementJS
 				case STATE_NORM: {
 					switch (ch) {
 						case 't':
@@ -277,7 +327,7 @@ export function createJsonParser(onValue, {emitDelta, json5} = {}) {
 						}
 						// noinspection FallThroughInSwitchStatementJS
 						default:
-							if ((json5 ? NUMBER_START_JSON5 : NUMBER_START).has(ch)) {
+							if (CHAR_TRAITS[ch.charCodeAt(0)] & (json5 ? NUMBER_START_JSON5|NUMBER_START : NUMBER_START)) {
 								buf = ch === '+' ? '' : ch;
 								state = STATE_NUM;
 								break;
@@ -296,12 +346,26 @@ export function createJsonParser(onValue, {emitDelta, json5} = {}) {
 				}
 				break;
 				case STATE_STR: {
-					if (ch === '\\') {
-						state = STATE_STR_ESC;
-					} else if (ch === enterCh) {
+					const prevI = i;
+					let earlyExitFlag;
+					for (;;) {
+						if (ch === '\\' || ch === enterCh) {
+							earlyExitFlag = ch;
+							break;
+						}
+						if (++i === length) break;
+						ch = input[i];
+					}
+
+					diagnosticPos += i - prevI;
+					buf += input.slice(prevI, i);
+
+					// or just i === length
+					if (!earlyExitFlag) return;
+					if (earlyExitFlag === enterCh) {
 						pushValue(buf);
 					} else {
-						buf += ch;
+						state = STATE_STR_ESC;
 					}
 				}
 				break;
@@ -327,42 +391,64 @@ export function createJsonParser(onValue, {emitDelta, json5} = {}) {
 				break;
 				case STATE_STR_HEX:
 				case STATE_STR_UNICODE: {
-					escapeBuf += ch;
-					if (escapeBuf.length === ((state === STATE_STR_HEX) ? 2 : 4)) {
-						const codePoint = parseInt(escapeBuf, 16);
-						if (isNaN(codePoint)) FAIL('ESCAPE', `\\u${escapeBuf}`);
-						buf += String.fromCharCode(codePoint);
-						state = STATE_STR;
-					}
+					const needLength = ((state === STATE_STR_HEX) ? 2 : 4) - escapeBuf.length;
+					const remainLength = length - i;
+
+					const delta = Math.min(remainLength, needLength);
+
+					escapeBuf += input.slice(i, i + delta);
+					diagnosticPos += delta;
+
+					if (remainLength < needLength) return;
+
+					const codePoint = parseInt(escapeBuf, 16);
+					if (isNaN(codePoint)) FAIL('ESCAPE', `\\u${escapeBuf}`);
+					buf += String.fromCharCode(codePoint);
+					state = STATE_STR;
+
+					diagnosticPos--;
+					i += needLength - 1;
 				}
 				break;
 				case STATE_NUM: {
-					if (NUMBER_END.has(ch)) {
-						let num = Number(buf);
-						isOk:
-						if (isNaN(num)) {
-							// 这些都是冷路径，因为大部分JSON里都不会有这些
-							// 我之前设计Tokenizer的时候就没做好冷热分离
-							if (json5) {
-								buf = buf.replaceAll("_", "");
-								num = Number(buf);
-								if (!isNaN(num)) break isOk;
+					const prevI = i;
+					let earlyExitFlag;
+					for (;;) {
+						if ((earlyExitFlag = (CHAR_TRAITS[ch.charCodeAt(0)] & NUMBER_END)) || ++i === length) break;
+						ch = input[i];
+					}
 
-								const neg = buf[0] === '-';
-								if (buf.length <= 4 && buf.endsWith("NaN")) {
-									if (buf[neg ? 1 : 0] === 'N') break isOk;
-								} else if (buf.length <= 9 && buf.endsWith("Infinity")) {
-									num = neg ? -Infinity : Infinity;
-									if (buf[neg ? 1 : 0] === 'I') break isOk;
-								}
+					diagnosticPos += i - prevI;
+					buf += input.slice(prevI, i);
+
+					// or just i === length
+					if (!earlyExitFlag) return;
+
+					let num = Number(buf);
+					isOk:
+					if (isNaN(num)) {
+						// 这些都是冷路径，因为大部分JSON里都不会有这些
+						// 我之前设计Tokenizer的时候就没做好冷热分离
+						if (json5) {
+							buf = buf.replaceAll("_", "");
+							num = Number(buf);
+							if (!isNaN(num)) break isOk;
+
+							const neg = buf[0] === '-';
+							if (buf.length <= 4 && buf.endsWith("NaN")) {
+								if (buf[neg ? 1 : 0] === 'N') break isOk;
+							} else if (buf.length <= 9 && buf.endsWith("Infinity")) {
+								num = neg ? -Infinity : Infinity;
+								if (buf[neg ? 1 : 0] === 'I') break isOk;
 							}
-
-							FAIL('NUMBER', buf);
 						}
-						pushValue(num);
-						if (ch !== '\0') write(ch);
-					} else {
-						buf += ch;
+
+						FAIL('NUMBER', buf);
+					}
+					pushValue(num);
+					if (ch !== '\0') {
+						i--;
+						diagnosticPos--;
 					}
 				}
 				break;
@@ -376,7 +462,7 @@ export function createJsonParser(onValue, {emitDelta, json5} = {}) {
 	};
 
 	return {
-		pos: () => errorIndex,
+		pos: () => diagnosticPos,
 		write,
 		end: (ignoreUnexpected) => {
 			if (state !== ENDED) {

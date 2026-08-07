@@ -18,10 +18,10 @@ export function deepEqual<T>(
 ): boolean;
 
 /* ── 原子操作 ── */
-type RepOp<T>   = { readonly $: 'SET'; readonly val: T };
-type SpliceOp   = { readonly $: 'ARR'; readonly val: [[start: number, deleteCount: number, ...rest: unknown[]], expectedLength: number] };
-type StringOp   = { readonly $: 'STR'; readonly val: [start: number, deleteCount: number, substring: string, expectedLength: number] };
-type DelOp      = { readonly $: 'DEL' };
+type RepOp<T>   = { readonly $: '='; readonly v: T };
+type SpliceOp   = { readonly $: '['; readonly v: [[start: number, deleteCount: number, ...rest: unknown[]], expectedLength: number] };
+type StringOp   = { readonly $: 's'; readonly v: [start: number, deleteCount: number, substring: string, expectedLength: number] };
+type DelOp      = { readonly $: '-' };
 
 type DeltaOp<T = unknown> = RepOp<T> | SpliceOp | StringOp | DelOp;
 
@@ -37,6 +37,14 @@ type Delta<T> =
     | DeltaOp<T>                         // 整体替换 / 删除
   // 3️⃣ 原始类型
   : T | DeltaOp<T>;                       // 直接替换 或 操作符
+
+/**
+ * 返回一个覆盖值为 newVal 的 delta
+ * @param newVal
+ */
+export function rep<T>(
+    newVal: T,
+): RepOp<T>;
 
 /**
  * 计算两个同类型值的差异。

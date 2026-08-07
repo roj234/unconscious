@@ -544,10 +544,11 @@ export const $state = (object, deep, initialListeners = new Map) => {
  * 乐观锁
  * @template T
  * @param {Reactive<T>} state
+ * @param {T} [value]
  * @return {Reactive<T>}
  */
-export function $stampLock(state) {
-	const value = unconscious(state);
+export function $stampLock(state, value) {
+	if (value === undefined) value = unconscious(state);
 	if (state === value) return state;
 
 	return new Proxy(value, {

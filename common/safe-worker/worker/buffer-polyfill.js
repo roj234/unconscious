@@ -5,7 +5,7 @@ const _TE = UTF8_TEXT_ENCODER;
 const UTF8_TD = UTF8_TEXT_DECODER;
 const UTF16LE_TD = new TextDecoder("utf-16le");
 const UTF16BE_TD = new TextDecoder("utf-16be");
-const _TD2 = new TextDecoder('ascii');
+const _TD2 = new TextDecoder('latin1');
 const _HEX = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, '0'));
 
 const _hexDecode = str => {
@@ -23,24 +23,15 @@ const _hexEncode = (buf, start, end) => {
 	return s;
 };
 
-const _b64Decode = base64DecodeToUint8Array;
 const _b64Len = s =>  ((s + 3) / 4 | 0) * 3;
-
-const _latin1Decode = str => _TD2.decode(str);
-
-const _latin1Encode = (buf, start, end) => {
-	start ??= 0; end ??= buf.length;
-	let s = '';
-	for (let i = start; i < end; i++) s += String.fromCharCode(buf[i]);
-	return s;
-};
+const _latin1Decode = str => Array.from(str, x => x.charCodeAt(0));
 
 const _ENCODERS = {
 	'utf8':   { decode: s => _TE.encode(s),           encode: (b, s, e) => UTF8_TD.decode(b.subarray(s ?? 0, e ?? b.length)), blen: s => _TE.encode(s).length },
 	'hex':    { decode: _hexDecode,                   encode: _hexEncode, blen: s => s.length >>> 1 },
-	'base64': { decode: _b64Decode,                   encode: (buf, start, end) => base64Encode(buf.subarray(start ?? 0, end ?? buf.length)), blen: _b64Len },
-	'base64url': { decode: _b64Decode,                encode: (buf, start, end) => base64Encode(buf.subarray(start ?? 0, end ?? buf.length), 1), blen: _b64Len },
-	'latin1': { decode: _latin1Decode,                encode: _latin1Encode, blen: s => s.length },
+	'base64': { decode: base64DecodeToUint8Array,     encode: (buf, start, end) => base64Encode(buf.subarray(start ?? 0, end ?? buf.length)), blen: _b64Len },
+	'base64url': { decode: base64DecodeToUint8Array,  encode: (buf, start, end) => base64Encode(buf.subarray(start ?? 0, end ?? buf.length), 1), blen: _b64Len },
+	'latin1': { decode: _latin1Decode,                encode: (buf, start, end) => _TD2.decode(buf.subarray(start ?? 0, end ?? buf.length)), blen: s => s.length },
 	'utf16le': {
 		decode: str => {
 			const out = new Uint8Array(str.length * 2);
@@ -85,7 +76,6 @@ const _assertUint8Array = (v, label) => {
 // ── Buffer class ───────────────────────────────────────────────────────
 
 function resolveNeedle(value, encoding) {
-	let needle;
 	if (typeof value === 'string') {
 		return _encoder(encoding).decode(value);
 	} else if (typeof value === 'number') {

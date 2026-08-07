@@ -18,6 +18,11 @@ export interface StreamJsonParserOptions {
      * @default false
      */
     json5?: boolean;
+    /**
+     * 启用 JSONL 解析 (在 onValue 中用 !path.length 分割)
+     * @default false
+     */
+    jsonl?: boolean;
 }
 
 /**

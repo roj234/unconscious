@@ -1,5 +1,11 @@
 import {isPureObject} from "../shared.js";
 
+const SET = '=';
+const DEL = '-';
+const STR = 's';
+const ARR = '[';
+const ARGS = 'v';
+
 // a modified version of https://www.npmjs.com/package/fast-deep-equal
 export const deepEqual = (a, b, ignoredKeys) => {
 	if (a === b) return true;
@@ -72,11 +78,11 @@ export const deepEqual = (a, b, ignoredKeys) => {
 	return a!==a && b!==b;
 };
 
+export const rep = (newVal) => {return { $: SET, [ARGS]: newVal }};
+
 export function delta(oldVal, newVal, ignoredKeys) {
 	if (oldVal === newVal) return;
 	if (oldVal !== oldVal && newVal !== newVal) return;
-
-	const rep = () => {return { $: 'SET', val: newVal }};
 
 	const oldType = typeof oldVal;
 	if (oldType !== typeof newVal || oldType !== 'object' || oldVal === null || newVal === null) {
@@ -98,14 +104,14 @@ export function delta(oldVal, newVal, ignoredKeys) {
 			const deleteCount = oldEnd - start + 1;
 			const substring = newVal.slice(start, newEnd + 1);
 
-			return { $: 'STR', val: [start, deleteCount, substring, oldLen] };
+			return { $: STR, [ARGS]: [start, deleteCount, substring, oldLen] };
 		}
 
 		return newVal;
 	}
 
 	if (Array.isArray(oldVal)) {
-		if (!Array.isArray(newVal)) return rep();
+		if (!Array.isArray(newVal)) return rep(newVal);
 
 		const oldLen = oldVal.length;
 		const newLen = newVal.length;
@@ -137,9 +143,9 @@ export function delta(oldVal, newVal, ignoredKeys) {
 		const deleteCount = oldEnd - start + 1;
 		const items = newVal.slice(start, newEnd + 1);
 
-		return (deleteCount || items.length) ? {$: 'ARR', val: [[start, deleteCount, ...items], oldLen] } : undefined;
+		return (deleteCount || items.length) ? {$: ARR, [ARGS]: [[start, deleteCount, ...items], oldLen] } : undefined;
 	} else if (isPureObject(oldVal)) {
-		if (!isPureObject(newVal)) return rep();
+		if (!isPureObject(newVal)) return rep(newVal);
 
 		const patches = {};
 		const oldKeys = new Set(Object.keys(oldVal));
@@ -155,21 +161,21 @@ export function delta(oldVal, newVal, ignoredKeys) {
 				patches[key] = newVal[key];
 			}
 		}
-		oldKeys.forEach(key => patches[key] = { $: 'DEL' });
+		oldKeys.forEach(key => patches[key] = { $: DEL });
 
 		return Object.keys(patches).length ? patches : undefined;
 	}
 
-	return deepEqual(oldVal, newVal, ignoredKeys) ? undefined : rep();
+	return deepEqual(oldVal, newVal, ignoredKeys) ? undefined : rep(newVal);
 }
 
 export function patch(obj, diff, shallowCopy = false) {
 	if (diff === undefined) return obj;
 
 	switch (diff?.$) {
-		case 'SET': return diff.val;
-		case 'ARR': {
-			const [val, len] = diff.val;
+		case SET: return diff[ARGS];
+		case ARR: {
+			const [val, len] = diff[ARGS];
 			const currentLength = obj.length;
 			if (currentLength !== len) {
 				const [start, deleteCount, ...items] = val;
@@ -183,8 +189,8 @@ export function patch(obj, diff, shallowCopy = false) {
 			}
 			return obj;
 		}
-		case 'STR': {
-			const [start, deleteCount, substring, len] = diff.val;
+		case STR: {
+			const [start, deleteCount, substring, len] = diff[ARGS];
 			const currentLength = obj.length;
 			if (currentLength !== len) {
 				const expectedLen = len - deleteCount + substring.length;
@@ -193,7 +199,7 @@ export function patch(obj, diff, shallowCopy = false) {
 			}
 			return obj.slice(0, start) + substring + obj.slice(start + deleteCount);
 		}
-		case 'DEL':
+		case DEL:
 			return; // undefined
 		default:
 			let isArray;
@@ -202,7 +208,7 @@ export function patch(obj, diff, shallowCopy = false) {
 
 				for (const key of Object.keys(diff)) {
 					const diffVal = diff[key];
-					if (diffVal?.$ === 'DEL') {
+					if (diffVal?.$ === DEL) {
 						delete obj[key];
 					} else {
 						obj[key] = patch(obj[key], diffVal, shallowCopy);

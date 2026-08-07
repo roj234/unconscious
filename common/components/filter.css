@@ -73,7 +73,7 @@
 :has(> .tooltip) {
     position: relative;
 }
-:not(:hover) .tooltip {
+:not(:hover) .tooltip, :disabled > .tooltip {
     display: none;
 }
 .tooltip {

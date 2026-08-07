@@ -326,6 +326,7 @@ export async function ZipReader(blob, {verify} = {}) {
 
 	const { view, buffer } = await _readChunk(centralDirOffset, centralDirSize);
 
+	let unsortedCD;
 	let prevObj;
 	let p = 0;
 	for (let i = 0; i < entryCount; i++) {
@@ -348,7 +349,10 @@ export async function ZipReader(blob, {verify} = {}) {
 		const name = UTF8_TEXT_DECODER.decode(buffer.slice(p + 46, p + 46 + nameLen));
 		if (entries.has(name)) throw new Error("Duplicate file "+name);
 
-		if (prevObj) prevObj.dataOffset = localHeaderOffset - prevObj.compressedSize;
+		if (prevObj) {
+			if (localHeaderOffset < prevObj.localHeaderOffset) unsortedCD = true;
+			prevObj._dataOffset = localHeaderOffset - prevObj.compressedSize;
+		}
 
 		entries.set(name, prevObj = {
 			compression: method,
@@ -375,14 +379,19 @@ export async function ZipReader(blob, {verify} = {}) {
 		async getRaw(entry) {
 			let dataOffset = entry.dataOffset;
 			if (null == dataOffset) {
-				// 读取 Local Header 来确定确切的数据起始位置
-				// Local Header 定长 30 字节，后面跟着变长的文件名和额外字段
-				const { view: locView } = await _readChunk(entry.localHeaderOffset, 30);
-				if (locView.getUint32(0, true) !== 0x04034b50) throw new Error("Invalid Local Header signature");
+				if (!unsortedCD && entry._do) {
+					dataOffset = entry._do;
+				} else {
+					// 读取 Local Header 来确定确切的数据起始位置
+					// Local Header 定长 30 字节，后面跟着变长的文件名和额外字段
+					const { view: locView } = await _readChunk(entry.localHeaderOffset, 30);
+					if (locView.getUint32(0, true) !== 0x04034b50) throw new Error("Invalid Local Header signature");
 
-				const locNameLen = locView.getUint16(26, true);
-				const locExtraLen = locView.getUint16(28, true);
-				dataOffset = entry.dataOffset = entry.localHeaderOffset + 30 + locNameLen + locExtraLen;
+					const locNameLen = locView.getUint16(26, true);
+					const locExtraLen = locView.getUint16(28, true);
+					dataOffset = entry.localHeaderOffset + 30 + locNameLen + locExtraLen;
+				}
+				entry.dataOffset = dataOffset;
 			}
 
 			// 仅对该文件的数据部分进行 slice

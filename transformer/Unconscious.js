@@ -77,18 +77,24 @@ function generateStaticHTML(node) {
 		return node.children.map(generateStaticHTML).join("");
 	}
 
+	if (t.isJSXExpressionContainer(node))
+		node = node.expression;
+	if (isStaticAttribute(node)) {
+		return escapeText(node.value);
+	}
+
 	throw new Error("Unknown element type");
+}
+
+function isStaticAttribute(val) {
+	if (t.isJSXExpressionContainer(val))
+		val = val.expression;
+
+	return t.isStringLiteral(val) || t.isNumericLiteral(val) || t.isBooleanLiteral(val) || t.isNullLiteral(val) || !val;
 }
 
 function isStaticJSX(path, isChild) {
 	let result = true;
-
-	function isStaticAttribute(val) {
-		if (t.isJSXExpressionContainer(val))
-			val = val.expression;
-
-		return t.isStringLiteral(val) || t.isNumericLiteral(val) || t.isBooleanLiteral(val) || t.isNullLiteral(val) || !val;
-	}
 
 	if (path.isJSXElement()) {
 		const { node } = path.get("openingElement");
