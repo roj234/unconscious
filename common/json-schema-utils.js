@@ -2,7 +2,7 @@ import {deepEqual} from "./deepEqual.js";
 import {isPureObject} from "../shared.js";
 
 // llama.cpp的value替换为 type: SCHEMA_VALUES
-const SCHEMA_VALUES = ["object", "array", "string", "number", "boolean", "null"];
+export const SCHEMA_VALUES = ["object", "array", "string", "number", "boolean", "null"];
 
 /**
  * DFS

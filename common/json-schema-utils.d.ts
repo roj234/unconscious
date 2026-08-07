@@ -54,6 +54,8 @@ export type Schema = BaseSchema | ObjectSchema | ArraySchema | StringSchema | In
 
 // ---------- Path Utilities ----------
 
+export const SCHEMA_VALUES = ["object", "array", "string", "number", "boolean", "null"];
+
 /**
  * Depth-first traversal that yields every [value, parent, key] entry.
  * Avoids infinite loops for circular references.
