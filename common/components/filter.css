@@ -78,9 +78,15 @@
 }
 .tooltip {
     position: absolute;
-    top: 0;
+    &.down {
+        bottom: 0;
+        transform: translate(-50%,calc(100% + 4px));
+    }
+    &:not(.down) {
+        top: 0;
+        transform: translate(-50%,calc(-100% - 4px));
+    }
     left: 50%;
-    transform: translate(-50%,calc(-100% - 8px));
     line-height: normal;
     width: max-content;
     padding: 0.25rem 0.5rem;

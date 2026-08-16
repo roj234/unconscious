@@ -133,7 +133,9 @@ export function nodeResolve({removeComment = true} = {}) {
 			if (id.startsWith('.')) return;
 
 			let end = id.indexOf('/');
+			if (end > 0 && id.startsWith('@')) end = id.indexOf('/', end+1);
 			if (end < 0) end = id.length;
+
 			const pkg = id.slice(0, end);
 			if (pkg) {
 				let value = availPackage.get(pkg);

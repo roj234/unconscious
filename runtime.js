@@ -237,7 +237,7 @@ const setAttribute = (element, key, value) => {
 
 			if (Array.isArray(value)) {
 				for (let v of value) listen(v);
-			} else {
+			} else if (value) {
 				listen(value);
 			}
 
@@ -314,7 +314,7 @@ export const _stylesBehaviour = /* #__PURE__ */ createBehaviour((e, k, v) => e.s
  * @returns {object is Reactive}
  * @note 实际返回值为Map(监听器)|undefined
  */
-export const isReactive = object => object && object[$LISTENERS];
+export const isReactive = object => !!object?.[$LISTENERS];
 /**
  * @template T
  * @param {T|Reactive<T>} object
@@ -598,7 +598,7 @@ export const $watch = (objects, listener, triggerNow=true) => {
 
 	for (const object of objects) {
 		const reactive = isReactive(object);
-		reactive && reactive.set(listener, cleanup);
+		reactive && object[$LISTENERS].set(listener, cleanup);
 	}
 };
 
@@ -796,7 +796,7 @@ export const $update = object => {
 		queueMicrotask(batchUpdate);
 	}
 
-	const listeners = isReactive(object);
+	const listeners = object[$LISTENERS];
 	for (const [listener, cleanup] of listeners) {
 		if (typeof cleanup === "function") cleanup();
 		let owners = updatePending.get(listener);

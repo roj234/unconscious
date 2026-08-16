@@ -60,6 +60,25 @@ plugin.postcss = true;
 
 export default plugin;
 
+const Rec2020Matrix = [
+	1.716651187971268, -0.355670783776392, -0.253366281373660,
+	-0.666684351832489, 1.616481236634939, 0.0157685458139111,
+	0.017639857445311, -0.042770613257809, 0.942103121235474
+];
+const recAlpha = 1.09929682680944, recBeta = 0.018053968510807;
+function recGamma(val) { // fromCIE
+	if (val >= recBeta)
+		return recAlpha * Math.pow(val, 0.45) - (recAlpha - 1);
+
+	return 4.5 * val;
+};
+function recInvGamma(val) { // toCIE
+	if (val >= recBeta * 4.5) {
+		return Math.pow((val + recAlpha - 1) / recAlpha, 1/0.45);
+	}
+
+	return val / 4.5;
+}
 
 const RGBMatrix = [
 	3.2409699419045226,  -1.537383177570094,  -0.4986107602930034,

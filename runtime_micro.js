@@ -77,12 +77,25 @@ const setAttribute = (element, key, value) => {
 			element.classList.toggle(key.slice(1), value);
 		return;
 		case ID_EVENTHANDLER:
-			let attrib; // once, capture, passive等
-			if (Array.isArray(value))
-				[value, attrib] = value;
+			const name = key.slice(1);
 
-			element.addEventListener(key.slice(1), value, attrib);
-		return;
+			const listen = value => {
+				let attrib; // once, capture, passive等
+				if (typeof (value) === "object") {
+					attrib = value;
+					value = attrib.f;
+				}
+				element.addEventListener(name, value, attrib);
+				return attrib;
+			};
+
+			if (Array.isArray(value)) {
+				for (let v of value) listen(v);
+			} else if (value) {
+				listen(value);
+			}
+
+			return;
 		case "s":
 			if (key === "style" && isPureObject(value)) {
 				Object.assign(element.style, value);

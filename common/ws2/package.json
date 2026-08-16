@@ -1,0 +1,16 @@
+{
+  "name": "@roj234/ws2",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "roj.http.WebSocket / WebSocketResponse 的 Node ESM 翻译 + ws 风格 API (单类合并)",
+  "scripts": {
+    "test": "node test/smoke.mjs && node test/extra.mjs"
+  },
+  "peerDependencies": {
+    "bufferutil": "^4.1.0"
+  },
+  "main": "src/index.js",
+  "_devDependencies": {
+    "ws": "^8.21.2"
+  }
+}
