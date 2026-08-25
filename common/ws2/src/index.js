@@ -1069,9 +1069,9 @@ export class WebSocketServer extends EventEmitter {
 			}
 
 			if (!verify(info)) return abortHandshake(socket, 401);
-		} else {
-			this.#completeUpgrade(protocol, req, socket, head, cb);
 		}
+
+		this.#completeUpgrade(protocol, req, socket, head, cb);
 	}
 	#completeUpgrade(protocol, req, socket, head, cb) {
 		const key = req.headers['sec-websocket-key'];
@@ -1136,7 +1136,7 @@ Sec-WebSocket-Accept: ${createHash('sha1').update(key + HANDSHAKE_GUID).digest('
 		ws.on('close', () => this.clients.delete(ws));
 
 		if (cb) cb(ws, req);
-		this.emit('connection', ws, req);
+		else this.emit('connection', ws, req);
 	}
 
 	/** 关闭服务器 (停止接受新连接; 不主动断开已连接客户端, 同 ws) */

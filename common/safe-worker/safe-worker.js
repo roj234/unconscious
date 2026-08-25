@@ -805,10 +805,10 @@ export function createSandbox(
 		});
 	};
 
-	const execute = (moduleName, code, context) => RPC('eval', [
+	const execute = (moduleName, code, env) => RPC('eval', [
 		moduleName,
 		bundleModule(moduleName, code),
-		context
+		env
 	]);
 
 	return {

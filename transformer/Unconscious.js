@@ -219,6 +219,7 @@ function createPlugin(_, options) {
 					 * @type {Map<string, Node>}
 					 */
 					this.existingStaticHtml = new Map;
+					this.namespaces = [];
 
 					// 按需导入
 					lazyImport("id/one", "createElement");
@@ -307,7 +308,13 @@ function createPlugin(_, options) {
 				}
 			},
 			JSXElement: {
-				enter: staticHtmlHandle,
+				enter(path, file) {
+					const ns = this.namespaces;
+					if (!ns.length && staticHtmlHandle.call(this, path, file)) return;
+
+					const node = path.get("openingElement");
+					if (node.node.name.name === 'svg') ns.push('svg');
+				},
 				exit(path, file) {
 					const node = path.get("openingElement");
 
@@ -330,7 +337,10 @@ function createPlugin(_, options) {
 
 						tagName = tagName.name;
 					} else {
-						namespace = DEFAULT_NAMESPACE[tagName];
+						const ns = this.namespaces;
+						if (ns.length) namespace = NAMESPACE_SHORTHAND[ns.at(-1)];
+						namespace = DEFAULT_NAMESPACE[tagName] || namespace;
+						if (tagName === 'svg') ns.pop();
 
 						if (isFirstCharUpperCase(tagName)) {
 							// 创建组件

@@ -102,7 +102,6 @@ const hookFunction = function fn(code, ...params) {
 export const lockdown = (globals) => {
 	const object = Object;
 	let win = self;
-	const c = console;
 
 	const overrides = {
 		setTimeout(handler, timeout, ...args) {

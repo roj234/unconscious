@@ -1,4 +1,4 @@
-import {AS_IS} from "../shared.js";
+const AS_IS = () => {};
 
 const WHITESPACE = 1, NUMBER_START = 2, NUMBER_START_JSON5 = 4, NUMBER_END = 8;
 
@@ -202,8 +202,10 @@ export function createJsonParser(onValue, {emitDelta, json5, jsonl} = {}) {
 						enterStringMode(ch);
 						continue;
 					} else if (ch === '}') {
-						state = STATE_NORM;
-						break;
+						const last = stack.pop();
+						state = stack.length ? AFTER : ENDED;
+						onValue(path, last, false);
+						continue;
 					} else {
 						if (json5) {
 							state = OBJECT_BARE_KEY;
@@ -230,12 +232,9 @@ export function createJsonParser(onValue, {emitDelta, json5, jsonl} = {}) {
 						if (!buf) FAIL("KEY", ':');
 
 						let j = 0;
-						while (j < buf.length && !(CHAR_TRAITS[buf.charCodeAt(j++)] & WHITESPACE)) {
-							// no-op
-						}
+						while (j < buf.length && !(CHAR_TRAITS[buf.charCodeAt(j)] & WHITESPACE)) j++;
 						for (; j < buf.length; j++) {
-							if (!(CHAR_TRAITS[buf.charCodeAt(j++)] & WHITESPACE)) {
-								diagnosticPos += j;
+							if (!(CHAR_TRAITS[buf.charCodeAt(j)] & WHITESPACE)) {
 								FAIL('":"', buf[j]);
 							}
 						}
@@ -313,19 +312,18 @@ export function createJsonParser(onValue, {emitDelta, json5, jsonl} = {}) {
 						case '}':
 						case ']': {
 							if (key != null) FAIL("VALUE", ch);
-							const last = stack.pop();
-							if (last) {
-								console.assert(typeof last === "object", "stackTop must be object", last);
-								const lastIsArray = Array.isArray(last);
-								if (lastIsArray !== (ch === ']')) FAIL(lastIsArray ? '"]"' : '"}"', ch);
 
-								path.pop();
-								state = stack.length ? AFTER : ENDED;
-								onValue(path, last, false);
-								break;
-							}
+							const last = stack.pop();
+							if (!last) FAIL("VALUE", ch);
+
+							const lastIsArray = Array.isArray(last);
+							if (lastIsArray !== (ch === ']')) FAIL(lastIsArray ? '"]"' : '"}"', ch);
+
+							path.pop();
+							state = stack.length ? AFTER : ENDED;
+							onValue(path, last, false);
+							break;
 						}
-						// noinspection FallThroughInSwitchStatementJS
 						default:
 							if (CHAR_TRAITS[ch.charCodeAt(0)] & (json5 ? NUMBER_START_JSON5|NUMBER_START : NUMBER_START)) {
 								buf = ch === '+' ? '' : ch;

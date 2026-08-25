@@ -146,7 +146,7 @@ export interface Sandbox {
      *   and error messages.  Use a meaningful name like `'inline.js'`.
      * @param code       - JavaScript source (ESM syntax).  Top-level
      *   `import`/`export` are transformed; everything else is kept verbatim.
-     * @param context    - Value bound to `this` inside the module's top-level scope.
+     * @param env    - Value bound to `process.env` inside the module.
      *   Must be structured-cloneable.  Use for passing parameters without
      *   editing the source file.
      * @returns The module's default export, or `{}` if no `export default`.
@@ -154,7 +154,7 @@ export interface Sandbox {
     execute(
         moduleName: string | undefined,
         code: string,
-        context?: object
+        env?: object
     ): Promise<any>;
 
     /**

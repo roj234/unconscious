@@ -58,13 +58,33 @@ export const jsonGet = (obj, path) => {
  * @return {{value: any, undo: Object}}
  */
 export const jsonEval = (obj, path, action, value) => {
-	if (value === undefined) throw 'value is undefined';
+	if (value === undefined && action !== 'delete') throw 'value is undefined';
 
 	let keys = Array.isArray(path) ? path : parseJsonPointer(path);
 	if (keys.at(-1) === '-') {
 		action = "push";
 		keys = keys.slice(0, -1);
 	}
+
+	if (keys.length === 0) {
+		if (action === 'push') {
+			const notArray = !Array.isArray(obj);
+			if (notArray) throw 'Root is not array';
+
+			const undo = {value: obj.length};
+
+			if (Array.isArray(value)) obj.push(...value);
+			else obj.push(value);
+
+			return {
+				value: obj,
+				undo
+			};
+		} else {
+			throw "Root reference cannot be changed";
+		}
+	}
+
 	let container = obj;
 	let created;
 	for (let i = 0; i < keys.length - 1; i++) {
@@ -76,8 +96,6 @@ export const jsonEval = (obj, path, action, value) => {
 
 			container[keys[i]] = next = {};
 			if (created == null) created = i;
-		} else {
-			if (Array.isArray(container)) throw 'intermediate node is not object (but array)';
 		}
 
 		container = next;
@@ -156,6 +174,15 @@ export const jsonEvalUndo = (obj, path, action, undo) => {
 	if (keys.at(-1) === '-') {
 		action = "push";
 		keys = keys.slice(0, -1);
+	}
+
+	if (keys.length === 0) {
+		if (action === 'push') {
+			obj.length = undo.value;
+			return;
+		} else {
+			throw "Root reference cannot be changed";
+		}
 	}
 
 	let created = undo.created;

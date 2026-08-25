@@ -87,18 +87,16 @@ const init = ([permissions, hm, prefix]) => {
 	const removePrefix = (name) => name.startsWith(prefix) ? name.slice(prefix.length) : null;
 
 	if (permissions.includes('fs')) {
-		const emulatedProcess = process;
-		const processModules = createObject( { process: emulatedProcess, default: emulatedProcess });
+		const processModules = createObject( { process: process, default: process });
 
-		const emulatedBuffer = Buffer;
-		const bufferModule = createObject({ Buffer: emulatedBuffer, default: emulatedBuffer });
+		const bufferModule = createObject({ Buffer: Buffer, default: Buffer });
 
 		const emulatedFs = emulateFsPromises(RPC);
 		const fsModule = createObject({ ...emulatedFs, default: emulatedFs });
 
 		const pathModule = createObject({ ...emulatedPath, default: emulatedPath });
 
-		Object.freeze(emulatedBuffer);
+		Object.freeze(Buffer);
 		Object.freeze(emulatedFs)
 		Object.freeze(emulatedPath);
 
@@ -120,8 +118,8 @@ const init = ([permissions, hm, prefix]) => {
 		Object.assign(global, {
 			fs: emulatedFs,
 			path: emulatedPath,
-			Buffer: emulatedBuffer,
-			process: emulatedProcess
+			Buffer: Buffer,
+			process: process
 		});
 	}
 	if (permissions.includes('wasm')) global.WebAssembly = WebAssembly;
@@ -169,13 +167,20 @@ const onload = (module, callback) => moduleCache.get(module)?.then?.(callback);
  * 执行代码
  * @param {string|undefined} path - 模块名称(可选)
  * @param {string} code - 转换后的模块代码
- * @param {Object|undefined} context - 运行时的 this 上下文
+ * @param {Object|undefined} env - 运行时的 process.env 上下文
  * @returns {*}
  */
-const _eval = async ([path, code, context]) => {
+const _eval = async ([path, code, env]) => {
 	const fn = createFunction(code);
 	try {
-		const promise = fn.call(context, onload, {});
+		if (env) {
+			const pe = process.env;
+			for (const key of Object.getOwnPropertyNames(pe))
+				delete pe[key];
+			Object.assign(pe, env);
+		}
+
+		const promise = fn.call(env, onload, {});
 		if (path) moduleCache.set(path, promise);
 		return await promise;
 	} finally {
@@ -278,6 +283,8 @@ const global = {
 	Response,
 	performance,
 	console: emulatedConsole,
+	OffscreenCanvas,
+	createImageBitmap,
 	navigator: navigator1,
 	require(owner, name, attributes) {
 		if (typeof name !== 'string') throw new Error('Illegal argument');

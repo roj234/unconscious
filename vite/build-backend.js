@@ -121,7 +121,7 @@ export let reload = _reload;
 	};
 }
 
-export function nodeResolve({removeComment = true} = {}) {
+export function nodeResolve({removeComment = true, basePath} = {}) {
 	const availPackage = new Map;
 
 	return {
@@ -131,6 +131,7 @@ export function nodeResolve({removeComment = true} = {}) {
 			if (id.startsWith('node:')) return { id, external: true };
 			// 导入的
 			if (id.startsWith('.')) return;
+			if (id[0] === '/') return { id: path.join(basePath, id) };
 
 			let end = id.indexOf('/');
 			if (end > 0 && id.startsWith('@')) end = id.indexOf('/', end+1);

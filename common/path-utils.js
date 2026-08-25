@@ -14,7 +14,7 @@ const SANITIZER = /[\u2000-\u200f\u2028-\u202f\u205f-\u206f\ufeff]/g;
  */
 export function normalizePath(path) {
 	// Reject characters with code < 32
-	if (typeof path !== 'string') throw new Error("Invalid path");
+	if (typeof path !== 'string') throw new Error("Path must be string");
 	if (/[\x00-\x1F\x7F]/.test(path)) throw new Error("Illegal character in path");
 	const paths = path.replaceAll('\\', '/').replaceAll(/\/\/+/g, '/').split('/');
 
