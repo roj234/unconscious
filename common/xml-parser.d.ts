@@ -58,6 +58,9 @@ export interface XmlParserHandlers {
 export interface XmlParserOptions {
   /** Whether to decode XML entities (e.g. &amp; → &). Default: `true` */
   decodeEntities?: boolean;
+  html?: boolean;
+  voidTags?: Set<string>;
+  textTags?: Set<string>;
 }
 
 export interface XmlParser {
@@ -71,9 +74,7 @@ export interface XmlParser {
 
 // ── Tree-building options ────────────────────────────────────────
 
-export interface ParseXmlTreeOptions {
-  /** Whether to decode XML entities. Default: `true` */
-  decodeEntities?: boolean;
+export interface ParseXmlTreeOptions extends XmlParserOptions {
   /** Whether to include processing instruction nodes. Default: `false` */
   includePI?: boolean;
   /** Whether to include comment nodes. Default: `false` */

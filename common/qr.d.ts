@@ -31,7 +31,7 @@ export interface QRCodeResult {
      * 模块矩阵，按行优先排列，长度为 `size * size`。
      * 值为 `1` 表示深色模块，`0` 表示浅色模块。
      */
-    modules: Uint8Array;
+    modules: Int8Array;
 }
 
 /**

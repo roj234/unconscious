@@ -28,7 +28,7 @@ const createFunction = (code, name) => {
 	let fn = codeCache.get(code);
 	if (!fn) {
 		try {
-			codeCache.set(code, fn = fun('return async function '+(name ? name.replaceAll(/[^a-zA-Z]/g, '_') : 'unnamedModule')+"(__onload, exports){"+code+"\n};")());
+			codeCache.set(code, fn = fun('return async function '+(name ? name.replaceAll(/[^a-zA-Z]/g, '_') : 'inlineModule')+"(__onload, exports){"+code+"\n};")());
 		} catch (e) {
 			throw new Error("Failed to load module "+name+": "+e.message);
 		}
@@ -71,6 +71,7 @@ let hostModules;
 let nodeModules = new Map;
 
 // ===== API =====
+let allowRemoteImport;
 
 /**
  * 初始化沙箱并启用安全限制。
@@ -85,6 +86,12 @@ const init = ([permissions, hm, prefix]) => {
 	if (hm) hostModules = new Set(hm);
 
 	const removePrefix = (name) => name.startsWith(prefix) ? name.slice(prefix.length) : null;
+
+	if (permissions.includes('eval')) {
+		global.Function = fun;
+		global.WebAssembly = WebAssembly;
+		allowRemoteImport = true;
+	}
 
 	if (permissions.includes('fs')) {
 		const processModules = createObject( { process: process, default: process });
@@ -114,6 +121,15 @@ const init = ([permissions, hm, prefix]) => {
 		nodeModules.set('process', processModules);
 		nodeModules.set('fs/promises', fsModule);
 		nodeModules.set('path', pathModule);
+		nodeModules.set('url', createObject({
+			fileURLToPath(url) {
+				const rawPart = url.toString().slice("file:///".length);
+				return "./" + (emulatedPath.resolve(rawPart));
+			},
+			pathToFileURL(path1) {
+				return new URL("file:///"+emulatedPath.resolve(path1));
+			}
+		}))
 
 		Object.assign(global, {
 			fs: emulatedFs,
@@ -125,6 +141,7 @@ const init = ([permissions, hm, prefix]) => {
 	if (permissions.includes('wasm')) global.WebAssembly = WebAssembly;
 	if (permissions.includes('net')) {
 		const _caches = caches;
+		const _fetch = fetch;
 		Object.assign(global, {
 			caches: createObject({
 				open: name => _caches.open(prefix + name),
@@ -133,7 +150,7 @@ const init = ([permissions, hm, prefix]) => {
 				keys: async () => (await _caches.keys()).map(removePrefix).filter(Boolean),
 				match: (request, options) => _caches.match(request, options),
 			}),
-			fetch,
+			fetch: (input, init = {}) => _fetch(input, Object.assign(init, { referrerPolicy: 'same-origin' })),
 			XMLHttpRequest,
 			WebSocket,
 			EventSource
@@ -170,9 +187,13 @@ const onload = (module, callback) => moduleCache.get(module)?.then?.(callback);
  * @param {Object|undefined} env - 运行时的 process.env 上下文
  * @returns {*}
  */
-const _eval = async ([path, code, env]) => {
+const _eval = async ([path, code, env, argv]) => {
 	const fn = createFunction(code);
 	try {
+		const argvArr = process.argv;
+		argvArr[1] = path || 'inlineModule';
+		argvArr.length = 2;
+		if (argv) argvArr.push(...argv);
 		if (env) {
 			const pe = process.env;
 			for (const key of Object.getOwnPropertyNames(pe))
@@ -210,6 +231,11 @@ const loadModule = async (path, code) => {
 const load = async ([path, code]) => Object.keys(await loadModule(path, code));
 
 /**
+ * 清理模块缓存
+ */
+const reset = () => moduleCache.clear();
+
+/**
  * 执行模块函数
  * @param {string} path  - 模块名称
  * @param {string} func  - 导出名称
@@ -224,7 +250,7 @@ const call = async ([path, func, args = []]) => {
 	return await fn(...args);
 };
 
-const systemFunctions = {init, call, load, eval: _eval};
+const systemFunctions = {init, call, load, eval: _eval, reset};
 
 self.onmessage = async (e) => {
 	const data = e.data;
@@ -285,16 +311,31 @@ const global = {
 	console: emulatedConsole,
 	OffscreenCanvas,
 	createImageBitmap,
+	fonts,
+	FontFace,
 	navigator: navigator1,
-	require(owner, name, attributes) {
+	_imp(owner, name, attributes) {
 		if (typeof name !== 'string') throw new Error('Illegal argument');
-		if (name.startsWith("data:")) throw new Error('\"data:\" is not allowed');
 
 		let type = attributes?.with?.type;
 
 		let isSystemModule = name[0] !== '.' && name[0] !== '/';
+		found:
 		if (isSystemModule) {
-			if (type) throw new Error('System module cannot use type assertion');
+			if (type) throw new Error('Builtin module cannot use type assertion');
+
+			if (name.startsWith("data:")) {
+				if (!global.Function) throw new Error('\"data:\" is not allowed');
+				return import(name);
+			}
+			if (name.startsWith("file:")) {
+				const rawPart = name.slice("file:///".length);
+				name = "./" + (emulatedPath.resolve(rawPart));
+				break found;
+			}
+			if (allowRemoteImport) {
+				if (name.startsWith("http://") || name.startsWith("https://")) return import(name);
+			}
 
 			let prefix = name.startsWith('node:') ? 5 : 0;
 			const nodeModule = nodeModules.get(name.slice(prefix));

@@ -124,7 +124,7 @@ export interface Sandbox {
      * Until `initialize()` completes, the lockdown is NOT active
      * and the worker's global scope is not restricted.
      */
-    initialize(): Promise<void>;
+    initialize(forceResetModuleCache?: boolean): Promise<void>;
 
     /**
      * Pre-load a module into the sandbox's module cache and return a proxy
@@ -154,7 +154,8 @@ export interface Sandbox {
     execute(
         moduleName: string | undefined,
         code: string,
-        env?: object
+        env?: object,
+        argv?: string[]
     ): Promise<any>;
 
     /**

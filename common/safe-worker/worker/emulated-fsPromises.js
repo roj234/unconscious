@@ -1,24 +1,4 @@
-
-if (!Uint8Array.prototype.toHex) {
-	const HEX_CHARS = '0123456789abcdef';
-	Object.defineProperties(Uint8Array.prototype, {
-		toHex: {
-			value: function () {
-				let hex = '';
-				for (let i = 0; i < this.length; i++) {
-					const byte = this[i];
-					hex += HEX_CHARS[(byte >>> 4)] + HEX_CHARS[(byte & 0xf)];
-				}
-				return hex;
-			},
-		},
-		/*toBase64: {
-			value: () => {
-
-			}
-		}*/
-	})
-}
+import {UTF8_TEXT_DECODER} from "../../../shared.js";
 
 const FALSE = () => false;
 /**
@@ -66,8 +46,210 @@ const parseStat = text => {
 	return stats;
 };
 
+const getTransfer = (data, options) => {
+	const transfer = options?.transfer;
+	if (transfer) {
+		const setting = { value: data.length };
+		const buf = data.buffer;
+		Object.defineProperty(data, 'length', setting);
+		Object.defineProperty(buf, 'length', setting);
+		return [buf];
+	}
+}
+/**
+ * 在 Worker 中模拟 fs.promises.FileHandle
+ * 底层基于 FileSystemFileHandle
+ */
+class RAF {
+	/**
+	 * @type {FileSystemFileHandle}
+	 */
+	#handle;
+	#mode;
+	#position;
+	#closed;
+
+	constructor(handle, path, mode) {
+		this.#handle = handle;
+		this.#mode = mode;
+		this.#position = 0;
+		this.#closed = false;
+	}
+
+	/** 根据打开模式初始化文件位置，w 模式需要截断文件 */
+	async _init() {
+		if (this.#mode.includes('a')) {
+			const file = await this.#handle.getFile();
+			this.#position = file.size;
+		} else if (this.#mode.includes('w')) {
+			await this.truncate(0);
+		} else {
+			this.#position = 0;
+		}
+	}
+
+	#assertOpen() {
+		if (this.#closed) throw new Error('FileHandle is closed');
+	}
+
+	#canRead() {
+		return this.#mode.includes('r') || this.#mode.includes('+') || this.#mode.includes('a');
+	}
+
+	#canWrite() {
+		return this.#mode.includes('w') || this.#mode.includes('a') || this.#mode.includes('+');
+	}
+
+	/** 读取文件内容，模仿 fs.promises.FileHandle.read */
+	async read(buffer, offset = 0, length = buffer.byteLength, position = null) {
+		await this.#assertOpen();
+
+		if (!this.#canRead()) throw new Error('File not opened for reading');
+		this.#flush();
+
+		let positionProvided = position != null;
+		if (position == null) position = this.#position;
+
+		offset = offset || 0;
+		length = length || buffer.byteLength - offset;
+
+		if (!(buffer instanceof Uint8Array)) {
+			throw new TypeError('buffer must be a Uint8Array');
+		}
+
+		const file = await this.#handle.getFile();
+		if (position >= file.size) return { bytesRead: 0, buffer };
+
+		const end = Math.min(position + length, file.size);
+		const blob = file.slice(position, end);
+		const data = new Uint8Array(await blob.arrayBuffer());
+
+		buffer.set(data, offset);
+
+		if (!positionProvided) {
+			this.#position = end;
+		}
+
+		return { bytesRead: data.length, buffer };
+	}
+
+	#ws;
+
+	/**
+	 *
+	 * @return {Promise<FileSystemWritableFileStream>}
+	 */
+	#forWrite() {
+		this.#assertOpen();
+		if (!this.#canWrite()) throw new Error('File not opened for writing');
+		return this.#ws || (this.#ws = this.#handle.createWritable({ keepExistingData: true }));
+	}
+	#flush() {
+		if (!this.#ws) return;
+		const p = this.#ws.then(ws => ws.close());
+		this.#ws = null;
+		return p;
+	}
+
+	/** 写入内容 */
+	async write(buffer, offset = 0, length = buffer.byteLength, position = null) {
+		await this.#assertOpen();
+		if (!this.#canWrite()) throw new Error('File not opened for writing');
+
+		if (!(buffer instanceof Uint8Array)) buffer = Buffer.from(buffer);
+
+		// append 模式下，忽略传入 position，总是写文件末尾
+		let positionProvided = position != null;
+		if (this.#mode.startsWith('a')) position = undefined;
+		else if (position == null) position = this.#position;
+
+		const os = await this.#forWrite();
+		await os.write({
+			type: "write",
+			data: buffer,
+			position
+		});
+
+		if (!positionProvided) this.#position = position + buffer.length;
+		return { bytesWritten: buffer.length, buffer };
+	}
+
+	/** 截断文件 */
+	async truncate(len) {
+		if (len < 0) len = 0;
+
+		const os = await this.#forWrite();
+		await os.truncate(len);
+		if (this.#position > len) this.#position = len;
+	}
+
+	/** 读整个文件 */
+	async readFile(options = {}) {
+		this.#flush();
+
+		const file = await this.#handle.getFile();
+		const arrayBuffer = await file.arrayBuffer();
+
+		if (options.encoding === 'utf8' || options.encoding === 'utf-8') {
+			return UTF8_TEXT_DECODER.decode(arrayBuffer);
+		}
+		return new Uint8Array(arrayBuffer);
+	}
+
+	/** 写整个文件（会覆盖并截断） */
+	async writeFile(data, options = {}) {
+		if (!(data instanceof Uint8Array)) data = Buffer.from(data);
+		const len = data.length;
+
+		const writable = await this.#forWrite();
+		await writable.write({
+			type: "write",
+			position: 0,
+			data
+		});
+		await writable.truncate(len);
+		this.#position = len;
+	}
+
+	/** 追加内容到文件末尾 */
+	async appendFile(data) {
+		const file = await this.#handle.getFile();
+		await this.write(data, 0, undefined, file.size);
+	}
+
+	/** 获取文件状态 */
+	async stat() {
+		await this.#assertOpen();
+		const file = await this.#handle.getFile();
+		return {
+			size: file.size,
+			lastModified: file.lastModified,
+			isFile: () => true,
+			isDirectory: () => false,
+		};
+	}
+
+	/** 关闭句柄（浏览器 FileSystemFileHandle 本身没有 close，这里只做标记） */
+	async close() {
+		this.#closed = true;
+		return this.#flush();
+	}
+
+	/** 同步：浏览器中每次写入已即时 close，无需额外操作 */
+	async sync() {return this.#flush();}
+	async datasync() {return this.#flush();}
+}
+
 export const emulateFsPromises = (RPC) => {
 	const fsPromises = {
+		async open(path, mode, options) {
+			if (!/[rwa]/.test(mode)) throw new Error("Mode must be r, w or a");
+			const handle = await RPC('open', [path, mode !== 'r']);
+			const fh = new RAF(handle, path, mode);
+			await fh._init();
+			return fh;
+		},
+
 		/**
 		 * Read the entire contents of a file.
 		 * @param {string} path
@@ -78,8 +260,8 @@ export const emulateFsPromises = (RPC) => {
 			const encoding = typeof options === 'string' ? options : options?.encoding;
 			if (encoding == null || encoding === 'binary' || encoding === 'hex') {
 				const blob = await RPC('readRaw', [path]);
-				const uint8Array = new Uint8Array(await blob.arrayBuffer());
-				if (encoding === 'hex') return uint8Array.toHex();
+				const uint8Array = new Buffer(await blob.arrayBuffer());
+				if (encoding === 'hex') return uint8Array.toString('hex');
 				return uint8Array;
 			}
 
@@ -95,7 +277,7 @@ export const emulateFsPromises = (RPC) => {
 		 */
 		writeFile(path, data, options) {
 			if (data instanceof Uint8Array) {
-				return RPC('writeRaw', [path, data, options], options?.transfer && [data.buffer]);
+				return RPC('writeRaw', [path, data, options], getTransfer(data, options));
 			}
 			return RPC('write', [path, data]);
 		},
@@ -109,7 +291,7 @@ export const emulateFsPromises = (RPC) => {
 		 */
 		appendFile(path, data, options) {
 			if (data instanceof Uint8Array) {
-				return RPC('appendRaw', [path, data, options], options?.transfer && [data.buffer]);
+				return RPC('appendRaw', [path, data, options], getTransfer(data, options));
 			}
 			return RPC('append', [path, data]);
 		},

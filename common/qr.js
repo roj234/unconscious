@@ -1,4 +1,9 @@
-// qr.js — Fast QRCode pattern generator within 8KiB
+// qr.js — Fastest JavaScript QRCode pattern generator. < 5999 bytes minified, ~2800 bytes gzipped.
+// - Minified with BYTE_ONLY flag and Canvas backend only (ideal for browser). other backends are tree-shared.
+// - For Smart mode (no BYTE_ONLY), ~7.5 KiB minified.
+// - Require ~2.2KiB RAM for constants.
+
+const BYTE_ONLY = false;
 
 'use strict';
 
@@ -7,6 +12,7 @@
 // ---------------------------------------------------------------------------
 import {UTF8_TEXT_ENCODER} from "../shared.js";
 
+// branchless gfMul
 const EXP = new Uint8Array(512 + 511);
 const LOG = new Uint16Array(256);
 
@@ -16,120 +22,107 @@ for (let i = 0; i < 255; i++) LOG[EXP[i]&255] = i;
 for (let i = 255; i < 511; i++) EXP[i] = EXP[i - 255];
 LOG[0] = 511;
 
-// branchless multiply
-const mul = (a, b) => EXP[LOG[a] + LOG[b]];
-
 /**
- *
- * @param {Uint8Array} MEM
- * @param {number} p1
- * @param {number} p1Len
- * @param {number} p2
- * @param {number} p2Len
- * @param {number} pOut
+ * 使用LFSR算法计算RS纠错码
+ * @param {Uint8Array} ec
+ * @param {Uint16Array} logGen 生成多项式的对数
+ * @param {number} ecLength
+ * @param {Uint8Array} data
  */
-function polyMul(MEM, p1, p1Len, p2, p2Len, pOut) {
-	MEM.fill(0, pOut, pOut + p1Len + p2Len - 1);
-	for (let i = 0; i < p1Len; i++) {
-		for (let j = 0; j < p2Len; j++) {
-			MEM[pOut + i + j] ^= mul(MEM[p1 + i], MEM[p2 + j]);
-		}
-	}
-}
-
-function batchLFSR(gen, ecLength, data) {
-	const ec = new Uint8Array(ecLength);
-
+const batchLFSR = (ec, logGen, ecLength, data) => {
 	for (let i = 0; i < data.length; i++) {
 		const input = data[i];
 		const feedback = ec[0] ^ input;
+		const logFeedback = LOG[feedback];
 
-		// 如果嫌弃性能差可以把Java里面那个premult表拿过来
-		// 另外不需要检查零, mul是完全无分支的
 		const last = ecLength - 1;
 		for (let j = 0; j < last; j++) {
-			ec[j] = ec[j + 1] ^ mul(gen[j + 1], feedback);
+			// 预计算 LOG[gen[j]]
+			ec[j] = ec[j + 1] ^ EXP[logGen[j] + logFeedback];
 		}
-		ec[last] = mul(gen[ecLength], feedback);
+		ec[last] = EXP[logGen[last] + logFeedback];
+	}
+};
+
+/**
+ * 计算生成多项式的对数，使用Uint16Array以实现无分支乘法
+ * @param {number} size
+ * @return {Uint16Array}
+ */
+const gfGenPolyLog = size => {
+	const poly = new Uint8Array(size + 1);
+	poly[0] = 1;
+
+	let lambdaLen = 0;
+	for (let i = 0; i < size; i++) {
+		for (let j = lambdaLen; j >= 0; j--) {
+			poly[j + 1] ^= EXP[LOG[poly[j]] + i];
+		}
+		lambdaLen++;
 	}
 
-	return ec;
-}
+	const logGen = new Uint16Array(size);
+	for (let i = 0; i < size;) logGen[i++] = LOG[poly[i]];
+	return logGen;
+};
+
+// numeric value embedded in format info (top 2 bits): L=1 M=0 Q=3 H=2
+const LEVEL_BIT = { M: 0, L: 1, H: 2, Q: 3 };
+// For each (version-1) + ecIndex*40 the flat list:
+//   [shortBlocks, dataLength, ecLength, longBlocks?]
+const RS_PATTERNS = new Uint8Array(4 * 4 * 40);
+
+{
+
+// 使用 delta 编码以压缩文件大小
+const RS_BLOCKS_ACC = Int8Array.of(
+	1, 0, 0, 1, 0, 2, 0, 0, 1, 0, 0, 3, 1, 0, 1, 0, 1, 2, 1, 2, 1, 0, 1, 2, 1, 2, 2, 1, 2, 1, 2, 2, 2, 2, 1, 2, 3, 2, 2, 2,
+	1, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, 0, 0, 1, 1, 0, 1, 0, 1, 2, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 2, 1,
+	1, 0, 1, 2, 0, 0, 1, 1, 2, 0, 3, 0, 5, 0, 2, -2, 3, 2, 4, 0, 0, 9, -4, 2, 3, 2, 3, 2, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 3, 4,
+	1, 0, 1, 0, 2, 0, 2, 0, 2, 0, 0, 2, 2, 4, -4, 5, -1, 2, 3, -1, 3, 0, 2, 2, 2, 5, 0, 1, 3, 2, 3, 2, 3, 3, 2, 3, 3, 3, 3, 3
+);
+const RS_SIZES_ACC = Int8Array.of(
+	10, 6, 10, -8, 6, -8, 2, 4, 0, 4, 4, -8, 0, 2, 0, 4, 0, -2, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	7, 3, 5, 5, 6, -8, 2, 4, 6, -12, 2, 4, 2, 4, -8, 2, 4, 2, -2, 0, 0, 0, 2, 0, -4, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	17, 11, -6, -6, 6, 6, -2, 0, -2, 4, -4, 4, -6, 2, 0, 6, -2, 0, -2, 2, 2, -6, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	13, 9, -4, 8, -8, 6, -6, 4, -2, 4, 4, -2, -2, -4, 10, -6, 4, 0, -2, 4, -2, 2, 0, 0, 0, -2, 2//, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+);
 
 /**
  *
- * @param {number} size
- * @return {Uint8Array}
+ * @param {number} version
+ * @return {number}
  */
-function polyNewGenerator(size) {
-	const MEM = new Uint8Array((size + 1) * 2 + 2);
-	let pLambdaA = 2;
-	let pLambdaB = 3 + size;
-	let pLambda = pLambdaA;
-
-	MEM[pLambda] = 1;
-	let lambdaLen = 1;
-
-	MEM[0] = 1;
-
-	for (let i = 0; i < size; i++) {
-		MEM[1] = EXP[i];
-
-		let pDest = (pLambda === pLambdaA) ? pLambdaB : pLambdaA;
-		polyMul(MEM, pLambda, lambdaLen, 0, 2, pDest);
-		lambdaLen++;
-		pLambda = pDest;
+const countDataModules = (version) => {
+	let mods = (16 * version + 128) * version + 64;
+	if (version >= 2) {
+		const numAlign = Math.trunc(version / 7) + 2;
+		mods -= (25 * numAlign - 10) * numAlign - 55;
+		if (version >= 7) mods -= 36;
 	}
+	return mods;
+};
 
-	return MEM.slice(pLambda, pLambda + lambdaLen);
+for (let level = 0; level < 4; level++) {
+	let blocks = 0, ecLength = 0;
+	for (let version = 0; version < 40;) {
+		const tab = version + level * 40;
+
+		blocks += RS_BLOCKS_ACC[tab];
+		ecLength += RS_SIZES_ACC[tab] | 0;
+
+		const dataModules = countDataModules(++version) >> 3;
+		const shortBlocks = blocks - dataModules % blocks;
+		const idx = tab << 2;
+
+		RS_PATTERNS[idx] = shortBlocks;
+		RS_PATTERNS[idx+1] = Math.trunc(dataModules / blocks) - ecLength;
+		RS_PATTERNS[idx+2] = ecLength;
+		RS_PATTERNS[idx+3] = blocks - shortBlocks;
+	}
 }
 
-// numeric value embedded in format info (top 2 bits): L=1 M=0 Q=3 H=2
-const EC_BITS = { M: 0, L: 1, H: 2, Q: 3 };
-// For each (version-1)*4 + ecIndex the flat list:
-//   [count, dataLength, ecLength, count2?]
-const RS_PATTERNS = [
-	[1,16,10],[1,19,7],[1,9,17],[1,13,13],
-	[1,28,16],[1,34,10],[1,16,28],[1,22,22],
-	[1,44,26],[1,55,15],[2,13,22],[2,17,18],
-	[2,32,18],[1,80,20],[4,9,16],[2,24,26],
-	[2,43,24],[1,108,26],[2,11,22,2],[2,15,18,2],
-	[4,27,16],[2,68,18],[4,15,28],[4,19,24],
-	[4,31,18],[2,78,20],[4,13,26,1],[2,14,18,4],
-	[2,38,22,2],[2,97,24],[4,14,26,2],[4,18,22,2],
-	[3,36,22,2],[2,116,30],[4,12,24,4],[4,16,20,4],
-	[4,43,26,1],[2,68,18,2],[6,15,28,2],[6,19,24,2],
-	[1,50,30,4],[4,81,20],[3,12,24,8],[4,22,28,4],
-	[6,36,22,2],[2,92,24,2],[7,14,28,4],[4,20,26,6],
-	[8,37,22,1],[4,107,26],[12,11,22,4],[8,20,24,4],
-	[4,40,24,5],[3,115,30,1],[11,12,24,5],[11,16,20,5],
-	[5,41,24,5],[5,87,22,1],[11,12,24,7],[5,24,30,7],
-	[7,45,28,3],[5,98,24,1],[3,15,30,13],[15,19,24,2],
-	[10,46,28,1],[1,107,28,5],[2,14,28,17],[1,22,28,15],
-	[9,43,26,4],[5,120,30,1],[2,14,28,19],[17,22,28,1],
-	[3,44,26,11],[3,113,28,4],[9,13,26,16],[17,21,26,4],
-	[3,41,26,13],[3,107,28,5],[15,15,28,10],[15,24,30,5],
-	[17,42,26],[4,116,28,4],[19,16,30,6],[17,22,28,6],
-	[17,46,28],[2,111,28,7],[34,13,24],[7,24,30,16],
-	[4,47,28,14],[4,121,30,5],[16,15,30,14],[11,24,30,14],
-	[6,45,28,14],[6,117,30,4],[30,16,30,2],[11,24,30,16],
-	[8,47,28,13],[8,106,26,4],[22,15,30,13],[7,24,30,22],
-	[19,46,28,4],[10,114,28,2],[33,16,30,4],[28,22,28,6],
-	[22,45,28,3],[8,122,30,4],[12,15,30,28],[8,23,30,26],
-	[3,45,28,23],[3,117,30,10],[11,15,30,31],[4,24,30,31],
-	[21,45,28,7],[7,116,30,7],[19,15,30,26],[1,23,30,37],
-	[19,47,28,10],[5,115,30,10],[23,15,30,25],[15,24,30,25],
-	[2,46,28,29],[13,115,30,3],[23,15,30,28],[42,24,30,1],
-	[10,46,28,23],[17,115,30],[19,15,30,35],[10,24,30,35],
-	[14,46,28,21],[17,115,30,1],[11,15,30,46],[29,24,30,19],
-	[14,46,28,23],[13,115,30,6],[59,16,30,1],[44,24,30,7],
-	[12,47,28,26],[12,121,30,7],[22,15,30,41],[39,24,30,14],
-	[6,47,28,34],[6,121,30,14],[2,15,30,64],[46,24,30,10],
-	[29,46,28,14],[17,122,30,4],[24,15,30,46],[49,24,30,10],
-	[13,46,28,32],[4,122,30,18],[42,15,30,32],[48,24,30,14],
-	[40,47,28,7],[20,117,30,4],[10,15,30,67],[43,24,30,22],
-	[18,47,28,31],[19,118,30,6],[20,15,30,61],[34,24,30,34]
-];
+}
 
 const ALIGNMENT_PATTERNS = Uint8Array.of(
 	11, 15, 19, 23, 27, 31,
@@ -138,21 +131,34 @@ const ALIGNMENT_PATTERNS = Uint8Array.of(
 );
 
 // BCH generator polynomials & mask used for format / version information.
+
+/**
+ * Count trailing zeroes.
+ *
+ * You should know that Math.clz32 exists since Chrome 38 (2014)
+ * @param {number} data
+ * @return {number}
+ */
+const ctz32 = data => 32 - Math.clz32(data);
+
 const G15 = (1 << 10) | (1 << 8) | (1 << 5) | (1 << 4) | (1 << 2) | (1 << 1) | (1 << 0); // 0x537
 const G18 = (1 << 12) | (1 << 11) | (1 << 10) | (1 << 9) | (1 << 8) | (1 << 5) | (1 << 2) | (1 << 0); // 0x1F25
 const G15_MASK = (1 << 14) | (1 << 12) | (1 << 10) | (1 << 4) | (1 << 1); // 0x5412
+const G15Len = ctz32(G15);
+const G18Len = ctz32(G18);
 
-function bchDigit(data) { let d = 0; while (data !== 0) { d++; data >>>= 1; } return d; }
-function getBCHTypeInfo(data) {
+const getBCHTypeInfo = data => {
 	let d = data << 10;
-	while (bchDigit(d) - bchDigit(G15) >= 0) d ^= (G15 << (bchDigit(d) - bchDigit(G15)));
+	let tmp;
+	while ((tmp = ctz32(d) - G15Len) >= 0) d ^= (G15 << tmp);
 	return ((data << 10) | d) ^ G15_MASK;
-}
-function getBCHVersion(data) {
+};
+const getBCHVersion = data => {
 	let d = data << 12;
-	while (bchDigit(d) - bchDigit(G18) >= 0) d ^= (G18 << (bchDigit(d) - bchDigit(G18)));
+	let tmp;
+	while ((tmp = ctz32(d) - G18Len) >= 0) d ^= (G18 << tmp);
 	return (data << 12) | d;
-}
+};
 
 // Eight data-mask conditions. `y` is row, `x` is column.
 const MASK_FUNCS = [
@@ -166,14 +172,132 @@ const MASK_FUNCS = [
 	(y, x) => ((((y * x) % 3) + (y + x) % 2) & 1) === 0
 ];
 
+const NUM = [1, 10, 12, 14];
+const ALNUM = [2, 9, 11, 13];
+const BYTE = [4, 8, 16, 16];
+const getLengthBits = (mode, version) => mode[Math.floor((version + 7) / 17) + 1];
+
+const ALNUM_IDX = /*#__PURE__*/ new Map(Array.prototype.map.call("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:", (k, v) => [k.charCodeAt(0), v]));
+
+/**
+ * @typedef {Object} Segment
+ * @property {number[]} t type
+ * @property {Uint8Array} d data
+ * @property {number} l length
+ * @property {number} p pad
+ */
+
+/**
+ * @param {string} text
+ * @return {Segment}
+ */
+const makeByteSegment = text => {
+	const buf = UTF8_TEXT_ENCODER.encode(text);
+	return {
+		t: BYTE,
+		d: buf,
+		l: buf.length,
+		p: 0
+	};
+};
+
+/**
+ * @param {number[]} type
+ * @param {string} text
+ * @return {Segment}
+ */
+const makeSegment = (type, text) => {
+	const length = text.length;
+	const out = new Uint8Array(length);
+
+	let bytePos = 0;
+	let bitPos  = 7;
+
+	const put = (num, len) => {
+		for (let i = len - 1; i >= 0; i--) {
+			out[bytePos] |= ((num >>> i) & 1) << bitPos;
+			if (--bitPos < 0) { bytePos++; bitPos = 7; }
+		}
+	};
+
+	if (type === ALNUM) {
+		let i = 0;
+		for (; i + 2 <= length; i += 2)
+			put(ALNUM_IDX.get(text.charCodeAt(i)) * 45 + ALNUM_IDX.get(text.charCodeAt(i + 1)), 11);
+		if (i < length)
+			put(ALNUM_IDX.get(text.charCodeAt(i)), 6);
+	} else if (type === NUM) {
+		let i = 0;
+		for (; i + 3 <= length; i += 3)
+			put(parseInt(text.substring(i, i + 3), 10), 10);
+
+		const n = length - i;
+		if (n) put(parseInt(text.substring(i, i + n), 10), n * 3 + 1);
+	}
+
+	return {
+		t: type,
+		d: out.subarray(0, bytePos + 1),
+		l: length,
+		p: (bitPos+1) & 7
+	};
+}
+
+/**
+ * @param {string} text
+ * @param {{ dumb?: boolean }} options
+ * @return {Uint8Array|Segment[]}
+ */
+const splitSegments = (text, options) => {
+	if (text.startsWith("http") && !options.dumb) {
+		try {
+			const url = new URL(text);
+
+			text = url.protocol.toUpperCase() + '//';
+
+			if (url.username || url.password) {
+				text += url.username;
+				if (url.password) text += ':' + url.password;
+				text += '@';
+			}
+
+			text += url.host.toUpperCase();
+			text += url.pathname; // maybe decodeURIComponent + encodeURIComponent, but not now.
+			text += url.search;
+			text += url.hash;
+		} catch {}
+	}
+
+	const segments = [];
+
+	const regex = /([0-9]{4,})|[0-9A-Z\x20$%*+\-.\/:]{7,}/g;
+
+	let lastIndex = 0;
+	let match;
+
+	while ((match = regex.exec(text)) !== null) {
+		const index = match.index;
+		if (index > lastIndex) segments.push(makeByteSegment(text.slice(lastIndex, index)));
+		segments.push(makeSegment(match[1] ? NUM : ALNUM, match[0]));
+		lastIndex = index + match[0].length;
+	}
+
+	if (lastIndex < text.length) {
+		if (lastIndex === 0) return UTF8_TEXT_ENCODER.encode(text);
+		segments.push(makeByteSegment(text.slice(lastIndex)));
+	}
+
+	return segments;
+};
+
 /**
  * 编码QR流
- * @param {Uint8Array} data
+ * @param {Uint8Array | Segment[]} data
  * @param {number} version
  * @param {number} dataLength
  * @return {Uint8Array}
  */
-function encodeData(data, version, dataLength) {
+const encodeData = (data, version, dataLength) => {
 	const totalBits = dataLength * 8;
 	const out = new Uint8Array(dataLength);
 
@@ -181,7 +305,6 @@ function encodeData(data, version, dataLength) {
 	let bitPos  = 7;
 	let written = 0;
 
-	// 把 num 的低 len 位按 MSB-first 写入 out
 	const put = (num, len) => {
 		for (let i = len - 1; i >= 0; i--) {
 			out[bytePos] |= ((num >>> i) & 1) << bitPos;
@@ -190,11 +313,22 @@ function encodeData(data, version, dataLength) {
 		written += len;
 	};
 
-	put(0b0100, 4); // byte mode
-	put(data.length, version < 10 ? 8 : 16);
-	for (let i = 0; i < data.length; i++) put(data[i], 8);
+	if (BYTE_ONLY || data instanceof Uint8Array) {
+		put(0b0100, 4); // byte mode
+		put(data.length, version < 10 ? 8 : 16);
+		for (let i = 0; i < data.length; i++) put(data[i], 8);
+	} else {
+		for (const segment of data) {
+			put(segment.t[0], 4);
+			put(segment.l, getLengthBits(segment.t, version));
+			const bb = segment.d;
+			for (let i = 0; i < bb.length - 1; i++) put(bb[i], 8);
+			const pad = segment.p;
+			put(bb[bb.length - 1] >> pad, 8 - pad);
+		}
+	}
 
-	if (written > totalBits) throw new Error(`code length overflow. (${written}>${totalBits})`);
+	if (written > totalBits) throw new RangeError(`data too long. (${written}>${totalBits})`);
 
 	// terminator
 	if (written + 4 <= totalBits) put(0, 4);
@@ -206,18 +340,18 @@ function encodeData(data, version, dataLength) {
 	}
 
 	return out;
-}
+};
 
 /**
  * 生成交错校验码
  * @param {Uint8Array} codewords
  * @param {number} version
- * @param {'L' | 'M' | 'Q' | 'H'} level
+ * @param {number} level
  * @return {Uint8Array}
  */
-function createEC(codewords, version, level) {
-	const tab = RS_PATTERNS[(version - 1) * 4 + EC_BITS[level]];
-	const r0 = tab[0], dataLength = tab[1], ecLength = tab[2], r1 = tab[3] ?? 0;
+const createEC = (codewords, version, level) => {
+	const tab = ((version - 1) + level * 40) << 2;
+	const r0 = RS_PATTERNS[tab], dataLength = RS_PATTERNS[tab+1], ecLength = RS_PATTERNS[tab+2], r1 = RS_PATTERNS[tab+3];
 	const rows = r0+r1;
 
 	let pIn = 0;
@@ -239,26 +373,25 @@ function createEC(codewords, version, level) {
 	for (let r = 0; r < r1; r++)
 		out[pOut++] = blocks[r0 + r][dataLength];
 
-	const genPoly = polyNewGenerator(ecLength);
+	const ec = new Uint8Array(ecLength);
+	const logGen = gfGenPolyLog(ecLength);
+
 	for (let r = 0; r < rows; r++) {
-		const ec = batchLFSR(genPoly, ecLength, blocks[r]);
+		batchLFSR(ec, logGen, ecLength, blocks[r]);
 		for (let i = 0; i < ecLength; i++)
 			out[pOut + i * rows + r] = ec[i];
+		ec.fill(0);
 	}
 
 	return out;
-}
+};
 
 /**
  *
  * @param {number} version
- * @param {string} level
- * @param {Uint8Array} codewords
- * @param {number} maskPattern
- * @param {boolean} test
  * @return {Int8Array}
  */
-function buildMatrix(version, level, codewords, maskPattern, test) {
+const buildMatrix = version => {
 	const size = version * 4 + 17;
 	const mat = new Int8Array(size * size).fill(-1); // -1 = empty, 0 = light, 1 = dark
 	const set = (r, c, v) => { mat[r * size + c] = v; };
@@ -274,7 +407,7 @@ function buildMatrix(version, level, codewords, maskPattern, test) {
 					(0 <= r && r <= 6 && (c === 0 || c === 6)) ||
 					(0 <= c && c <= 6 && (r === 0 || r === 6)) ||
 					(2 <= r && r <= 4 && 2 <= c && c <= 4);
-				set(row + r, col + c, dark ? 1 : 0);
+				set(row + r, col + c, +dark);
 			}
 		}
 	};
@@ -290,7 +423,7 @@ function buildMatrix(version, level, codewords, maskPattern, test) {
 			for (let dr = -2; dr <= 2; dr++) {
 				for (let dc = -2; dc <= 2; dc++) {
 					const dark = dr === -2 || dr === 2 || dc === -2 || dc === 2 || (dr === 0 && dc === 0);
-					set(r + dr, c + dc, dark ? 1 : 0);
+					set(r + dr, c + dc, +dark);
 				}
 			}
 		};
@@ -316,36 +449,63 @@ function buildMatrix(version, level, codewords, maskPattern, test) {
 
 	// --- timing patterns ---
 	for (let i = 8; i < size - 8; i++) {
-		if (get(i, 6) === -1) set(i, 6, i % 2 === 0 ? 1 : 0);
-		if (get(6, i) === -1) set(6, i, i % 2 === 0 ? 1 : 0);
+		if (get(i, 6) === -1) set(i, 6, (i & 1) ^ 1);
+		if (get(6, i) === -1) set(6, i, (i & 1) ^ 1);
 	}
 
+	return mat;
+};
+
+/**
+ * @param {Int8Array} mat
+ * @param {number} version
+ * @param {number} level
+ * @param {number} maskPattern
+ * @param {0 | -1} apply
+ */
+const buildBCH = (mat, version, level, maskPattern, apply) => {
+	const size = version * 4 + 17;
+	const set = (r, c, v) => { mat[r * size + c] = v; };
+
 	// --- format information (reserved/actual) ---
-	const fmt = getBCHTypeInfo((EC_BITS[level] << 3) | maskPattern);
+	const fmt = apply & getBCHTypeInfo((level << 3) | maskPattern);
 	for (let i = 0; i < 15; i++) {
-		const mod = (!test && ((fmt >> i) & 1) === 1) ? 1 : 0;
+		const mod = ((fmt >> i) & 1);
 		if (i < 6) set(i, 8, mod);
 		else if (i < 8) set(i + 1, 8, mod);
 		else set(size - 15 + i, 8, mod);
 	}
 	for (let i = 0; i < 15; i++) {
-		const mod = (!test && ((fmt >> i) & 1) === 1) ? 1 : 0;
+		const mod = ((fmt >> i) & 1);
 		if (i < 8) set(8, size - i - 1, mod);
 		else if (i < 9) set(8, 15 - i, mod);
 		else set(8, 15 - i - 1, mod);
 	}
-	set(size - 8, 8, test ? 0 : 1); // fixed dark module
+	set(size - 8, 8, 1);
 
-	// --- version information (versions 7..40) ---
+	// --- version information ---
 	if (version >= 7) {
-		const v = getBCHVersion(version);
+		const v = apply & getBCHVersion(version);
 		for (let i = 0; i < 18; i++) {
-			const mod = (!test && ((v >> i) & 1) === 1) ? 1 : 0;
-			set(Math.floor(i / 3), i % 3 + size - 11, mod);
-			set(i % 3 + size - 11, Math.floor(i / 3), mod);
+			const mod = ((v >> i) & 1);
+			const a = Math.floor(i / 3);
+			const b = i % 3 + size - 11;
+			set(a, b, mod);
+			set(b, a, mod);
 		}
 	}
+};
 
+/**
+ * @param {Int8Array} mat
+ * @param {number} version
+ * @param {string} level
+ * @param {Uint8Array} codewords
+ * @param {number} maskPattern
+ * @return {Int8Array}
+ */
+const buildMask = (mat, version, level, codewords, maskPattern) => {
+	const size = version * 4 + 17;
 	// --- data modules (zig-zag, with chosen mask) ---
 	const maskFn = MASK_FUNCS[maskPattern];
 	let inc = -1, row = size - 1, bitIndex = 7, byteIndex = 0;
@@ -354,11 +514,8 @@ function buildMatrix(version, level, codewords, maskPattern, test) {
 		while (true) {
 			for (let c = 0; c < 2; c++) {
 				const cc = col - c;
-				if (get(row, cc) === -1) {
-					let dark = 0;
-					if (byteIndex < codewords.length) dark = (codewords[byteIndex] >>> bitIndex) & 1;
-					if (maskFn(row, cc)) dark ^= 1;
-					set(row, cc, dark);
+				if (mat[row * size + cc] === -1) {
+					mat[row * size + cc] = 1 & (codewords[byteIndex] >>> bitIndex) ^ maskFn(row, cc);
 					bitIndex--;
 					if (bitIndex === -1) { byteIndex++; bitIndex = 7; }
 				}
@@ -367,8 +524,7 @@ function buildMatrix(version, level, codewords, maskPattern, test) {
 			if (row < 0 || size <= row) { row -= inc; inc = -inc; break; }
 		}
 	}
-	return mat;
-}
+};
 
 /**
  * Mask evaluation
@@ -376,107 +532,151 @@ function buildMatrix(version, level, codewords, maskPattern, test) {
  * @param {number} size
  * @return {number}
  */
-function lostPoint(mat, size) {
-	const isDark = (r, c) => mat[r * size + c] === 1;
+const lostPoint = (mat, size) => {
+	const end = size * size;
+	const runs = new Int16Array(size);
 	let point = 0;
+	let darkCount = 0;
 
-	// N1: runs of same colour in 3x3 neighbourhood
-	for (let r = 0; r < size; r++) {
-		for (let c = 0; c < size; c++) {
-			let same = 0;
-			const d = isDark(r, c);
-			for (let dr = -1; dr <= 1; dr++) {
-				if (r + dr < 0 || size <= r + dr) continue;
-				for (let dc = -1; dc <= 1; dc++) {
-					if (c + dc < 0 || size <= c + dc) continue;
-					if (dr === 0 && dc === 0) continue;
-					if (d === isDark(r + dr, c + dc)) same++;
+	// N1 + N3 in one pass
+	for (let pass = 0; pass < 2; pass++) {
+		const stride = pass === 0 ? 1 : size; // pass0 为行，pass1 为列
+		for (let o = 0; o < size; o++) {
+			const base = pass === 0 ? o * size : o;
+			let color = mat[base];
+			const startColor = color;
+			let nc = 0;
+			runs[0] = 1;
+
+			for (let k = 1; k < size; k++) {
+				const c = mat[base + k * stride];
+				if (c === color) {
+					runs[nc]++;
+				} else {
+					if (runs[nc] >= 5) point += 3 + (runs[nc] - 5);
+					color = c;
+					runs[++nc] = 1;
 				}
 			}
-			if (same > 5) point += 3 + same - 5;
+			if (runs[nc] >= 5) point += 3 + (runs[nc] - 5);
+
+			// N3 1011101 pattern
+			const darkParity = 1 - startColor;
+			for (let i = 2; i + 2 <= nc; i++) {
+				if ((i & 1) !== darkParity) continue;
+				if (runs[i] === 3 && runs[i - 2] === 1 && runs[i - 1] === 1 &&
+					runs[i + 1] === 1 && runs[i + 2] === 1) {
+					const leftPad = (i - 3 < 0) || runs[i - 3] >= 4;
+					const rightPad = (i + 3 > nc) || runs[i + 3] >= 4;
+					if (leftPad || rightPad) point += 40;
+				}
+			}
 		}
 	}
+
 	// N2: 2x2 blocks of same colour
 	for (let r = 0; r < size - 1; r++) {
 		for (let c = 0; c < size - 1; c++) {
-			const cnt = isDark(r, c) + isDark(r + 1, c) + isDark(r, c + 1) + isDark(r + 1, c + 1);
-			if (cnt === 0 || cnt === 4) point += 3;
+			const v = mat[r * size + c];
+			if (v === mat[r * size + c + 1] && v === mat[(r + 1) * size + c] && v === mat[(r + 1) * size + c + 1])
+				point += 3;
 		}
 	}
-	// N3: 1011101 pattern (with surrounding light)
-	for (let r = 0; r < size; r++) {
-		for (let c = 0; c < size - 6; c++) {
-			if (isDark(r, c) && !isDark(r, c + 1) && isDark(r, c + 2) && isDark(r, c + 3) &&
-				isDark(r, c + 4) && !isDark(r, c + 5) && isDark(r, c + 6)) point += 40;
-		}
-	}
-	for (let c = 0; c < size; c++) {
-		for (let r = 0; r < size - 6; r++) {
-			if (isDark(r, c) && !isDark(r + 1, c) && isDark(r + 2, c) && isDark(r + 3, c) &&
-				isDark(r + 4, c) && !isDark(r + 5, c) && isDark(r + 6, c)) point += 40;
-		}
-	}
+
 	// N4: dark-module proportion
-	let darkCount = 0;
-	for (let i = 0; i < size * size; i++) if (mat[i] === 1) darkCount++;
-	const ratio = Math.abs(100 * darkCount / size / size - 50) / 5;
-	point += ratio * 10;
+	for (let i = 0; i < end; i++) if (mat[i] === 1) darkCount++;
+	point += Math.abs(100 * darkCount / end - 50) / 5 * 10;
+
 	return point;
-}
-
-// (version, ec) 下数据码字总数(字节)
-function getDataLength(version, ec) {
-	const row = RS_PATTERNS[(version - 1) * 4 + EC_BITS[ec]];
-	return row[0] * (row[1]) + (row[3] || 0) * (row[1]+1);
-}
-
-function byteModeBits(version, byteLen) {
-	const lengthBits = version < 10 ? 8 : 16;
-	return 4 + lengthBits + 8 * byteLen;
-}
-
-// 自动选择能装下 byteLen 字节的最小 version(给定 ec);装不下则抛错
-function autoVersion(byteLen, ec) {
-	for (let v = 1; v <= 40; v++) {
-		if (byteModeBits(v, byteLen) <= getDataLength(v, ec) * 8) return v;
-	}
-	throw new Error('data too large for QR version 1..40 at ec=' + ec);
-}
+};
 
 /**
  *
- * @param {Uint8Array | string} data
- * @param {{ level?: 'L' | 'M' | 'Q' | 'H', version?: number }} options
- * @return {{size: number, modules: Uint8Array}}
+ * @param {number} version
+ * @param {number} level
+ * @return {number}
  */
-export function generateQRCode(data, options = {}) {
-	if (typeof data === 'string') data = UTF8_TEXT_ENCODER.encode(data);
+const getDataCapacity = (version, level) => {
+	const tab = ((version - 1) + level * 40) << 2;
+	return RS_PATTERNS[tab] * (RS_PATTERNS[tab+1]) + (RS_PATTERNS[tab+3]) * (RS_PATTERNS[tab+1]+1);
+};
 
-	const level = options.level ?? 'L';
-	if (null == EC_BITS[level]) throw new RangeError("level must be "+Object.keys(EC_BITS));
+/**
+ *
+ * @param {number} version
+ * @param {Uint8Array | Segment[]} data
+ * @return {number}
+ */
+const getRawLength = (version, data) => {
+	if (BYTE_ONLY || data instanceof Uint8Array) {
+		const lengthBits = version < 10 ? 8 : 16;
+		return 4 + lengthBits + 8 * data.length;
+	}
 
-	const version = options.version ?? autoVersion(data.length, level);
-	if (!Number.isInteger(version) || version < 1 || version > 40)
+	let bits = data.length << 2;
+	for (const seg of data) {
+		bits += getLengthBits(seg.t, version);
+		bits += seg.d.length * 8 - seg.p;
+	}
+	return bits;
+};
+
+/**
+ *
+ * @param {Uint8Array | string | Segment[]} data
+ * @param {{ level?: 'L' | 'M' | 'Q' | 'H', version?: number, minVersion?: number, maxVersion?: number, mask?: number, dumb?: boolean }} options
+ * @return {{size: number, modules: Int8Array}}
+ */
+export const generateQRCode = (data, options = {}) => {
+	if (typeof data === 'string') data = !BYTE_ONLY ? splitSegments(data, options) : UTF8_TEXT_ENCODER.encode(data);
+
+	let level = LEVEL_BIT[options.level ?? 'L'];
+	if (null == level) throw new RangeError("level must in "+Object.keys(LEVEL_BIT));
+
+	let version = options.version;
+	if (version == null) {
+		const max = options.maxVersion ?? 40;
+		let bits;
+		for (version = options.minVersion ?? 1; version < max; version++) {
+			bits = getRawLength(version, data);
+			if (bits <= getDataCapacity(version, level) * 8) break;
+		}
+
+		// auto use higher level if unspecified and applicable.
+		if (!options.dumb && null == options.level) {
+			for (const c of [0,3,2]) { // M Q H
+				if (bits > getDataCapacity(version, c)) break;
+				level = c;
+			}
+		}
+	} else if (!Number.isInteger(version) || version < 1 || version > 40) {
 		throw new RangeError('version must be an 1..40');
+	}
 
-	const dataLength = getDataLength(version, level);
+	const dataLength = getDataCapacity(version, level);
 	const dataCodewords = encodeData(data, version, dataLength);
 	const codewords = createEC(dataCodewords, version, level);
 	const size = version * 4 + 17;
 
+	const mat = buildMatrix(version);
+	buildBCH(mat, version, level, 0, 0);
+
 	// 选罚分最低的掩码
-	let bestMask = 0, bestPoint = Infinity;
-	for (let m = 0; m < 8; m++) {
-		const mat = buildMatrix(version, level, codewords, m, true);
-		const p = lostPoint(mat, size);
-		if (p < bestPoint) { bestPoint = p; bestMask = m; }
+	let bestMask = options.mask, bestPoint = Infinity;
+	if (null == bestMask) {
+		const mastMat = new Int8Array(mat.length);
+		for (let m = 0; m < 8; m++) {
+			mastMat.set(mat);
+			buildMask(mastMat, version, level, codewords, m);
+			const p = lostPoint(mastMat, size);
+			if (p < bestPoint) { bestPoint = p; bestMask = m; }
+		}
 	}
 
-	const mat = buildMatrix(version, level, codewords, bestMask, false);
-	const out = new Uint8Array(size * size);
-	for (let i = 0; i < size * size; i++) out[i] = mat[i] === 1 ? 1 : 0;
-	return { modules: out, size };
-}
+	buildBCH(mat, version, level, bestMask, -1);
+	buildMask(mat, version, level, codewords, bestMask);
+	return { modules: mat, size };
+};
 
 export default generateQRCode;
 
@@ -494,7 +694,7 @@ export default generateQRCode;
  * }} options
  * @return {HTMLCanvasElement}
  */
-export function renderQRCodeToCanvas(data, options = {}) {
+export const renderQRCodeToCanvas = (data, options = {}) => {
 	const canvas = options.canvas ?? document.createElement("canvas");
 	canvas.style.imageRendering = 'pixelated';
 	if (typeof data === 'string') canvas.title = data;
@@ -522,4 +722,118 @@ export function renderQRCodeToCanvas(data, options = {}) {
 	}
 
 	return canvas;
-}
+};
+
+/**
+ * Render a QR code as ASCII art.
+ *
+ * @param {string | Uint8Array} data
+ * @param {{
+ *     level?: 'L' | 'M' | 'Q' | 'H',
+ *     version?: number,
+ *     mask?: number,
+ *     border?: number,
+ *     background?: 'white' | string,
+ * }} options
+ * @returns {string}
+ */
+export const renderQRCodeToASCII = (data, options = {}) => {
+	const { modules, size } = generateQRCode(data, options);
+	const border = options.border ?? 1;
+	const total = size + border * 2;
+	const invert = +(options.background !== 'white');
+	const isDark = (x, y) => {
+		const mx = x - border, my = y - border;
+		return (mx >= 0 && mx < size && modules[my * size + mx]) ^ invert;
+	};
+
+	let out = '';
+	for (let y = 0; y < total; y += 2) {
+		for (let x = 0; x < total; x++) {
+			const top = isDark(x, y);
+			const bottom = y + 1 < total ? isDark(x, y + 1) : false;
+			out += top && bottom ? '█' : top ? '▀' : bottom ? '▄' : ' ';
+		}
+		out += '\n';
+	}
+	return out;
+};
+/*
+import {crc32} from "./zip-io.js";
+
+const concatBytes = (a, b) => {
+	const out = new Uint8Array(a.length + b.length);
+	out.set(a, 0);
+	out.set(b, a.length);
+	return out;
+};
+
+const pngChunk = (type, data) => {
+	const t = UTF8_TEXT_ENCODER.encode(type);
+	const out = new Uint8Array(12 + data.length);
+	const v = new DataView(out.buffer);
+	v.setUint32(0, data.length);
+	out.set(t, 4);
+	out.set(data, 8);
+	v.setUint32(8 + data.length, crc32(concatBytes(t, data)));
+	return out;
+};
+
+/**
+ * Render a monochrome (1-bit grayscale) PNG of a QR code as a Blob.
+ *
+ * @param {string | Uint8Array} data
+ * @param {{
+ *     level?: 'L' | 'M' | 'Q' | 'H',
+ *     version?: number,
+ *     mask?: number,
+ *     border?: number,
+ *     scale?: number,
+ * }} options
+ * @returns {Promise<Blob>}
+ * /
+export const renderQRCodeToPngBlob = async (data, options = {}) => {
+	const { modules, size } = generateQRCode(data, options);
+	const border = options.border ?? 1;
+	const scale = options.scale ?? 1; // repeat each module `scale` times in both axes
+	const width = (size + border * 2) * scale;
+	const height = width;
+
+	// 1-bit grayscale scanlines, filter type 0 (None). dark→0(black), light→1(white)
+	const stride = (width + 7) >> 3;
+	const raw = new Uint8Array((stride + 1) * height);
+	let p = 0;
+	for (let y = 0; y < height; y++) {
+		raw[p++] = 0;
+		let byte = 0, bits = 0;
+		const my = Math.floor(y / scale) - border;
+		for (let x = 0; x < width; x++) {
+			const mx = Math.floor(x / scale) - border;
+			const dark = mx >= 0 && my >= 0 && mx < size && my < size && modules[my * size + mx] !== 0;
+			byte = (byte << 1) | (dark ? 0 : 1);
+			if (++bits === 8) { raw[p++] = byte; byte = 0; bits = 0; }
+		}
+		if (bits > 0) raw[p++] = byte << (8 - bits);
+	}
+
+	const cs = new CompressionStream('deflate');
+	const compressed = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(cs)).arrayBuffer());
+
+	const ihdr = new Uint8Array(13);
+	const dv = new DataView(ihdr.buffer);
+	dv.setUint32(0, width);
+	dv.setUint32(4, height);
+	ihdr[8] = 1;  // bit depth
+	ihdr[9] = 0;  // color type: grayscale
+	ihdr[10] = 0; // compression method
+	ihdr[11] = 0; // filter method
+	ihdr[12] = 0; // interlace
+
+	const sig = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+
+	return new Blob(
+		[sig, pngChunk('IHDR', ihdr), pngChunk('IDAT', compressed), pngChunk('IEND', new Uint8Array(0))],
+		{ type: 'image/png' }
+	);
+};
+*/

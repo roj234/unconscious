@@ -2,7 +2,7 @@
 const sep = '/';
 const delimiter = ':';
 
-const isAbsolute = p => p[0] === '/';
+const isAbsolute = p => p[0] === '/' || p === '~' || p.startsWith("~/");
 
 function basename(p, ext) {
 	let end = p.length;
@@ -58,7 +58,7 @@ function normalize(p) {
 
 function join(...paths) {
 	if (paths.length === 0) return '.';
-	let joined = '';
+	let joined = '.';
 	for (const p of paths) {
 		joined = isAbsolute(p) ? p : (joined ? joined + '/' + p : p);
 	}
@@ -66,7 +66,7 @@ function join(...paths) {
 }
 
 function resolve(...paths) {
-	let resolved = '/';
+	let resolved = './';
 	for (const p of paths) {
 		if (isAbsolute(p)) resolved = p;
 		else resolved += (resolved.endsWith('/') ? '' : '/') + p;

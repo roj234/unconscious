@@ -289,7 +289,9 @@ function parseModule(code, ctx) {
 			// Single character — track depth
 			if (ch === '{' || ch === '(' || ch === '[') depth++;
 			else if (ch === '}' || ch === ')' || ch === ']') {
-				if (--depth < 0) throw new Error("Invalid syntax at "+code.slice(0, pos));
+				if (!depth && inStmt?.test(ch)) break;
+
+				if (--depth < 0) throw new Error("Brace mismatch near "+pos);
 			}
 
 			if (!depth && inStmt?.test(ch)) break;
@@ -602,6 +604,8 @@ const parseSpecifiers = (src, i) => {
 	if (src[i] !== '}') {
 		while (i < len) {
 			const name = src[i++];
+			if (name === '}') break;
+
 			let alias = name;
 			if (src[i] === 'as') {
 				i++;
@@ -644,25 +648,26 @@ function bundleModule(path, code, prettifyCode = true) {
 		importMeta(output, tokens) {
 			tokens.shift();
 			output.push("__meta", ...tokens);
-			metaUsed = 'const __meta = {url:"file://"+__moduleId};\n';
+			metaUsed = 'const __meta = {url:"file:///"+__moduleId};\n';
 		},
 		runtimeImportFunc(output, tokens) {
-			output.push('require', '(', '__moduleId', ',', ...tokens.slice(1));
+			output.push('_imp', '(', '__moduleId', ',', ...tokens.slice(1));
 		},
 		nextTmp() {
 			return "__tmp_"+temp++;
 		},
 		resolveModule(name, {type} = {}) {
 			if (type) {
-				return `(await require(__moduleId, ${JSON.stringify(name)}, { with: { type: ${JSON.stringify(type)} }})).default`;
+				return `(await _imp(__moduleId, ${JSON.stringify(name)}, { with: { type: ${JSON.stringify(type)} }})).default`;
 			} else {
-				return `await require(__moduleId, ${JSON.stringify(name)})`;
+				return `await _imp(__moduleId, ${JSON.stringify(name)})`;
 			}
 		},
 	});
 	let out = prettifier(tokens, prettifyCode);
+	if (path?.endsWith(".cjs")) out = `const module = {exports};`+out+"\n;Object.assign(exports,module.exports)";
 
-	return `const __moduleId=${JSON.stringify(path)};\n`+metaUsed+out;
+	return `const __moduleId=${JSON.stringify(path||'inlineModule')};\n`+metaUsed+out;
 }
 
 /**
@@ -781,8 +786,11 @@ export function createSandbox(
 	}, (log) => handlers.log(log), name);
 
 	let initialized
-	const initialize = () => {
-		if (initialized) return;
+	const initialize = (forceResetModuleCache) => {
+		if (initialized) {
+			if (forceResetModuleCache) return RPC('reset');
+			return;
+		}
 		initialized = true;
 		return RPC('init', [
 			permissions,
@@ -805,10 +813,11 @@ export function createSandbox(
 		});
 	};
 
-	const execute = (moduleName, code, env) => RPC('eval', [
+	const execute = (moduleName, code, env, argv) => RPC('eval', [
 		moduleName,
 		bundleModule(moduleName, code),
-		env
+		env,
+		argv
 	]);
 
 	return {

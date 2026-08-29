@@ -54,7 +54,8 @@ const process = {
 
 	// ---------- exit ----------
 	exit(code = 0) {
-		console.warn(`[process polyfill] exit(${code}) called — no-op in browser`);
+		console.warn(`process.exit(${code})`);
+		close();
 	},
 
 	// ---------- nextTick (microtask) ----------

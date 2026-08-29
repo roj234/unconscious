@@ -93,9 +93,12 @@ export const decodeMsg = (input, options) => {
 	}
 };
 
-const basicToStringAble = Object.create(null);
-basicToStringAble.toString = Object.prototype.toString;
-basicToStringAble.valueOf = Object.prototype.valueOf;
+const basicToStringAble = /*#__PURE__*/ Object.create(null);
+for (const n of ["toString", "valueOf"]) {
+	Object.defineProperty(basicToStringAble, n, {
+		value: Object.prototype[n]
+	});
+}
 Object.freeze(basicToStringAble);
 
 const LOOKUP = /*#__PURE__*/ new Uint8Array(256);
@@ -153,7 +156,7 @@ const stringDecodeCache = (buckets, bytes) => {
 /**
  * @type {Map<number, [Uint8Array, string, boolean]>}
  */
-const keyCache = new Map();
+const keyCache = /*#__PURE__*/ new Map();
 
 /**
  * Low‑level MsgPack decoder that decodes a single value starting at a given offset.
@@ -186,21 +189,21 @@ export const decodeRawMsg = (buf, offset, options = {}) => {
 			case 0xC4: {
 				const len = buf.getUint8(offset);
 				offset++;
-				const value = new Uint8Array(buf.buffer, offset, len);
+				const value = new Uint8Array(buf.buffer, buf.byteOffset + offset, len);
 				offset += len;
 				return value;
 			}
 			case 0xC5: {
 				const len = buf.getUint16(offset);
 				offset += 2;
-				const value = new Uint8Array(buf.buffer, offset, len);
+				const value = new Uint8Array(buf.buffer, buf.byteOffset + offset, len);
 				offset += len;
 				return value;
 			}
 			case 0xC6: {
 				const len = buf.getUint32(offset);
 				offset += 4;
-				const value = new Uint8Array(buf.buffer, offset, len);
+				const value = new Uint8Array(buf.buffer, buf.byteOffset + offset, len);
 				offset += len;
 				return value;
 			}
@@ -797,7 +800,7 @@ class MsgpackEncoder {
 }
 
 const sharedEncoder = /*#__PURE__*/ new MsgpackEncoder();
-const sharedBuffer = new Uint8Array(4096);
+const sharedBuffer = /*#__PURE__*/ new Uint8Array(4096);
 
 /**
  * Low‑level streaming encoder that writes MsgPack bytes via a callback.

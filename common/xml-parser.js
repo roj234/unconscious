@@ -2,6 +2,9 @@
  * Standalone Streaming XML Parser
  */
 
+const VOID_TAGS = /*#__PURE__*/ new Set(["area","base","br","col","embed","hr","img","input","link","meta","source","track","wbr"]);
+const TEXT_TAGS = /*#__PURE__*/ new Set(["style","script","textarea"]);
+
 // ── Node type constants ──────────────────────────────────────────
 export const ELEMENT = 'element';
 export const TEXT    = 'text';
@@ -22,6 +25,7 @@ const $CDATA          = 8;   // inside <![CDATA[
 const $PI             = 9;   // inside <?...?>
 const $DOCTYPE        = 10;  // inside <!DOCTYPE...>
 const $SELF_CLOSING   = 11;  // saw '/' in tag, waiting for '>'
+const $TEXT_TAG_END   = 12;
 
 // Character classification
 const isWhitespace = c => c === ' ' || c === '\t' || c === '\r' || c === '\n';
@@ -76,10 +80,22 @@ function decodeText(text) {
  * @param {Function} handlers.onCData    - (text) => void
  * @param {Object}  [options]
  * @param {boolean} [options.decodeEntities=true]
+ * @param {boolean} [options.html=false]
+ * @param {Set<string>} [options.voidTags]
+ * @param {Set<string>} [options.textTags]
  * @returns {{ write: Function, end: Function }}
  */
 export function createXmlParser(handlers, options = {}) {
 	const decode = options.decodeEntities !== false;
+	const isHTML = options.html;
+	const voidTags = isHTML ? VOID_TAGS : options.voidTags;
+	const textTags = isHTML ? TEXT_TAGS : options.textTags;
+
+	let pos = 0;
+
+	const FAIL = (exc, char) => {
+		throw new Error("Excepting "+exc+" but got "+JSON.stringify(char)+" at index "+pos);
+	}
 
 	// State
 	let state      = $TEXT;
@@ -91,6 +107,7 @@ export function createXmlParser(handlers, options = {}) {
 	let quoteChar  = '';       // quote character for attr value (' or ")
 	let selfClosing= false;    // is current tag self-closing?
 	let textBuf    = '';       // accumulated text content
+	let textBufLength            = 0;
 
 	// Stack for nested tags (to validate close tag names if needed)
 	let tagStack   = [];
@@ -108,6 +125,9 @@ export function createXmlParser(handlers, options = {}) {
 		if (tagName[0] === '!') {
 			// DOCTYPE — silently skip
 		} else {
+			if (isHTML) tagName = tagName.toLowerCase();
+			if (voidTags?.has(tagName)) selfClosing = true;
+
 			handlers.onOpenTag(tagName, attrs || createAttrs(), selfClosing);
 			if (selfClosing) {
 				handlers.onCloseTag(tagName);
@@ -139,8 +159,8 @@ export function createXmlParser(handlers, options = {}) {
 
 	const commitAttr = () => {
 		if (!attrs) attrs = createAttrs();
-		const val = decode ? decodeText(attrVal) : attrVal;
-		attrs[attrName] = val;
+		if (isHTML) attrName = attrName.toLowerCase();
+		attrs[attrName] = decode ? decodeText(attrVal) : attrVal;
 		attrName = '';
 		attrVal = '';
 	};
@@ -148,7 +168,8 @@ export function createXmlParser(handlers, options = {}) {
 	const commitBooleanAttr = () => {
 		if (attrName) {
 			if (!attrs) attrs = createAttrs();
-			attrs[attrName] = '';
+			if (isHTML) attrName = attrName.toLowerCase();
+			attrs[attrName] = true;
 			attrName = '';
 		}
 	};
@@ -158,10 +179,29 @@ export function createXmlParser(handlers, options = {}) {
 
 			// ── TEXT ──────────────────────────────────────────
 			case $TEXT:
-				if (char === '<') {
+				const closeTagName = tagStack.at(-1);
+				const b = textTags?.has(closeTagName);
+				if (!b && char === '<') {
 					state = $LT;
 				} else {
 					textBuf += char;
+					let ss;
+					if (b && textBuf.endsWith(ss = "</"+closeTagName)) {
+						state = $TEXT_TAG_END;
+						textBufLength = textBuf.length - ss.length;
+					}
+				}
+				break;
+			case $TEXT_TAG_END:
+				if (isWhitespace(char)) {
+					textBuf += char;
+				} else {
+					if (char === '>') {
+						textBuf = textBuf.slice(0, textBufLength);
+						tagName = tagStack.at(-1);
+						closeTag();
+					}
+					state = $TEXT;
 				}
 				break;
 
@@ -200,8 +240,7 @@ export function createXmlParser(handlers, options = {}) {
 					selfClosing = true;
 					state = $SELF_CLOSING;
 				} else {
-					// Unexpected char — treat as part of name (tolerant)
-					tagName += char;
+					FAIL("NAME", char);
 				}
 				break;
 
@@ -215,7 +254,7 @@ export function createXmlParser(handlers, options = {}) {
 					closeTag();
 					state = $TEXT;
 				} else {
-					tagName += char; // tolerant
+					FAIL("NAME", char);
 				}
 				break;
 
@@ -236,7 +275,7 @@ export function createXmlParser(handlers, options = {}) {
 					selfClosing = true;
 					state = $SELF_CLOSING;
 				} else {
-					attrName += char; // tolerant
+					FAIL("NAME", char);
 				}
 				break;
 
@@ -297,9 +336,11 @@ export function createXmlParser(handlers, options = {}) {
 			case $DOCTYPE:
 				pending += char;
 				if (pending === '<!--') {
+					emitText();
 					state = $COMMENT;
 					pending = '';
 				} else if (pending === '<![CDATA[') {
+					emitText();
 					state = $CDATA;
 					pending = '';
 				} else if (pending.length >= 9 && pending.startsWith('<!DOCTYPE')) {
@@ -360,8 +401,7 @@ export function createXmlParser(handlers, options = {}) {
 				break;
 
 			default:
-				// Should not happen
-				state = $TEXT;
+				FAIL("VALUE", char);
 		}
 	};
 
@@ -373,6 +413,7 @@ export function createXmlParser(handlers, options = {}) {
 		write(chunk) {
 			for (let i = 0; i < chunk.length; i++) {
 				processChar(chunk[i]);
+				pos++;
 			}
 		},
 
@@ -461,7 +502,7 @@ export function parseXmlToTree(xml, options = {}) {
 		onCData(text) {
 			stack[stack.length - 1].children.push({ type: CDATA, content: text });
 		},
-	}, { decodeEntities: options.decodeEntities });
+	}, options);
 
 	parser.write(xml);
 	parser.end();
