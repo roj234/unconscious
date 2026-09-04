@@ -4,7 +4,7 @@
  * @param {string[]} a
  * @param {string[]} b
  * @param {boolean} stripCommon
- * @returns {{ type: 'same' | 'add' | 'del', oldIndex: number | null, newIndex: number | null, text: string }[]}
+ * @returns {DiffOp[]}
  */
 export function textDiff(a, b, stripCommon) {
 	const m = a.length, n = b.length;

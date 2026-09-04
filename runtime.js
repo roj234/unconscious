@@ -559,6 +559,7 @@ export function $stampLock(state, value) {
 		},
 		get(target, prop, receiver) {
 			if (prop === "value") return target;
+			if (prop === $LISTENERS) return true;
 
 			let fn = target[prop];
 			if (typeof fn === "function") {

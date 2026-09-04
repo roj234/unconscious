@@ -23,13 +23,13 @@ const parseStat = text => {
 				stats.mode = val;
 				break;
 			case 'mtime':
-				stats.mtimeMs = new Date(val).getTime();
+				stats.mtimeMs = (stats.mtime = new Date(val)).getTime();
 				break;
 			case 'atime':
-				stats.atimeMs = new Date(val).getTime();
+				stats.atimeMs = (stats.atime = new Date(val)).getTime();
 				break;
 			case 'ctime':
-				stats.ctimeMs = new Date(val).getTime();
+				stats.ctimeMs = (stats.ctime = new Date(val)).getTime();
 				break;
 			case 'nlink':
 				stats.nlink = parseInt(val, 10) || 0;

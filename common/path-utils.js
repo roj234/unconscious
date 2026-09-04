@@ -9,12 +9,13 @@ const SANITIZER = /[\u2000-\u200f\u2028-\u202f\u205f-\u206f\ufeff]/g;
 /**
  * Path normalization function that handles untrusted user input.
  * Normalizes the path by resolving "." and "..", and unifying separators.
- * @param {string} path
+ * @param {string | string[]} path
  * @returns {string[]}
  */
 export function normalizePath(path) {
-	// Reject characters with code < 32
+	if (Array.isArray(path)) return path;
 	if (typeof path !== 'string') throw new Error("Path must be string");
+	// Reject characters with code < 32
 	if (/[\x00-\x1F\x7F]/.test(path)) throw new Error("Illegal character in path");
 	const paths = path.replaceAll('\\', '/').replaceAll(/\/\/+/g, '/').split('/');
 

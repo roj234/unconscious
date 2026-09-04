@@ -23,6 +23,7 @@ const _removeAllListeners = ev => {
 const _env = Object.create(null);
 _env.NODE_ENV = "production";
 _env.BROWSER = "true";
+_env.HOME = "~";
 
 // --- The polyfill ---
 

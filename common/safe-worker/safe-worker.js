@@ -651,7 +651,7 @@ function bundleModule(path, code, prettifyCode = true) {
 			metaUsed = 'const __meta = {url:"file:///"+__moduleId};\n';
 		},
 		runtimeImportFunc(output, tokens) {
-			output.push('_imp', '(', '__moduleId', ',', ...tokens.slice(1));
+			output.push('(', '_imp', '(', '__moduleId', ',', ...tokens.slice(1), ')');
 		},
 		nextTmp() {
 			return "__tmp_"+temp++;

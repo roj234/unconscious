@@ -1,6 +1,6 @@
-const AS_IS = () => {};
+import {AS_IS} from "../shared.js";
 
-const WHITESPACE = 1, NUMBER_START = 2, NUMBER_START_JSON5 = 4, NUMBER_END = 8;
+const WHITESPACE = 1, NUMBER_START = 2, NUMBER_START_JSON5 = 4, NUMBER_END = 8, BARE_KEY_ILLEGAL = 16;
 
 const CHAR_TRAITS = new Uint8Array(128);
 const fill = (chars, flag) => {
@@ -14,7 +14,8 @@ fill("0123456789+-.", NUMBER_START);
 fill("IN", NUMBER_START_JSON5);
 // 用 [0-9eE+-.] 做白名单也行
 // oct+bin+hex+dec+float 的完整状态机有两百多行，已经和这个JsonParser在同一量级了，不值，更不用说JS本身就不适合计算密集型这个问题
-fill(" \t\r\n+]},/\0", NUMBER_END);
+fill(" \t\r\n+]},/\0", NUMBER_END|BARE_KEY_ILLEGAL);
+fill("{|~#%&()*,:<=>?@[^`", BARE_KEY_ILLEGAL);
 
 /**
  * 流式增量 JSON 'push' 模式解析器。
@@ -232,10 +233,10 @@ export function createJsonParser(onValue, {emitDelta, json5, jsonl} = {}) {
 						if (!buf) FAIL("KEY", ':');
 
 						let j = 0;
-						while (j < buf.length && !(CHAR_TRAITS[buf.charCodeAt(j)] & WHITESPACE)) j++;
+						while (j < buf.length && !(CHAR_TRAITS[buf.charCodeAt(j)] & (WHITESPACE|BARE_KEY_ILLEGAL))) j++;
 						for (; j < buf.length; j++) {
 							if (!(CHAR_TRAITS[buf.charCodeAt(j)] & WHITESPACE)) {
-								FAIL('":"', buf[j]);
+								FAIL(j ? '":"' : "KEY", buf[j]);
 							}
 						}
 
@@ -307,6 +308,7 @@ export function createJsonParser(onValue, {emitDelta, json5, jsonl} = {}) {
 						break;
 						case '"':
 						case '\'':
+						case '`':
 							enterStringMode(ch);
 						break;
 						case '}':
@@ -438,6 +440,11 @@ export function createJsonParser(onValue, {emitDelta, json5, jsonl} = {}) {
 							} else if (buf.length <= 9 && buf.endsWith("Infinity")) {
 								num = neg ? -Infinity : Infinity;
 								if (buf[neg ? 1 : 0] === 'I') break isOk;
+							} else if (buf.endsWith("n")) {
+								try {
+									num = BigInt(buf.slice(0, -1));
+									break isOk;
+								} catch {}
 							}
 						}
 

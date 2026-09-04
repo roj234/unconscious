@@ -340,7 +340,7 @@ export function validateAndShowError(o, schema) {
  * @param {string} [path]
  */
 export function validate(o, schema, issues, path = "$") {
-	const error = err => issues[path] = err;
+	const error = err => issues[path] = issues[path] ? issues[path]+" AND "+err : err;
 
 	const candidates = schema.const ? [schema.const] : schema.enum;
 	found:
@@ -399,6 +399,7 @@ export function validate(o, schema, issues, path = "$") {
 				if (!required.length) break;
 				properties = {};
 			}
+			const additional = !additionalProperties && [];
 			const requiredSet = new Set(required === true ? Object.keys(properties) : required);
 			for (const key of Object.keys(o)) {
 				requiredSet.delete(key);
@@ -406,7 +407,8 @@ export function validate(o, schema, issues, path = "$") {
 				let property = properties[key];
 				if (!property) {
 					if (!additionalProperties) {
-						error("additional property "+JSON.stringify(key));
+						additional.push(key);
+						continue;
 					}
 					if (typeof additionalProperties !== "object") {
 						// default (omit)
@@ -421,6 +423,9 @@ export function validate(o, schema, issues, path = "$") {
 
 				o[key] = validate(o[key], property, issues, path+"."+key);
 			}
+
+			if (additional.length)
+				error("additional properties: "+JSON.stringify(additional));
 
 			for (const key of requiredSet) {
 				let {default: def, type} = properties[key];
@@ -507,11 +512,14 @@ export function validate(o, schema, issues, path = "$") {
 	}
 
 	if ((subSchemas = schema.oneOf)) {
-		let lastIssue, lastSuccess, lastSuccessIdx;
+		let sumIssue = {}, lastIssue, lastSuccess, lastSuccessIdx;
 		for (let i = 0; i < subSchemas.length; i++) {
 			lastIssue = {};
 			let result = validate(o, subSchemas[i], lastIssue, path+"[oneOf:"+i+"]");
-			if (!isEmptyObject(lastIssue)) continue;
+			if (!isEmptyObject(lastIssue)) {
+				Object.assign(sumIssue, lastIssue);
+				continue;
+			}
 
 			if (lastSuccess !== undefined) error("many("+lastSuccessIdx+","+i+") oneOf matches");
 			lastSuccess = result;
@@ -519,7 +527,7 @@ export function validate(o, schema, issues, path = "$") {
 		}
 		if (lastSuccess !== undefined) return lastSuccess;
 		error("no oneOf matches");
-		Object.assign(issues, lastIssue);
+		Object.assign(issues, sumIssue);
 	}
 
 	return o;
