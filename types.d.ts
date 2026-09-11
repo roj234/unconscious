@@ -81,7 +81,8 @@ export function $unwatch(object: Reactive<any>, listener: Function): void;
 
 export function $computed<T>(
     callback: (oldValue?: T) => T | undefined,
-    dependencies?: Reactive<any>[]
+    dependencies?: Reactive<any>[],
+    passthrough?: boolean
 ): Readonly<Reactive<T>>;
 
 export function $update(objects: Reactive<any> | Reactive<any>[]): void;

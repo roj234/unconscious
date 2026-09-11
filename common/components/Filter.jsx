@@ -238,6 +238,8 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 						if (doSubmit) {
 							input.value = load(state[id]);
 							invalid = false;
+						} else {
+							emit(id, value);
 						}
 					} else if (e.type) {
 						invalid = emit(id, value);

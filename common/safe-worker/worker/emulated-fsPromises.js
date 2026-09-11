@@ -240,6 +240,17 @@ class RAF {
 	async datasync() {return this.#flush();}
 }
 
+const mapToDirent = ([name, type]) => ({
+	name,
+	isFile: () => type === 'file',
+	isDirectory: () => type === 'dir',
+	isBlockDevice: () => false,
+	isCharacterDevice: () => false,
+	isSymbolicLink: () => false,
+	isFIFO: () => false,
+	isSocket: () => false,
+});
+
 export const emulateFsPromises = (RPC) => {
 	const fsPromises = {
 		async open(path, mode, options) {
@@ -323,7 +334,7 @@ export const emulateFsPromises = (RPC) => {
 		 * @param {{recursive?: boolean}} [options]
 		 * @returns {Promise<void>}
 		 */
-		rmdir(path, options) {return this.rm(path);},
+		rmdir(path, options) {return this.rm(path, options);},
 
 		/**
 		 * Read the contents of a directory.
@@ -332,23 +343,10 @@ export const emulateFsPromises = (RPC) => {
 		 * @returns {Promise<string[]|Dirent[]>}
 		 */
 		async readdir(path, options) {
-			const withFileTypes = options?.withFileTypes || false;
-			const files = await RPC('list', [path, true, null]);
-			if (!Array.isArray(files)) return [];
-
-			if (withFileTypes) {
-				return files.map(([name, type]) => ({
-					name,
-					isFile: () => type === 'file',
-					isDirectory: () => type === 'dir',
-					isBlockDevice: () => false,
-					isCharacterDevice: () => false,
-					isSymbolicLink: () => false,
-					isFIFO: () => false,
-					isSocket: () => false,
-				}));
-			}
-			return files.map(f => f[0]);
+			const withFileTypes = options?.withFileTypes;
+			const recursive = options?.recursive;
+			const files = await RPC('list', [path, true, recursive ? "**" : null]);
+			return files.map(withFileTypes ? mapToDirent : f => f[0]);
 		},
 
 		/**
@@ -417,30 +415,18 @@ export const emulateFsPromises = (RPC) => {
 		 */
 		async opendir(path, options) {
 			const files = await RPC('list', [path, true, null]);
-			if (!Array.isArray(files)) return [];
-
 			let idx = 0;
-			const entries = files.map(([name, type]) => ({
-				name,
-				isFile: () => type === 'file',
-				isDirectory: () => type === 'dir',
-				isBlockDevice: () => false,
-				isCharacterDevice: () => false,
-				isSymbolicLink: () => false,
-				isFIFO: () => false,
-				isSocket: () => false,
-			}));
 
 			return {
 				[Symbol.asyncIterator]() {
 					return {
 						async next() {
-							if (idx >= entries.length) return {done: true};
-							return {done: false, value: entries[idx++]};
+							if (idx >= files.length) return {done: true};
+							return {done: false, value: mapToDirent(files[idx++])};
 						}
 					};
 				},
-				async close() { idx = entries.length; },
+				async close() { idx = files.length; },
 			};
 		},
 
@@ -451,23 +437,27 @@ export const emulateFsPromises = (RPC) => {
 		 * @returns {Promise<string[]>}
 		 */
 		async glob(pattern, options) {
-			const cwd = (options && typeof options === 'object' ? options.cwd : null) || '.';
-			const patterns = Array.isArray(pattern) ? pattern : [pattern];
-			const allResults = [];
+			const withFileTypes = options?.withFileTypes;
+			const cwd = options?.cwd || '.';
+			const exclude = options?.exclude;
+			if (exclude) throw new Error("Exclude is not supported by this implementation yet");
 
-			for (const pat of patterns) {
-				const result = await RPC('list', [cwd, true, pat]);
-				if (Array.isArray(result)) {
-					for (const [name, type] of result) {
-						allResults.push(name);
+			if (Array.isArray(pattern)) {
+				const files = await RPC('list', [cwd, true, pattern]);
+				return files.filter(f => f[1] === 'file').map(withFileTypes ? mapToDirent : f => f[0]);
+			} else {
+				const all = new Set;
+				for (const pat of pattern) {
+					const result = await RPC('list', [cwd, true, pat]);
+					if (Array.isArray(result)) {
+						for (const arr of result) {
+							if (arr[1] === 'file')
+								all.add(arr);
+						}
 					}
 				}
+				return [...all].map(withFileTypes ? mapToDirent : f => f[0]);
 			}
-
-			if (options?.nodir) {
-				// We'd need to filter dirs, but list only returns files when pattern is specified
-			}
-			return allResults;
 		},
 	};
 

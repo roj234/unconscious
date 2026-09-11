@@ -155,6 +155,10 @@ export const appendChildren = (parent, children) => {
 						}
 
 						$cleanup(newChild, listenerKey);
+
+						if (childNode instanceof AppendObserver) {
+							Object.defineProperty(childNode, "parentElement", { value: parent, configurable: true });
+						}
 						childNode = newChild;
 					}
 				};
@@ -183,6 +187,9 @@ export const appendChildren = (parent, children) => {
 					}
 
 					childNode = newChild;
+					if (childNode instanceof AppendObserver) {
+						Object.defineProperty(childNode, "parentElement", { value: parent, configurable: true });
+					}
 				};
 			}
 			const listenerKey = [child, callback];
@@ -653,6 +660,7 @@ const DevComputeProxy = {
  * @template T
  * @param {(oldValue: T|undefined) => T|undefined} callback - 计算函数（接收旧值作为参数，初始调用时为undefined）
  * @param {Array<Reactive<any>>|undefined} [dependencies=undefined] - 如果你的处理函数很复杂, 第一次调用不会访问所有的依赖, 那么可从这个数组指定
+ * @param {boolean} [passthrough] - 返回值未改变时也触发更新
  * @returns {Readonly<Reactive<T>>} 只读的响应式计算属性
  *
  * @note 实现细节：
@@ -664,7 +672,7 @@ const DevComputeProxy = {
  *   - 生产环境返回的计算属性无写保护
  * - 我只能期待你在开发环境把各种分支都测试到了（
  */
-export const $computed = (callback, dependencies) => {
+export const $computed = (callback, dependencies, passthrough) => {
 	const prevCapture = dependCapture;
 	if (!dependencies) dependCapture = new Set();
 
@@ -684,7 +692,7 @@ export const $computed = (callback, dependencies) => {
 	const updateValue = () => {
 		const oldValue = holder.value;
 		const newValue = callback(oldValue);
-		if (oldValue === newValue) return;
+		if (!passthrough && oldValue === newValue) return;
 		holder.value = newValue;
 
 		$unwatch(oldValue, doUpdate);

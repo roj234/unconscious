@@ -268,52 +268,49 @@ class Buffer extends Uint8Array {
 
 	// ── Read methods ─────────────────────────────────────────────────
 
-	#dv()   { return this.#dataView || (this.#dataView = new DataView(this.buffer, this.byteOffset, this.byteLength)); }
+	_v()   { return this.#dataView || (this.#dataView = new DataView(this.buffer, this.byteOffset, this.byteLength)); }
 	#chk(off, sz) { if (off < 0 || off + sz > this.length) throw new RangeError(`Offset ${off} + size ${sz} exceeds length ${this.length}`); }
-
 	readUInt8(o, n)       { !n&&this.#chk(o, 1); return this[o]; }
-	readUInt16LE(o, n)    { !n&&this.#chk(o, 2); return this.#dv().getUint16(o, true); }
-	readUInt16BE(o, n)    { !n&&this.#chk(o, 2); return this.#dv().getUint16(o); }
-	readUInt32LE(o, n)    { !n&&this.#chk(o, 4); return this.#dv().getUint32(o, true); }
-	readUInt32BE(o, n)    { !n&&this.#chk(o, 4); return this.#dv().getUint32(o); }
-	readInt8(o, n)        { !n&&this.#chk(o, 1); return this.#dv().getInt8(o); }
-	readInt16LE(o, n)     { !n&&this.#chk(o, 2); return this.#dv().getInt16(o, true); }
-	readInt16BE(o, n)     { !n&&this.#chk(o, 2); return this.#dv().getInt16(o); }
-	readInt32LE(o, n)     { !n&&this.#chk(o, 4); return this.#dv().getInt32(o, true); }
-	readInt32BE(o, n)     { !n&&this.#chk(o, 4); return this.#dv().getInt32(o); }
-	readFloatLE(o, n)     { !n&&this.#chk(o, 4); return this.#dv().getFloat32(o, true); }
-	readFloatBE(o, n)     { !n&&this.#chk(o, 4); return this.#dv().getFloat32(o); }
-	readDoubleLE(o, n)    { !n&&this.#chk(o, 8); return this.#dv().getFloat64(o, true); }
-	readDoubleBE(o, n)    { !n&&this.#chk(o, 8); return this.#dv().getFloat64(o); }
-	readBigUInt64LE(o, n) { !n&&this.#chk(o, 8); return this.#dv().getBigUint64(o, true); }
-	readBigUInt64BE(o, n) { !n&&this.#chk(o, 8); return this.#dv().getBigUint64(o); }
-	readBigInt64LE(o, n)  { !n&&this.#chk(o, 8); return this.#dv().getBigInt64(o, true); }
-	readBigInt64BE(o, n)  { !n&&this.#chk(o, 8); return this.#dv().getBigInt64(o); }
-
-	// ── Write methods ────────────────────────────────────────────────
-
 	writeUInt8(v, o, n)         { !n&&this.#chk(o, 1); this[o] = v & 0xff; return o + 1; }
-	writeUInt16LE(v, o, n)      { !n&&this.#chk(o, 2); this.#dv().setUint16(o, v, true); return o + 2; }
-	writeUInt16BE(v, o, n)      { !n&&this.#chk(o, 2); this.#dv().setUint16(o, v, false); return o + 2; }
-	writeUInt32LE(v, o, n)      { !n&&this.#chk(o, 4); this.#dv().setUint32(o, v, true); return o + 4; }
-	writeUInt32BE(v, o, n)      { !n&&this.#chk(o, 4); this.#dv().setUint32(o, v, false); return o + 4; }
-	writeInt8(v, o, n)          { !n&&this.#chk(o, 1); this.#dv().setInt8(o, v); return o + 1; }
-	writeInt16LE(v, o, n)       { !n&&this.#chk(o, 2); this.#dv().setInt16(o, v, true); return o + 2; }
-	writeInt16BE(v, o, n)       { !n&&this.#chk(o, 2); this.#dv().setInt16(o, v, false); return o + 2; }
-	writeInt32LE(v, o, n)       { !n&&this.#chk(o, 4); this.#dv().setInt32(o, v, true); return o + 4; }
-	writeInt32BE(v, o, n)       { !n&&this.#chk(o, 4); this.#dv().setInt32(o, v, false); return o + 4; }
-	writeFloatLE(v, o, n)       { !n&&this.#chk(o, 4); this.#dv().setFloat32(o, v, true); return o + 4; }
-	writeFloatBE(v, o, n)       { !n&&this.#chk(o, 4); this.#dv().setFloat32(o, v, false); return o + 4; }
-	writeDoubleLE(v, o, n)      { !n&&this.#chk(o, 8); this.#dv().setFloat64(o, v, true); return o + 8; }
-	writeDoubleBE(v, o, n)      { !n&&this.#chk(o, 8); this.#dv().setFloat64(o, v, false); return o + 8; }
-	writeBigUInt64LE(v, o, n)   { !n&&this.#chk(o, 8); this.#dv().setBigUint64(o, v, true); return o + 8; }
-	writeBigUInt64BE(v, o, n)   { !n&&this.#chk(o, 8); this.#dv().setBigUint64(o, v, false); return o + 8; }
-	writeBigInt64LE(v, o, n)    { !n&&this.#chk(o, 8); this.#dv().setBigInt64(o, v, true); return o + 8; }
-	writeBigInt64BE(v, o, n)    { !n&&this.#chk(o, 8); this.#dv().setBigInt64(o, v, false); return o + 8; }
 }
 
+{
+	const makeWriter = (fn, sz, be) => Function('v', 'o', `try{this._v().set${fn}(o,v,${be})}catch(e){throw new RangeError("Offset "+o+" + size ${sz} exceeds length "+this.length);return o+${sz};}`);
+	const makeReader = (fn, sz, be) => Function('o', `try{return this._v().get${fn}(o,${be})}catch(e){throw new RangeError("Offset "+o+" + size ${sz} exceeds length "+this.length)}`);
+
+	const functions = [
+		[ "Int8", "Int8", 1 ],
+		[ "UInt16", "Uint16", 2 ],
+		[ "UInt32", "Uint32", 4 ],
+		[ "Int16", "Int16", 2 ],
+		[ "Int32", "Int32", 4 ],
+		[ "Float", "Float32", 4 ],
+		[ "Double", "Float64", 8 ],
+		[ "BigUInt64", "BigUint64", 8 ],
+		[ "BigInt64", "BigInt64", 8 ],
+	];
+
+	const properties = {
+		[Symbol.toStringTag]: { value: 'Buffer', configurable: true }
+	};
+
+	for (const [k, v, sz] of functions) {
+		properties["write"+k+"BE"] = makeWriter(v, sz, true);
+		properties["write"+k+"LE"] = makeWriter(v, sz, false);
+		properties["read"+k+"BE"] = makeReader(v, sz, true);
+		properties["read"+k+"LE"] = makeReader(v, sz, false);
+	}
+
+	for (const key in properties) {
+		properties[key] = {
+			value: properties[key],
+			configurable: true
+		}
+	}
+
+	Object.defineProperties(Buffer.prototype, properties);
+}
 Object.defineProperty(Buffer, Symbol.species, { value: Buffer, configurable: true });
-Object.defineProperty(Buffer.prototype, Symbol.toStringTag, { value: 'Buffer', configurable: true });
 
 // Node.js compat
 Buffer.Buffer = Buffer;

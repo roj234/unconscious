@@ -1,71 +1,14 @@
+import {inspect} from "../../inspect.js";
 
 const counters = new Map();
 const timers = new Map();
 let groupIndent = 0;
 
 const perf = performance;
-const toString = Object.prototype.toString;
-const isPureObject = object => toString.call(object) === "[object Object]";
 const formatArgs = args => args.map(stringify).join(' ');
 const indent = () => '  '.repeat(groupIndent);
 
-const stringify = arg => {
-	const type = typeof arg;
-
-	if (type === 'symbol') {
-		return arg.toString();
-	}
-	if (type === 'object') {
-		if (arg instanceof Error) {
-			return arg.stack || (arg.name + ': ' + arg.message);
-		}
-		if (isPureObject(arg)) {
-			return JSON.stringify(arg);
-		}
-
-		if (arg && typeof arg.length === 'number' && arg.buffer instanceof ArrayBuffer) {
-			return inspectTypedArray(arg);
-		}
-	} else {
-		if (type === 'bigint') return arg.toString() + 'n';
-		if (type === 'function') return '[Function: ' + (arg.name || 'anonymous') + ']';
-	}
-
-	try {
-		return String(arg);
-	} catch {
-		return toString.call(arg);
-	}
-};
-
-/**
- * 将 TypedArray 格式化为类似 Buffer 的短字符串
- * @param {ArrayBufferView} typedArray - 任意 TypedArray 实例
- * @param {number} [max=50] - 前后最多展示的字节数（默认50）
- * @returns {string} 格式如 "<Uint8Array 01 02 03 ... 10 more bytes ... fe ff>"
- */
-function inspectTypedArray(typedArray, max = 50) {
-	// 取得底层字节数组
-	const bytes = new Uint8Array(
-		typedArray.buffer,
-		typedArray.byteOffset,
-		typedArray.byteLength
-	);
-	const typeName = typedArray.constructor.name;
-	const length = bytes.length;
-	// 辅助：将字节数组转为空格分隔的十六进制字符串
-	const toHex = (arr) =>
-		Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join(' ');
-	if (length <= max * 2) {
-		// 小于阈值，显示全部字节
-		return `<${typeName} ${toHex(bytes)}>`;
-	}
-	// 超过阈值，只显示首尾 max 个字节
-	const front = toHex(bytes.slice(0, max));
-	const back = toHex(bytes.slice(-max));
-	const more = length - max * 2;
-	return `<${typeName} ${front} ... ${more} more bytes ... ${back}>`;
-}
+const stringify = arg => typeof arg !== 'string' || arg.includes("\n") ? inspect(arg) : arg;
 
 export const emulateConsole = (postMessage) => {
 	const writePrefix = (prefix) => (...args) => postMessage({log: indent() + prefix + formatArgs(args)});

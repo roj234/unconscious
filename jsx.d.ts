@@ -77,7 +77,7 @@ interface EventHandlers<T> {
     onAuxClick?: MouseEventHandler<T>;
     onClick?: MouseEventHandler<T>;
     onContextMenu?: MouseEventHandler<T>;
-    onDoubleClick?: MouseEventHandler<T>;
+    onDblClick?: MouseEventHandler<T>;
     onDrag?: DragEventHandler<T>;
     onDragEnd?: DragEventHandler<T>;
     onDragEnter?: DragEventHandler<T>;

@@ -131,7 +131,7 @@ export const kloneNode = str => {
 		if (!cached) {
 			const frag = document.createElement("template");
 			frag.innerHTML = str;
-			cached = frag.content.firstElementChild;
+			cached = frag.content.firstChild;
 			str = null;
 		}
 
