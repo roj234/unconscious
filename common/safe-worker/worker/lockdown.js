@@ -1,7 +1,6 @@
 
 const SAFE_SET = new Set((
 	`Object
-Array
 Number
 BigInt
 parseFloat
@@ -17,17 +16,6 @@ Symbol
 globalThis
 ` + // Binary
 `ArrayBuffer
-Uint8Array
-Int8Array
-Uint16Array
-Int16Array
-Uint32Array
-Int32Array
-Float32Array
-Float64Array
-Uint8ClampedArray
-BigUint64Array
-BigInt64Array
 DataView
 ` + // Advanced APIs
 `name
@@ -123,17 +111,19 @@ export const lockdown = (globals) => {
 		object.defineProperty(win, key, { value: overrides[key] });
 	}
 
-	const killConstructor = (fn) => Object.defineProperty(fn.constructor.prototype, 'constructor', { value: hookFunction });
+	const killConstructor = (fn) => Object.defineProperty(fn.constructor.prototype, 'constructor', { value: overrides.Function });
 	killConstructor(Function);
 	killConstructor((async () => {}));
 	killConstructor((function*(){}));
 	killConstructor((async function*(){}));
 
+	const my_silly_safe_regex = new RegExp("^(?:Image|Text)|(?:Error|Exception|Array)$");
+
 	const stopAt = EventTarget.prototype;
 	const toFreeze = [];
 	while (win !== stopAt) {
 		for (const [name, {value, configurable}] of object.entries(object.getOwnPropertyDescriptors(win))) {
-			if (!SAFE_SET.has(name) && configurable && !name.endsWith("Error")) {
+			if (!SAFE_SET.has(name) && configurable && !my_silly_safe_regex.test(name)) {
 				object.defineProperty(win, name, FORBIDDEN);
 			} else if (value) {
 				object.freeze(value);

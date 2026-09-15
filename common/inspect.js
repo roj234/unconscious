@@ -92,10 +92,6 @@ function serialize(value, depth, space, seen, replacer) {
 				return value.stack || (value.name + ': ' + value.message);
 			}
 
-			if (value.buffer instanceof ArrayBuffer && typeof value.length === 'number') {
-				return inspectTypedArray(value.buffer);
-			}
-
 			if (Array.isArray(value)) {
 				return serializeArray(value, depth, space, seen, replacer);
 			}
@@ -111,8 +107,20 @@ function serialize(value, depth, space, seen, replacer) {
 				}
 			}
 
-			if (typeName && typeName !== 'Object')
+			if (typeName && typeName !== 'Object') {
+				if (typeName === 'RegExp') return String(value);
+				if (value.buffer instanceof ArrayBuffer && typeof value.length === 'number') {
+					return inspectTypedArray(value);
+				}
+				if (value instanceof ArrayBuffer) {
+					value = {
+						'[Uint8Contents]': inspectTypedArray({ buffer: value }),
+						'[ByteLength]': value.byteLength
+					}
+				}
+
 				return typeName+" "+serializeObject(value, depth, space, seen, replacer);
+			}
 
 			return serializeObject(value, depth, space, seen, replacer);
 		case "function":return '[Function: '+(value.name || 'anonymous')+']';
@@ -187,29 +195,29 @@ function serializeObject(obj, depth, space, seen, replacer) {
 
 /**
  * 将 TypedArray 格式化为类似 Buffer 的短字符串
- * @param {ArrayBufferView} typedArray - 任意 TypedArray 实例
+ * @param {ArrayBufferView} bytes - 任意 TypedArray 实例
  * @param {number} [max=50] - 前后最多展示的字节数（默认50）
  * @returns {string} 格式如 "<Uint8Array 01 02 03 ... 10 more bytes ... fe ff>"
  */
-export function inspectTypedArray(typedArray, max = 50) {
-	// 取得底层字节数组
-	const bytes = new Uint8Array(
-		typedArray.buffer,
-		typedArray.byteOffset,
-		typedArray.byteLength
-	);
-	const typeName = typedArray.constructor.name;
+export function inspectTypedArray(bytes, max = 50) {
+	const typeName = bytes.constructor.name;
 	const length = bytes.length;
-	// 辅助：将字节数组转为空格分隔的十六进制字符串
-	const toHex = (arr) =>
-		Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join(' ');
-	if (length <= max * 2) {
-		// 小于阈值，显示全部字节
-		return `<${typeName} ${toHex(bytes)}>`;
+
+	if (typeName === "Buffer") {
+		const toHex = (arr) => Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join(' ');
+		if (length <= max * 2) return `<${typeName} ${toHex(bytes)}>`;
+
+		const front = toHex(bytes.subarray(0, max));
+		const back = toHex(bytes.subarray(-max));
+		const more = length - max * 2;
+		return `<${typeName} ${front} ... ${more} more bytes ... ${back}>`;
+	} else {
+		const toStr = arr => arr.join(", ");
+		if (length <= max) return `${typeName}(${length}) [ ${toStr(bytes)} ]`;
+
+		const front = toStr(bytes.subarray(0, max));
+		const more = length - max;
+		return `${typeName} [ ${front}, ... ${more} more items ]`;
 	}
-	// 超过阈值，只显示首尾 max 个字节
-	const front = toHex(bytes.slice(0, max));
-	const back = toHex(bytes.slice(-max));
-	const more = length - max * 2;
-	return `<${typeName} ${front} ... ${more} more bytes ... ${back}>`;
+
 }

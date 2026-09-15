@@ -111,6 +111,11 @@ export interface SandboxOptions {
     name?: string;
 }
 
+export type Secrets = Record<string, {
+  value: string,
+  domain: string
+}>;
+
 /**
  * A handle to a running sandbox.
  *
@@ -124,7 +129,7 @@ export interface Sandbox {
      * Until `initialize()` completes, the lockdown is NOT active
      * and the worker's global scope is not restricted.
      */
-    initialize(forceResetModuleCache?: boolean): Promise<void>;
+    initialize(forceResetModuleCache?: boolean, newSecrets?: Secrets): Promise<void>;
 
     /**
      * Pre-load a module into the sandbox's module cache and return a proxy

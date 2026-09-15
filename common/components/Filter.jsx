@@ -416,7 +416,20 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 		</div>);
 	};
 
-	const div = <div className="filter">{config.map(itemRenderer)}</div>;
+	const div = <div className="filter" />;
+	config.forEach((item, i) => {
+		const el = itemRenderer(item);
+		if (item.inline) {
+			let last = div.lastElementChild;
+			if (last.className !== "filter-inline") {
+				div.append(last = <div className="filter-inline">{last}</div>);
+			}
+			last.append(el);
+		} else {
+			div.append(el);
+		}
+	})
+
 	div.sync = sync;
 	div.hasError = () => div.querySelector(".input-warning")
 	return div;

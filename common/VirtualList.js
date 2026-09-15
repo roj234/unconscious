@@ -106,9 +106,11 @@ export class VirtualList {
 			const targetRect = borderBoxSize ? borderBoxSize[0].blockSize : target.getBoundingClientRect().height;
 			const gap = this.gap;
 			const measuredHeight = targetRect + (typeof gap === "function" ? gap.call(this, target) : gap);
+			if (!measuredHeight) continue;
+
 			let expectedHeight = item[ITEM_HEIGHT] ?? this.itemHeight;
 			if (null == expectedHeight) {
-				if (measuredHeight) this.itemHeight = measuredHeight;
+				this.itemHeight = measuredHeight;
 				requestAnimationFrame(() => {
 					this._start = this._offset = this._height = 0;
 					this.render();
@@ -168,7 +170,7 @@ export class VirtualList {
 		this.gap = config.gap || 0;
 		this.keyFunc = config.keyFunc || (item => item[ITEM_KEY] ?? item);
 		this.isSameKey = config.isSameKey || ((a, b) => a[ITEM_KEY] === b);
-		this.overscan = config.overscan || 0;
+		this.overscan = config.overscan || 100;
 
 		this._dirty = !!(this.items = config.data);
 
@@ -197,14 +199,14 @@ export class VirtualList {
 	}
 
 	resize() {
-		const style = this._wrapper?.firstElementChild.style;
-		if (style) style.height = `1e6px`;
+		//const style = this._wrapper?.firstElementChild.style;
+		//if (style) style.height = `1e6px`;
 		this.render();
-		if (style) style.height = '';
+		//if (style) style.height = '';
 	}
 
 	scrollToBottom() {
-		const {items, _h: getItemHeight, dom, _wrapper: wrapper} = this;
+		const {items, _h: getItemHeight, dom} = this;
 		const last = items.length - 1;
 		if (last < 0) { this.render(); return; }
 
@@ -218,12 +220,10 @@ export class VirtualList {
 		this._end = last + 1;
 		this._offset = startHeight;
 		this._height = totalHeight;
-		this._dirty = false;
+		this._dirty = 0;
 
-		dom.style = `padding-top:${startHeight}px;padding-bottom:0px`;
-		this._updateDOM(dom, last, last + 1, items);
-
-		wrapper.scrollTop = wrapper.scrollHeight;
+		dom.style = `padding-top:${startHeight}px;padding-bottom:0`;
+		this.render();
 	}
 
 	scrollTo(offset) {
@@ -280,9 +280,13 @@ export class VirtualList {
 	findIndex(item) {
 		if (!this._visible && this._dirty) return -1;
 
-		for (let i = this._start; i < this._end; i++) {
-			if (this.items[i] === item) {
-				return i;
+		if (typeof item === "function") {
+			for (let i = this._start; i < this._end; i++) {
+				if (item(this.items[i])) return i;
+			}
+		} else {
+			for (let i = this._start; i < this._end; i++) {
+				if (this.items[i] === item) return i;
 			}
 		}
 		return -1;
@@ -295,96 +299,102 @@ export class VirtualList {
 		this.#io.disconnect();
 		this.#mainRo.disconnect();
 		this._wrapper?.removeEventListener('scroll', this.render);
+		this._wrapper = null;
 	}
 
-	_h = (j) => this.items[j][ITEM_HEIGHT] ?? this.itemHeight;
+	_h = (j) => this.items[j][ITEM_HEIGHT] ?? (this.itemHeight || 1);
 
 	render = () => {
+		const scrolling = this._dirty === 0;
 		this._dirty = true;
 		let {
 			dom: container,
-			_h: getItemHeight,
 			_visible,
 		} = this;
 		if (!_visible || !container.isConnected) return;
 
-		let loop = 0;
-		for(;;) {
-			let {
-				items,
-				overscan,
-				itemHeight,
-				_start: i,
-				_offset: offset,
-				_height: totalHeight,
-				_wrapper: {
-					scrollTop: viewStart,
-					offsetHeight: viewHeight
-				}
-			} = this;
-
-			// 只处理两次滚动之间的差值 O(n) => O(residual) ≈ O(1)
-			if (offset < viewStart) {
-				// 往下滚动
-				while(i < items.length) {
-					const h = getItemHeight(i);
-					if ((offset + h) > viewStart) break;
-					i++;
-					offset += h;
-				}
-			} else if (offset !== viewStart) {
-				// 往上滚动
-				while (i > 0) {
-					if ((offset -= getItemHeight(--i)) <= viewStart) break;
-				}
+		let {
+			items,
+			overscan,
+			_h: getItemHeight,
+			_start: i,
+			_offset: offset,
+			_height: totalHeight,
+			_wrapper: {
+				scrollTop: viewStart,
+				offsetHeight: viewHeight
 			}
+		} = this;
 
-			if (offset < 0) {
-				i = 0;
-				offset = 0;
-			}
+		if (scrolling) {
+			viewStart = this._wrapper.scrollHeight - viewHeight;
+		}
 
-			// 在前部额外渲染
-			{
-				const targetBeginOffset = Math.max(0, viewStart - overscan);
-				while (offset > targetBeginOffset && i > 0) {
-					offset -= getItemHeight(--i);
-				}
-			}
-
-			const startIndex = this._start = i;
-			const startHeight = this._offset = offset;
-
-			//离开视口
-			const viewEnd = viewStart + viewHeight;
+		// 只处理两次滚动之间的差值 O(n) => O(residual) ≈ O(1)
+		if (offset < viewStart) {
+			// 往下滚动
 			while(i < items.length) {
-				if ((offset += getItemHeight(i++)) > viewEnd) break;
+				const h = getItemHeight(i);
+				if ((offset + h) > viewStart) break;
+				i++;
+				offset += h;
 			}
-
-			//总高度
-			if (!totalHeight) {
-				totalHeight = offset;
-				let j = i;
-				while(j < items.length) totalHeight += getItemHeight(j++);
-				this._height = totalHeight;
+		} else if (offset !== viewStart) {
+			// 往上滚动
+			while (i > 0) {
+				if ((offset -= getItemHeight(--i)) <= viewStart) break;
 			}
+		}
 
-			// 在后部额外渲染
-			{
-				// 将 endExtra 的动态衰减转为对静态边界坐标 targetEndOffset 的检测
-				const targetEndOffset = viewEnd + overscan;
-				while (offset < targetEndOffset && i < items.length) {
-					offset += getItemHeight(i++);
-				}
+		if (offset < 0) {
+			i = 0;
+			offset = 0;
+		}
+
+		// 在前部额外渲染
+		{
+			const targetBeginOffset = Math.max(0, viewStart - overscan);
+			while (offset > targetBeginOffset && i > 0) {
+				offset -= getItemHeight(--i);
 			}
+		}
 
-			// 未渲染的元素的高度由padding-top和padding-bottom代替，保证滚动条位置正确
-			// 这里如果把设置padding的操作放在渲染元素之后，部分浏览器滚动到最后一个元素时会有问题
-			container.style = `padding-top:${startHeight}px;padding-bottom:${(totalHeight - offset)}px`;
+		const startIndex = this._start = i;
+		const startHeight = this._offset = offset;
 
-			// 在同一帧内尽可能多的更新元素高度以减小闪烁
-			if (!this._updateDOM(container, startIndex, i, items, viewStart) || loop++ * itemHeight > viewHeight)
-				break;
+		//离开视口
+		const viewEnd = viewStart + viewHeight;
+		while(i < items.length) {
+			if ((offset += getItemHeight(i++)) > viewEnd) break;
+		}
+
+		//总高度
+		if (!totalHeight) {
+			totalHeight = offset;
+			let j = i;
+			while(j < items.length) totalHeight += getItemHeight(j++);
+			this._height = totalHeight;
+		}
+
+		// 在后部额外渲染
+		{
+			// 将 endExtra 的动态衰减转为对静态边界坐标 targetEndOffset 的检测
+			const targetEndOffset = viewEnd + overscan;
+			while (offset < targetEndOffset && i < items.length) {
+				offset += getItemHeight(i++);
+			}
+		}
+
+		// 未渲染的元素的高度由padding-top和padding-bottom代替，保证滚动条位置正确
+		// 这里如果把设置padding的操作放在渲染元素之后，部分浏览器滚动到最后一个元素时会有问题
+		container.style = `padding-top:${startHeight}px;padding-bottom:${(totalHeight - offset)}px`;
+
+		this._updateDOM(container, startIndex, i, items, viewStart);
+
+		if (scrolling) {
+			viewStart = this._wrapper.scrollHeight - viewHeight;
+			if (viewStart === 0) requestAnimationFrame(() => this.render());
+			this._wrapper.scrollTop = viewStart;
 		}
 
 		this._dirty = false;

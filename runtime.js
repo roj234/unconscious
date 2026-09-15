@@ -1,5 +1,6 @@
 import {ID_CLASSLIST, ID_DANGEROUSLY_SET_INNERHTML, ID_EVENTHANDLER, ID_NAMESPACE, ID_STYLELIST} from "./constant.js";
 import {AS_IS, debugSymbol, isPureObject} from "./shared.js";
+import {VirtualList} from "./common/VirtualList.js";
 
 export * from './shared.js';
 
@@ -322,6 +323,9 @@ export const _stylesBehaviour = /* #__PURE__ */ createBehaviour((e, k, v) => e.s
  * @note 实际返回值为Map(监听器)|undefined
  */
 export const isReactive = object => !!object?.[$LISTENERS];
+
+export const hasListener = object => object[$LISTENERS]?.size > 0;
+
 /**
  * @template T
  * @param {T|Reactive<T>} object
@@ -366,8 +370,10 @@ export const $dispose = (element, keep) => {
 		}
 	};
 
+	const self = element[$DISPOSABLE];
+	if (self) clear(self);
+
 	if (element instanceof Text) {
-		clear(element[$DISPOSABLE] || []);
 		element.remove();
 	} else {
 		elementRemove.call(element);
@@ -636,6 +642,8 @@ export const $unwatch = (object, listener) => {
 		//console.log("删除不再有效的计算属性", object);
 		const [objects, listener] = object[$DISPOSABLE];
 		//delete object[$DISPOSABLE];
+
+		if (!Array.isArray(objects)) {objects();return;}
 
 		for (const obj of objects)
 			if (obj !== object) $unwatch(obj, listener);
@@ -933,6 +941,7 @@ if (import.meta.hot) {
 
 				for (const [moduleId, version] of self.using) {
 					const refCnt = this.modules.get(moduleId).refCnt;
+					if (!refCnt) break;
 
 					refCnt.set(version, refCnt.get(version)-1);
 				}
@@ -1327,6 +1336,42 @@ export const $forElseAsyncState = (state, renderItem, emptyElement, loadingEleme
 	});
 };
 //endregion
+
+class VirtualListElement extends HTMLElement {
+	/**
+	 * @param {VirtualList} list
+	 */
+	constructor(list) {
+		super();
+		this.classList.add("_vl");
+		this.list = list;
+	}
+	connectedCallback() {this.list.attach(this.parentElement);}
+	disconnectedCallback() {this.list.destroy();}
+}
+customElements.define('virtual-list', VirtualListElement);
+
+/**
+ * 创建按需更新的虚拟列表，复用现有DOM元素
+ * @template T item type
+ * @template {T|any} K key type
+ * @template {Renderable} E element type
+ * @param {Reactive<T[]>} list - 响应式列表
+ * @param {(item: T, index: number) => E} renderer - 生成列表项元素的函数
+ * @param {(item: T, index: number) => K} [keyFunc=item => item] - 生成唯一标识的函数
+ * @returns {HTMLElement} 包含动态列表的自定义元素
+ */
+export function $vforeach(list, renderer, keyFunc) {
+	const vl = new VirtualList({
+		renderer,
+		keyFunc,
+	});
+	$watch(list, (v, k) => {
+		vl.setItems(unconscious(list) ?? []);
+	});
+	return vl.dom = new VirtualListElement(vl);
+}
+
 //region 动画管理 $animate
 const $ANIM_CANCEL = debugSymbol("AnimationCancel");
 const $ANIM_TIMER = debugSymbol("AnimationTimer");
@@ -1524,6 +1569,7 @@ export function $store(key, initializer, options = {}) {
  * @template R
  * @param {(arg: T) => Promise<R>} fetcher - 异步数据获取函数，接收参数并返回 Promise
  * @param {T | Reactive<T>} [value] - 静态或响应式参数
+ * @param initialValue
  * @returns {ReactivePromise<R>} 响应式状态对象
  *
  * @example
@@ -1591,6 +1637,20 @@ export const $asyncState = (fetcher, value, initialValue) => {
 
 	return proxy;
 };
+
+/**
+ * 异步组件渲染
+ * @param {ReactivePromise<Renderable>} state - 组件加载函数
+ * @param {Renderable | function(): Renderable} [loading='加载中...'] - 加载时显示的组件
+ * @param {Renderable | function(error: Error): Renderable} [error=String(error)] - 出错时显示的组件
+ * @returns {Reactive<Renderable>}
+ */
+export const $asyncRenderer = (state, loading, error) => {
+	return $computed(() => {
+		return state.loading ? myApply(loading) ?? "加载中..." : state.error ? myApply(error, state.error) ?? state.error : unconscious(state);
+	});
+};
+
 //endregion
 //region 异步组件 $asyncComponent
 /**
@@ -1600,7 +1660,7 @@ export const $asyncState = (fetcher, value, initialValue) => {
  */
 
 /**
- * 异步组件
+ * 异步组件加载
  * @param {function(): Promise<ImportedComponent | Component>} loader - 组件加载函数
  * @param {Renderable | function(): Renderable} [loading='加载中...'] - 加载时显示的组件
  * @param {Renderable | function(error: Error): Renderable} [error=String(error)] - 出错时显示的组件
@@ -1614,14 +1674,13 @@ export const $asyncComponent = (loader, loading, error) => {
 		}
 	);
 
-	return function (props, children) {
-		function createInstance() {
+	return (props, children) => {
+		const createInstance = () => {
 			if (state.error) return myApply(error, state.error) ?? state.error;
 			return createComponent(state.value, props, ...children);
-		}
+		};
 		return state.loading ? $computed(() => {
-			if (state.loading) return myApply(loading) ?? "加载中...";
-			return createInstance();
+			return state.loading ? myApply(loading) ?? "加载中..." : createInstance();
 		}) : createInstance();
 	}
 };

@@ -16,7 +16,7 @@ export function normalizePath(path) {
 	if (Array.isArray(path)) return path;
 	if (typeof path !== 'string') throw new Error("Path must be string");
 	// Reject characters with code < 32
-	if (/[\x00-\x1F\x7F]/.test(path)) throw new Error("Illegal character in path");
+	if (/[\x00-\x1F\x7F|<>"*?]/.test(path)) throw new Error("Illegal character in path");
 	const paths = path.replaceAll('\\', '/').replaceAll(/\/\/+/g, '/').split('/');
 
 	for (let j = 0; j < paths.length; ) {
@@ -35,6 +35,7 @@ export function normalizePath(path) {
 		}
 	}
 
+	while (paths.at(-1) === '') paths.pop();
 	// Remove leading empty segment (which represents an absolute path root)
 	if (paths.length > 0 && paths[0] === '') {
 		paths.shift();

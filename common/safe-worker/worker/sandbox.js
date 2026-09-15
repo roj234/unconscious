@@ -12,12 +12,13 @@ import {
 	createBase64Decoder,
 	createBase64Encoder
 } from "../../Base64.js";
+import {inspect} from "../../inspect.js";
+import {immutableObjectMap} from "../../Utils.js";
 
 // ===== Helper functions =====
 
 const postMessage = self.postMessage.bind(self);
 const fun = Function;
-const createObject = (o) => Object.freeze(Object.assign(Object.create(null), o));
 /**
  *
  * @param {string} code
@@ -89,26 +90,27 @@ const init = ([permissions, hm, prefix]) => {
 
 	if (permissions.includes('eval')) {
 		global.Function = fun;
+		global.eval = eval;
 		global.WebAssembly = WebAssembly;
 		allowRemoteImport = true;
 	}
 
 	if (permissions.includes('fs')) {
-		const processModules = createObject( { process: process, default: process });
+		const processModules = immutableObjectMap( { process: process, default: process });
 
-		const bufferModule = createObject({ Buffer: Buffer, default: Buffer });
+		const bufferModule = immutableObjectMap({ Buffer: Buffer, default: Buffer });
 
 		const emulatedFs = emulateFsPromises(RPC);
-		const fsModule = createObject({ ...emulatedFs, default: emulatedFs });
+		const fsModule = immutableObjectMap({ ...emulatedFs, default: emulatedFs });
 
-		const pathModule = createObject({ ...emulatedPath, default: emulatedPath });
+		const pathModule = immutableObjectMap({ ...emulatedPath, default: emulatedPath });
 
 		Object.freeze(Buffer);
 		Object.freeze(emulatedFs)
 		Object.freeze(emulatedPath);
 
 		// buffer polyfill 依赖它，所以我就不独立打包了
-		nodeModules.set('base64', createObject({
+		nodeModules.set('base64', immutableObjectMap({
 			createBase64Encoder,
 			createBase64Decoder,
 			base64Encode,
@@ -121,7 +123,7 @@ const init = ([permissions, hm, prefix]) => {
 		nodeModules.set('process', processModules);
 		nodeModules.set('fs/promises', fsModule);
 		nodeModules.set('path', pathModule);
-		nodeModules.set('url', createObject({
+		nodeModules.set('url', immutableObjectMap({
 			fileURLToPath(url) {
 				const rawPart = url.toString().slice("file:///".length);
 				return "./" + (emulatedPath.resolve(rawPart));
@@ -129,7 +131,8 @@ const init = ([permissions, hm, prefix]) => {
 			pathToFileURL(path1) {
 				return new URL("file:///"+emulatedPath.resolve(path1));
 			}
-		}))
+		}));
+		nodeModules.set('util', immutableObjectMap({ inspect }));
 
 		Object.assign(global, {
 			fs: emulatedFs,
@@ -140,17 +143,45 @@ const init = ([permissions, hm, prefix]) => {
 	}
 	if (permissions.includes('wasm')) global.WebAssembly = WebAssembly;
 	if (permissions.includes('net')) {
+		const secureFetchPattern = new RegExp(`\\$env:([A-Za-z_][A-Za-z0-9_]*)(?::([A-Za-z0-9_]+))?\\$`);
+
 		const _caches = caches;
 		const _fetch = fetch;
 		Object.assign(global, {
-			caches: createObject({
+			caches: immutableObjectMap({
 				open: name => _caches.open(prefix + name),
 				has: name => _caches.has(prefix + name),
 				delete: name => _caches.delete(prefix + name),
 				keys: async () => (await _caches.keys()).map(removePrefix).filter(Boolean),
 				match: (request, options) => _caches.match(request, options),
 			}),
-			fetch: (input, init = {}) => _fetch(input, Object.assign(init, { referrerPolicy: 'same-origin' })),
+			fetch: (input, init) => {
+				const tmp = { ...init, referrerPolicy: 'same-origin' };
+
+				let headers = tmp.headers;
+				if (headers) {
+					for (const [k, v] of Object.entries(headers)) {
+						const out = v.replace(secureFetchPattern, (_, match, transform) => {
+							const def = secrets[match];
+							if (!def) throw new DOMException("未定义密钥 "+match+" 当前可用："+inspect(Object.keys(secrets)), "SecureFetchError");
+							if (!def.domain?.test(input)) throw new DOMException("密钥 "+match+" 不允许在该URL上使用", "SecureFetchError");
+
+							let value = def.value;
+							if (transform) value = Buffer.from(value).toString(transform);
+
+							return value;
+						});
+
+						if (out !== v && headers === init.headers) {
+							headers = tmp.headers = structuredClone(headers);
+						}
+
+						headers[k] = out;
+					}
+				}
+
+				return _fetch(input, tmp);
+			},
 			XMLHttpRequest,
 			WebSocket,
 			EventSource
@@ -158,7 +189,7 @@ const init = ([permissions, hm, prefix]) => {
 	}
 	if (permissions.includes('db')) {
 		const _indexedDB = indexedDB;
-		global.indexedDB = createObject({
+		global.indexedDB = immutableObjectMap({
 			open: (name, version) => _indexedDB.open(prefix + name, version),
 			deleteDatabase: (name) => _indexedDB.deleteDatabase(prefix + name),
 			databases: async () => (await _indexedDB.databases()).map(db => ({...db, name: removePrefix(db.name)})).filter(t=> t.name),
@@ -166,7 +197,7 @@ const init = ([permissions, hm, prefix]) => {
 		});
 
 		const _storage = navigator.storage;
-		navigator1.storage = createObject({
+		navigator1.storage = immutableObjectMap({
 			getDirectory: async () => (await _storage.getDirectory()).getDirectoryHandle(prefix, {create: true}),
 			estimate: _storage.estimate.bind(_storage),
 			persist: _storage.persist.bind(_storage)
@@ -217,7 +248,7 @@ const loadModule = async (path, code) => {
 	const exports = Object.create(null);
 	moduleCache.set(path, exports);
 	await fn(onload, exports);
-	if (!('default' in exports)) exports.default = createObject(exports);
+	if (!('default' in exports)) exports.default = immutableObjectMap(exports);
 	Object.freeze(exports);
 	return exports;
 };
@@ -236,6 +267,21 @@ const load = async ([path, code]) => Object.keys(await loadModule(path, code));
 const reset = () => moduleCache.clear();
 
 /**
+ * @type {Record<string, { value: string, domain: RegExp }>}
+ */
+let secrets = {};
+/**
+ * 更新凭据
+ */
+const setSecrets = (arg) => {
+	for (const [key, value] of Object.entries(arg)) {
+		const dom = typeof value.domain;
+		if (dom === 'string') value.domain = new RegExp(value.domain, 'i');
+	}
+	secrets = arg;
+}
+
+/**
  * 执行模块函数
  * @param {string} path  - 模块名称
  * @param {string} func  - 导出名称
@@ -250,7 +296,7 @@ const call = async ([path, func, args = []]) => {
 	return await fn(...args);
 };
 
-const systemFunctions = {init, call, load, eval: _eval, reset};
+const systemFunctions = {init, call, load, eval: _eval, reset, setSecrets};
 
 self.onmessage = async (e) => {
 	const data = e.data;

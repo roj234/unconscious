@@ -332,6 +332,8 @@ export function validateAndShowError(o, schema) {
 	if (entries.length) return entries.map(([k, v]) => k+": "+v).join("\n");
 }
 
+const TYPES = ['array', 'object', 'string', 'boolean', 'number'];
+
 /**
  * 进行JSON Schema解析
  * @param {any} o
@@ -352,7 +354,7 @@ export function validate(o, schema, issues, path = "$") {
 		error("value("+JSON.stringify(o)+") must in "+JSON.stringify(candidates));
 	}
 
-	const {default: def, type: types} = schema;
+	const {default: def, type: types = TYPES } = schema;
 
 	if (o == null && def !== undefined)
 		return def;
@@ -384,7 +386,7 @@ export function validate(o, schema, issues, path = "$") {
 					break checkTypeMatch;
 			}
 		} else {
-			if (types == null || isType(matchType = types))
+			if (isType(matchType = types))
 				break checkTypeMatch;
 		}
 
@@ -428,12 +430,15 @@ export function validate(o, schema, issues, path = "$") {
 				error("additional properties: "+JSON.stringify(additional));
 
 			for (const key of requiredSet) {
-				let {default: def, type} = properties[key];
+				const prop = properties[key];
+				if (!prop) continue;
+
+				let {default: def, type} = prop;
 				if (def !== undefined) {
 					o[key] = def;
 					requiredSet.delete(key);
 				} else if (type === 'object') {
-					o[key] = validate({}, properties[key], issues, path+"."+key);
+					o[key] = validate({}, prop, issues, path+"."+key);
 				}
 			}
 
@@ -482,6 +487,15 @@ export function validate(o, schema, issues, path = "$") {
 			}
 		}
 		break;
+	}
+
+	let _not = schema["not"];
+	if (_not) {
+		const issues1 = {};
+		validate(o, _not, issues1, path);
+		if (isEmptyObject(issues1)) {
+			error("\"not\" matches: "+JSON.stringify(_not));
+		}
 	}
 
 	let _if = schema["if"];

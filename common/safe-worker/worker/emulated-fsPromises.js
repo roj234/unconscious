@@ -254,7 +254,7 @@ const mapToDirent = ([name, type]) => ({
 export const emulateFsPromises = (RPC) => {
 	const fsPromises = {
 		async open(path, mode, options) {
-			if (!/[rwa]/.test(mode)) throw new Error("Mode must be r, w or a");
+			if (!/[rwa]/.test(mode)) throw new DOMException("Mode must be r, w or a", "InvalidAccessError");
 			const handle = await RPC('open', [path, mode !== 'r']);
 			const fh = new RAF(handle, path, mode);
 			await fh._init();
@@ -356,14 +356,8 @@ export const emulateFsPromises = (RPC) => {
 		 * @returns {Promise<object>}
 		 */
 		async stat(path, options) {
-			try {
-				const result = await RPC('stat', [path]);
-				return parseStat(result);
-			} catch (e) {
-				const err = new Error("ENOENT: no such file or directory, access '" + path + "'");
-				err.code = 'ENOENT';
-				throw err;
-			}
+			const result = await RPC('stat', [path]);
+			return parseStat(result);
 		},
 
 		/**
@@ -440,15 +434,14 @@ export const emulateFsPromises = (RPC) => {
 			const withFileTypes = options?.withFileTypes;
 			const cwd = options?.cwd || '.';
 			const exclude = options?.exclude;
-			if (exclude) throw new Error("Exclude is not supported by this implementation yet");
 
 			if (Array.isArray(pattern)) {
-				const files = await RPC('list', [cwd, true, pattern]);
+				const files = await RPC('list', [cwd, true, pattern, exclude]);
 				return files.filter(f => f[1] === 'file').map(withFileTypes ? mapToDirent : f => f[0]);
 			} else {
 				const all = new Set;
 				for (const pat of pattern) {
-					const result = await RPC('list', [cwd, true, pat]);
+					const result = await RPC('list', [cwd, true, pat, exclude]);
 					if (Array.isArray(result)) {
 						for (const arr of result) {
 							if (arr[1] === 'file')

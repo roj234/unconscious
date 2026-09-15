@@ -56,6 +56,7 @@ export function appendChildren(parent: Element, children: Fragment): void;
 export function appendChild(parent: Element, child: Renderable): void;
 
 export function isReactive<T>(object: T): object is Reactive<T>;
+export function hasListener(object: Reactive<?>): boolean;
 export function unconscious<T>(object: Reactive<T>): T;
 export function isPureObject(object: any): boolean;
 
@@ -125,6 +126,19 @@ export function $foreach<T, K, E extends Renderable>(
         currentKeys?: Map<K, E>,
         morphChild?: (key: K, node: Renderable) => void
     }>
+): AppendObserver;
+
+/**
+ * 创建按需更新的虚拟列表，复用现有DOM元素
+ * @param list - 响应式列表
+ * @param renderItem - 生成列表项元素的函数
+ * @param [keyFunc=item => item] - 生成唯一标识的函数
+ * @returns {AppendObserver} 包含动态列表的自定义元素
+ */
+export function $vforeach<T, K, E extends Renderable>(
+    list: T[] | Reactive<T[]>,
+    renderItem: (item: T, index: number) => E,
+    keyFunc?: (item: T, index: number) => K,
 ): AppendObserver;
 
 export class AppendObserver extends HTMLElement {
@@ -247,6 +261,13 @@ export function $asyncState<T, R>(
     initialValue?: R
 ): ReactivePromise<R>;
 
+/**
+ * 异步组件渲染
+ * @param state - 组件加载函数
+ * @param [loading='加载中...'] - 加载时显示的组件
+ * @param [error=String(error)] - 出错时显示的组件
+ */
+export function $asyncRenderer(state: ReactivePromise<Renderable>, loading: Renderable | function(): Renderable, error: Renderable/* | function(error: Error): Renderable*/): Reactive<Renderable>;
 /**
  * 异步组件
  * @param loader - 组件加载函数

@@ -8,7 +8,7 @@ const perf = performance;
 const formatArgs = args => args.map(stringify).join(' ');
 const indent = () => '  '.repeat(groupIndent);
 
-const stringify = arg => typeof arg !== 'string' || arg.includes("\n") ? inspect(arg) : arg;
+const stringify = arg => typeof arg !== 'string' ? inspect(arg) : arg;
 
 export const emulateConsole = (postMessage) => {
 	const writePrefix = (prefix) => (...args) => postMessage({log: indent() + prefix + formatArgs(args)});

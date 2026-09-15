@@ -1,4 +1,5 @@
 import {AS_IS} from "../shared.js";
+import {locate} from "./Utils.js";
 
 const WHITESPACE = 1, NUMBER_START = 2, NUMBER_START_JSON5 = 4, NUMBER_END = 8, BARE_KEY_ILLEGAL = 16;
 
@@ -495,6 +496,6 @@ export const parseJson5 = (str) => {
 		parser.write(str);
 		return parser.end();
 	} catch (e) {
-		throw e+" at position "+parser.pos();
+		throw e+"\n"+locate(str, parser.pos());
 	}
 }
