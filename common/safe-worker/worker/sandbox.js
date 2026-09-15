@@ -12,6 +12,7 @@ import {
 	createBase64Decoder,
 	createBase64Encoder
 } from "../../Base64.js";
+import {inspect} from "../../inspect.js";
 
 // ===== Helper functions =====
 
@@ -129,7 +130,8 @@ const init = ([permissions, hm, prefix]) => {
 			pathToFileURL(path1) {
 				return new URL("file:///"+emulatedPath.resolve(path1));
 			}
-		}))
+		}));
+		nodeModules.set('util', createObject({ inspect }));
 
 		Object.assign(global, {
 			fs: emulatedFs,
@@ -365,6 +367,11 @@ const global = {
 		return cache;
 	}
 };
+
+const optionalKeys = ['ImageDecoder'];
+for (const key of optionalKeys) {
+	if (self[key]) global[key] = self[key];
+}
 
 const unlockedSelf = self;
 const globalKeys = new Set(Object.keys(unlockedSelf));

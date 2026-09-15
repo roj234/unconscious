@@ -1,5 +1,6 @@
 
 const _listeners = new Map();
+const pm = postMessage;
 
 const _on = (ev, fn) => {
 	if (!_listeners.has(ev)) _listeners.set(ev, new Set());
@@ -56,6 +57,7 @@ const process = {
 	// ---------- exit ----------
 	exit(code = 0) {
 		console.warn(`process.exit(${code})`);
+		pm({exit: code});
 		close();
 	},
 

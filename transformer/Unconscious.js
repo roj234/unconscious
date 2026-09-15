@@ -561,28 +561,34 @@ function unwatchOnDispose(path, pass) {
 			if (binding.kind !== "module" || binding.path.parent.source.value !== "unconscious") return;
 
 			// 提取参数
-			const [listArg, callbackArg] = callPath.node.arguments;
+			const [listArg, callbackArg, ...rest] = callPath.node.arguments;
 
 			// 生成唯一回调名称
-			const callbackId = path.scope.generateUidIdentifier("callback");
+			const callbackId = path.scope.generateUidIdentifier("watchCallback");
+			const variableId = t.isIdentifier(listArg) || (t.isArrayExpression(listArg) && listArg.elements.every(item => t.isIdentifier(item))) ? listArg : path.scope.generateUidIdentifier("watchState");
 
 			// 替换原调用为 $watch
 			callPath.replaceWith(
 				t.callExpression(
 					getContext(pass, 'id/watch')(),
-					callPath.node.arguments
+					[variableId, callbackId, ...rest]
 				)
 			);
 
 			// 收集依赖项和回调声明
+			if (variableId !== listArg) {
+				cleanupCalls.push({
+					name: variableId,
+					value: listArg,
+				});
+			}
 			cleanupCalls.push({
-				list: listArg,
-				callbackId,
-				callback: callbackArg
+				name: callbackId,
+				value: callbackArg
 			});
 
 			dependenciesMap.set(callbackId.name, {
-				list: listArg,
+				list: variableId,
 				callbackId
 			});
 
@@ -599,10 +605,10 @@ function unwatchOnDispose(path, pass) {
 	if (cleanupCalls.length === 0) return;
 
 	// 第二步：生成回调函数声明
-	const variableDeclarations = cleanupCalls.map(({ callbackId, callback }) => {
+	const variableDeclarations = cleanupCalls.map(({ name, value }) => {
 		return t.variableDeclarator(
-			callbackId,
-			callback
+			name,
+			value
 		);
 	});
 
@@ -614,35 +620,40 @@ function unwatchOnDispose(path, pass) {
 	// 第三步：处理返回语句
 	if (returnStatement) {
 		const returnArg = returnStatement.get('argument');
-		const returnValueId = path.scope.generateUidIdentifier("returnValue");
+		const returnValue = returnArg.node;
+		const returnValueId = t.isIdentifier(returnValue) ? returnValue : path.scope.generateUidIdentifier("returnValue");
 
 		// 替换原始返回值为变量
-		returnStatement.insertBefore(
-			t.variableDeclaration('const', [
-				t.variableDeclarator(
-					returnValueId,
-					returnArg.node
-				)
-			])
-		);
+		if (returnValue !== returnValueId) {
+			returnStatement.insertBefore(
+				t.variableDeclaration('const', [
+					t.variableDeclarator(
+						returnValueId,
+						returnValue
+					)
+				])
+			);
+		}
 
 		// 生成 $cleanup 调用参数
-		const dependencies = Array.from(dependenciesMap.values()).flatMap(v => [
+		const dependencies = [...dependenciesMap.values()].map(v => [
 			v.list,
 			v.callbackId
 		]);
 
-		returnStatement.insertBefore(
-			t.expressionStatement(
-				t.callExpression(
-					getContext(pass, 'id/disposable')(),
-					[
-						returnValueId,
-						t.arrayExpression(dependencies)
-					]
+		for (let i = 0; i < dependencies.length; i++) {
+			returnStatement.insertBefore(
+				t.expressionStatement(
+					t.callExpression(
+						getContext(pass, 'id/disposable')(),
+						[
+							returnValueId,
+							t.arrayExpression(dependencies[i])
+						]
+					)
 				)
-			)
-		);
+			);
+		}
 
 		// 替换原始返回值为变量
 		returnArg.replaceWith(returnValueId);

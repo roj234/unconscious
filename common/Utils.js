@@ -200,14 +200,14 @@ export function locate(string, index) {
 	};
 	const digitCount = (n) => String(n).length;
 
-	let k = `第${line}行: `;
+	let k = `Line ${line}: `;
 	if (column < 0 || column > lineContent.length || lineContent.length > 220) {
-		k += `列: ${column}`;
+		k += `Column: ${column}`;
 	} else {
 		k += lineContent + "\n";
 		const off = 6 + digitCount(line) + getStringWidth(lineContent.substring(0, column));
 		k += "-".repeat(off) + "^";
 	}
-	k += `\n总偏移: ${index}`;
+	k += `\nOffset: ${index}`;
 	return k;
 }

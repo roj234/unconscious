@@ -366,8 +366,10 @@ export const $dispose = (element, keep) => {
 		}
 	};
 
+	const self = element[$DISPOSABLE];
+	if (self) clear(self);
+
 	if (element instanceof Text) {
-		clear(element[$DISPOSABLE] || []);
 		element.remove();
 	} else {
 		elementRemove.call(element);

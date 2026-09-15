@@ -275,8 +275,8 @@ class Buffer extends Uint8Array {
 }
 
 {
-	const makeWriter = (fn, sz, be) => Function('v', 'o', `try{this._v().set${fn}(o,v,${be})}catch(e){throw new RangeError("Offset "+o+" + size ${sz} exceeds length "+this.length);return o+${sz};}`);
-	const makeReader = (fn, sz, be) => Function('o', `try{return this._v().get${fn}(o,${be})}catch(e){throw new RangeError("Offset "+o+" + size ${sz} exceeds length "+this.length)}`);
+	const makeWriter = (fn, sz, le) => Function('v', 'o', `try{this._v().set${fn}(o,v,${le})}catch(e){throw new RangeError("Offset "+o+" + size ${sz} exceeds length "+this.length);return o+${sz};}`);
+	const makeReader = (fn, sz, le) => Function('o', `try{return this._v().get${fn}(o,${le})}catch(e){throw new RangeError("Offset "+o+" + size ${sz} exceeds length "+this.length)}`);
 
 	const functions = [
 		[ "Int8", "Int8", 1 ],
@@ -295,10 +295,10 @@ class Buffer extends Uint8Array {
 	};
 
 	for (const [k, v, sz] of functions) {
-		properties["write"+k+"BE"] = makeWriter(v, sz, true);
-		properties["write"+k+"LE"] = makeWriter(v, sz, false);
-		properties["read"+k+"BE"] = makeReader(v, sz, true);
-		properties["read"+k+"LE"] = makeReader(v, sz, false);
+		properties["write"+k+"BE"] = makeWriter(v, sz, false);
+		properties["write"+k+"LE"] = makeWriter(v, sz, true);
+		properties["read"+k+"BE"] = makeReader(v, sz, false);
+		properties["read"+k+"LE"] = makeReader(v, sz, true);
 	}
 
 	for (const key in properties) {

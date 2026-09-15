@@ -3,6 +3,7 @@
  * Safe ESM WebWorker sandbox in 10 KiB (minified).
  */
 import SandboxWorker from './worker/sandbox.js?worker';
+import {locate} from "../Utils.js";
 
 /**
  * @typedef {Object} ModuleResolver
@@ -231,7 +232,11 @@ function parseModule(code, ctx) {
 					if (code[pos] === '(') {
 						const outLen = parseDescents(/\)/);
 						const statement = tokens.splice(outLen);
-						parseDynamicImport(statement, tokens, ctx);
+						try {
+							parseDynamicImport(statement, tokens, ctx);
+						} catch (e) {
+							throw new ParseError(e.message+'\n'+locate(code, pos));
+						}
 						afterMutate();
 						continue;
 					}
@@ -246,7 +251,11 @@ function parseModule(code, ctx) {
 						if (!func) throw new ParseError('import() is not supported');
 						const outLen = parseDescents(/;/);
 						const statement = tokens.splice(outLen);
-						parseImport(statement, tokens, ctx);
+						try {
+							parseImport(statement, tokens, ctx);
+						} catch (e) {
+							throw new ParseError(e.message+'\n'+locate(code, pos));
+						}
 					}
 					afterMutate();
 					continue;
@@ -265,7 +274,11 @@ function parseModule(code, ctx) {
 
 					const outLen = parseDescents(/[};]/);
 					const statement = tokens.splice(outLen);
-					parseExport(statement, tokens, ctx);
+					try {
+						parseExport(statement, tokens, ctx);
+					} catch (e) {
+						throw new ParseError(e.message+'\n'+locate(code, pos));
+					}
 					afterMutate();
 					continue;
 				}
@@ -281,6 +294,8 @@ function parseModule(code, ctx) {
 				pos += arr[0].length;
 				tokens.push(arr[0]);
 				continue;
+			} else {
+				if (ch === '@') throw new Error("Invalid or unexpected token\n"+locate(code, pos));
 			}
 
 			pos++;
@@ -291,7 +306,7 @@ function parseModule(code, ctx) {
 			else if (ch === '}' || ch === ')' || ch === ']') {
 				if (!depth && inStmt?.test(ch)) break;
 
-				if (--depth < 0) throw new Error("Brace mismatch near "+pos);
+				if (--depth < 0) throw new Error("Brace mismatch\n"+locate(code, pos));
 			}
 
 			if (!depth && inStmt?.test(ch)) break;
@@ -604,8 +619,6 @@ const parseSpecifiers = (src, i) => {
 	if (src[i] !== '}') {
 		while (i < len) {
 			const name = src[i++];
-			if (name === '}') break;
-
 			let alias = name;
 			if (src[i] === 'as') {
 				i++;
@@ -617,8 +630,10 @@ const parseSpecifiers = (src, i) => {
 
 			if (src[i] !== ',') break;
 			i++;
+			if (src[i] === '}') break;
 		}
-		if (src[i++] !== '}') throw new ParseError('Expected } at here ');
+		if (src[i] !== '}') throw new ParseError('Expected } but found '+src[i]);
+		i++;
 	}
 
 	return [i, result];
@@ -700,6 +715,8 @@ export function createWorker(rpcHandler, logHandler, name) {
 
 	worker.onmessage = ({data}) => {
 		if ('log' in data) return logHandler(data.log);
+		const exit = data.exit;
+		if (exit != null) return onError(`process.exit(${exit})`);
 
 		const id = data.id;
 		const method = data.method;

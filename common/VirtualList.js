@@ -218,11 +218,9 @@ export class VirtualList {
 		this._end = last + 1;
 		this._offset = startHeight;
 		this._height = totalHeight;
-		this._dirty = false;
+		this._dirty = 0;
 
-		dom.style = `padding-top:${startHeight}px;padding-bottom:0px`;
-		this._updateDOM(dom, last, last + 1, items);
-
+		dom.style = `padding-top:${startHeight}px;padding-bottom:0`;
 		wrapper.scrollTop = wrapper.scrollHeight;
 	}
 
@@ -300,6 +298,7 @@ export class VirtualList {
 	_h = (j) => this.items[j][ITEM_HEIGHT] ?? this.itemHeight;
 
 	render = () => {
+		const scrolling = this._dirty === 0;
 		this._dirty = true;
 		let {
 			dom: container,
@@ -383,8 +382,8 @@ export class VirtualList {
 			container.style = `padding-top:${startHeight}px;padding-bottom:${(totalHeight - offset)}px`;
 
 			// 在同一帧内尽可能多的更新元素高度以减小闪烁
-			if (!this._updateDOM(container, startIndex, i, items, viewStart) || loop++ * itemHeight > viewHeight)
-				break;
+			if (!this._updateDOM(container, startIndex, i, items, viewStart) || loop++ * itemHeight > viewHeight) break;
+			if (scrolling) return this.scrollToBottom();
 		}
 
 		this._dirty = false;
