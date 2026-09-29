@@ -331,6 +331,11 @@ const prettifier = (tokens, prettify = true) => {
 	let newline = false;
 
 	for (const token of tokens) {
+		// troll ASI
+		if ((token === 'const' || token === 'let' || token === 'var') && !code.endsWith(';')) {
+			code += ';';
+		}
+
 		if (newline && token !== '}' && token !== ']') {
 			code += '\n' + '  '.repeat(indent);
 			newline = false;

@@ -1,4 +1,4 @@
-import {inspect} from "../../inspect.js";
+import {inspect, INSPECT_ALL} from "../../inspect.js";
 
 const counters = new Map();
 const timers = new Map();
@@ -8,7 +8,7 @@ const perf = performance;
 const formatArgs = args => args.map(stringify).join(' ');
 const indent = () => '  '.repeat(groupIndent);
 
-const stringify = arg => typeof arg !== 'string' ? inspect(arg) : arg;
+const stringify = arg => typeof arg !== 'string' ? inspect(arg, INSPECT_ALL) : arg;
 
 export const emulateConsole = (postMessage) => {
 	const writePrefix = (prefix) => (...args) => postMessage({log: indent() + prefix + formatArgs(args)});

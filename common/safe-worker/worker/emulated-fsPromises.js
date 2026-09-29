@@ -105,7 +105,7 @@ class RAF {
 		await this.#assertOpen();
 
 		if (!this.#canRead()) throw new Error('File not opened for reading');
-		this.#flush();
+		await this.#flush();
 
 		let positionProvided = position != null;
 		if (position == null) position = this.#position;
@@ -185,7 +185,7 @@ class RAF {
 
 	/** 读整个文件 */
 	async readFile(options = {}) {
-		this.#flush();
+		await this.#flush();
 
 		const file = await this.#handle.getFile();
 		const arrayBuffer = await file.arrayBuffer();
@@ -220,6 +220,7 @@ class RAF {
 	/** 获取文件状态 */
 	async stat() {
 		await this.#assertOpen();
+		await this.#flush();
 		const file = await this.#handle.getFile();
 		return {
 			size: file.size,
@@ -323,8 +324,8 @@ export const emulateFsPromises = (RPC) => {
 		 * @param {{recursive?: boolean, force?: boolean}} [options]
 		 * @returns {Promise<void>}
 		 */
-		rm(path, options) {
-			return RPC('delete', [path]);
+		rm(path, {force, recursive} = {}) {
+			return RPC('delete', [path, {force, recursive}]);
 		},
 		unlink(path) {return this.rm(path);},
 

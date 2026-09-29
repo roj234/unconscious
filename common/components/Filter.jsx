@@ -236,8 +236,8 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 					let invalid = pattern && (value || item.required) && isInvalid(value);
 					if (invalid) {
 						if (doSubmit) {
-							input.value = load(state[id]);
-							invalid = false;
+							//input.value = load(state[id]);
+							//invalid = false;
 						} else {
 							emit(id, value);
 						}
@@ -265,6 +265,10 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 						if (isFocus && !filled && item.placeholder) {
 							if (!input.value) input.value = item.placeholder;
 							filled = true;
+						}
+						if (!isFocus && input.value === item.placeholder) {
+							input.value = "";
+							filled = false;
 						}
 						input.style.height = isFocus ? "500px" : "";
 					};
@@ -311,7 +315,7 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 					slider.value = Math.round(slider.valueAsNumber / step) * step;
 					updateUI();
 				} : updateUI} onChange={syncState} />;
-				const input = <input type='number' min={min} max={max} step={step} onInput={limitMax} onChange={syncState} />;
+				const input = <input className="range-values" type='number' min={min} max={max} step={step} onInput={limitMax} onChange={syncState} />;
 
 				row = <div className='range-wrap'>
 					<div className='range-slider'>
@@ -319,9 +323,7 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 						{trackFill}
 						{slider}
 					</div>
-					<div className='range-values'>
-						<span>值</span>{input}
-					</div>
+					<div className='range-values'>{input}{item.unit}</div>
 				</div>;
 
 				addRefreshHandler(id, () => {
@@ -393,8 +395,7 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 						{r2}
 					</div>
 					<div className='range-values'>
-						<span>最小</span>{nMin}
-						<span>最大</span>{nMax}
+						{nMin}至{nMax}{item.unit}
 					</div>
 				</div>;
 
