@@ -13,8 +13,7 @@ import {
 	$state,
 	$store,
 	$update,
-	appendChildren,
-	preserveState
+	appendChildren
 } from "unconscious";
 
 const title = $state("计数器 ");
@@ -101,17 +100,11 @@ appendChildren(document.body, <>
  * @constructor
  */
 function AsyncFetch(props) {
-	// 创建一个响应式变量
-	// 在这里，我使用preserveState包装了一层，这是给热重载的提示：这个参数需要在模块热重载后传递
-	// 之所以还需要套$state，是因为非响应式变量也可以在模块热重载时传递
-	// 除此之外，传递规则也和其它工具不同，其基于固定key，为表达式的字符串加序号，例如下面的是
-	// "$state([])_0"
-	// 当然，你也可以通过第二个参数手动指定id
-	// 该函数不会影响构件大小
-	const html = preserveState($state([]));
+	// 创建一个响应式变量，组件重载时，立即（IIF）创建的$state会被保留
+	const html = $state([]);
 
 	// 很不幸，因为main.js是根(直接被html引用)，所以它不支持热重载
-	// 你可以尝试在前面的Counter.jsx中测试preserveState
+	// 你可以尝试修改前面的Counter.jsx：里面的 $state 会在热重载后自动保持
 
 	function fetchMore() {
 		// 可以直接使用html.pop()，这也会移除元素，但是需要注意两点

@@ -51,7 +51,7 @@ const process = {
 
 	// ---------- cwd ----------
 	cwd() {
-		return "./";
+		return "/";
 	},
 
 	// ---------- exit ----------

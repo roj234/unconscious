@@ -23,6 +23,11 @@ export interface StreamJsonParserOptions {
      * @default false
      */
     jsonl?: boolean;
+    /**
+     * 启用 JSON in YAML 解析 (允许裸值，并折叠空白字符)
+     * @default false
+     */
+    yaml?: boolean;
 }
 
 /**

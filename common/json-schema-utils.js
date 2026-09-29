@@ -398,7 +398,7 @@ export function validate(o, schema, issues, path = "$") {
 		case 'object': {
 			let {required = [], properties, additionalProperties = 1} = schema;
 			if (!properties) {
-				if (!required.length) break;
+				if (!required.length && additionalProperties === 1) break;
 				properties = {};
 			}
 			const additional = !additionalProperties && [];

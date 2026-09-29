@@ -28,6 +28,8 @@ btoa
 crypto
 Function
 Proxy
+Reflect
+Atomics
 JSON
 Math
 Intl
@@ -36,6 +38,7 @@ Promise
 RegExp
 Map
 Set
+Iterator
 ` + // Timers
 `setTimeout
 setInterval

@@ -637,15 +637,17 @@ export const generateQRCode = (data, options = {}) => {
 	if (version == null) {
 		const max = options.maxVersion ?? 40;
 		let bits;
-		for (version = options.minVersion ?? 1; version < max; version++) {
+		for (version = options.minVersion ?? 1; version <= max; version++) {
 			bits = getRawLength(version, data);
 			if (bits <= getDataCapacity(version, level) * 8) break;
 		}
 
+		if (version > max) throw new RangeError("maxVersion is too low");
+
 		// auto use higher level if unspecified and applicable.
 		if (!options.dumb && null == options.level) {
 			for (const c of [0,3,2]) { // M Q H
-				if (bits > getDataCapacity(version, c)) break;
+				if (bits > getDataCapacity(version, c) * 8) break;
 				level = c;
 			}
 		}

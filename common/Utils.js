@@ -137,9 +137,10 @@ export const formatSize = size => {
 /**
  * @template T
  * @param {T} input
+ * @param {Object} [prototype=null]
  * @return {Readonly<T>}
  */
-export const immutableObjectMap = input => Object.freeze(Object.assign(Object.create(null), input));
+export const immutableObjectMap = (input, prototype = null) => Object.freeze(Object.assign(Object.create(prototype), input));
 
 /**
  * @param {Object} obj

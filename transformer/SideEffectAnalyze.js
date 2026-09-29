@@ -2,7 +2,7 @@ import t from '@babel/types';
 
 export default function() {
 	function checkSideEffect(p) {
-		if (p.scope === this.programScope) {
+		if (!p.getFunctionParent()) {
 			if (!isPureFunction(p)) {
 				this.sideEffects.push(p.node);
 				return;
@@ -24,9 +24,6 @@ export default function() {
 			NewExpression: checkSideEffect,
 
 			Program: {
-				enter(path) {
-					this.programScope = path.scope;
-				},
 				exit(path) {
 					const hasCleanup = findTopLevelFunction(path.scope, '$$cleanup');
 					path.hub.file.metadata.allowHMR = hasCleanup || !this.sideEffects.length;

@@ -59,11 +59,11 @@ npm install
 一个计数器组件，我尽可能多的使用了不被IDE兼容的语法糖，这些糖有的我写了IDE兼容的workaround，但很不幸没有文档
 
 ```jsx
-import {$state, $computed, preserveState} from "unconscious";
+import {$state, $computed} from "unconscious";
 // 函数组件
 export default function Counter() {
 	// 响应式状态
-	const count = preserveState($state(0));
+	const count = $state(0);
 	// 计算属性（自动追踪依赖）
 	const double = $computed(() => count.value * 2);
 
@@ -81,15 +81,15 @@ export default function Counter() {
 ## API
 
 ### 响应式核心
-| 方法                          | 说明                                                                 |
-|-------------------------------|----------------------------------------------------------------------|
-| `$state(obj, deep)`           | 创建响应式代理对象（`deep` 为 true 启用深度代理）                    |
-| `$watch(target, callback, triggerNow)` | 监听变化，支持返回清理函数（`triggerNow` 默认 true 立即执行）        |
-| `$computed(fn, lazy, dependencies)` | 创建计算属性（`lazy` 延迟计算；`dependencies` 手动指定依赖）         |
-| `$unwatch(target, callback)`  | 取消监听                                                             |
-| `$update(target)`             | 手动触发更新（支持数组，多变量共用监听器只触发一次）                 |
-| `unconscious(reactive)`       | 获取响应式对象的原始值                                               |
-| `isReactive(obj)`             | 检查是否为响应式对象                                                 |
+| 方法                          | 说明                                       |
+|-------------------------------|------------------------------------------|
+| `$state(obj, deep)`           | 创建响应式代理对象（`deep` 为 true 启用深度代理）          |
+| `$watch(target, callback, triggerNow)` | 监听变化，支持返回清理函数（`triggerNow` 默认 true 立即执行） |
+| `$computed(fn, dependencies?)` | 创建计算属性（可手动传入依赖）                          |
+| `$unwatch(target, callback)`  | 取消监听                                     |
+| `$update(target)`             | 手动触发更新（支持数组，多变量共用监听器只触发一次）               |
+| `unconscious(reactive)`       | 获取响应式对象的原始值                              |
+| `isReactive(obj)`             | 检查是否为响应式对象                               |
 
 ### 工具函数
 | 方法                          | 说明                                                                 |

@@ -1,4 +1,4 @@
-import {$computed, $state, $watchWithCleanup, preserveState} from "unconscious";
+import {$computed, $state, $watchWithCleanup} from "unconscious";
 
 /**
  *
@@ -10,7 +10,7 @@ import {$computed, $state, $watchWithCleanup, preserveState} from "unconscious";
  */
 export function Counter(props) {
   const title = props.title || "Counter";
-  const count = preserveState($state(props.value || 0));
+  const count = $state(props.value || 0);
   // 计算属性
   const double = $computed(() => count.value * 2);
 

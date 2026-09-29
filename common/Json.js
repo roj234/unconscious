@@ -1,7 +1,7 @@
 import {AS_IS} from "../shared.js";
 import {locate} from "./Utils.js";
 
-const WHITESPACE = 1, NUMBER_START = 2, NUMBER_START_JSON5 = 4, NUMBER_END = 8, BARE_KEY_ILLEGAL = 16;
+const WHITESPACE = 1, NUMBER_START = 2, NUMBER_START_JSON5 = 4, NUMBER_END = 8, BARE_KEY_ILLEGAL = 16, YAML_KEY_END = 32;
 
 const CHAR_TRAITS = new Uint8Array(128);
 const fill = (chars, flag) => {
@@ -17,6 +17,7 @@ fill("IN", NUMBER_START_JSON5);
 // oct+bin+hex+dec+float 的完整状态机有两百多行，已经和这个JsonParser在同一量级了，不值，更不用说JS本身就不适合计算密集型这个问题
 fill(" \t\r\n+]},/\0", NUMBER_END|BARE_KEY_ILLEGAL);
 fill("{|~#%&()*,:<=>?@[^`", BARE_KEY_ILLEGAL);
+fill(",]}\r\n", YAML_KEY_END);
 
 /**
  * 流式增量 JSON 'push' 模式解析器。
@@ -39,6 +40,7 @@ fill("{|~#%&()*,:<=>?@[^`", BARE_KEY_ILLEGAL);
  *
  * @param {boolean=false} json5 启用 JSON5 解析 (注：并非所有 JSON5 特性都被禁用，如尾逗号在架构上就允许，检测反而需要额外代价影响性能)
  * @param {boolean=false} jsonl 启用 JSONL 解析 (在 onValue 中用 !path.length 分割)
+ * @param {boolean=false} yaml 启用 JSON in YAML 解析 (允许裸值，并折叠空白字符)
  * @returns {StreamJsonParserInstance}
  *
  * @example
@@ -49,7 +51,7 @@ fill("{|~#%&()*,:<=>?@[^`", BARE_KEY_ILLEGAL);
  * parser.write(`world",}`);
  * const result = parser.end();
  */
-export function createJsonParser(onValue, {emitDelta, json5, jsonl} = {}) {
+export function createJsonParser(onValue, {emitDelta, json5, jsonl, yaml } = {}) {
 	let root;
 	const stack = [];
 	const path = [];
@@ -62,14 +64,15 @@ export function createJsonParser(onValue, {emitDelta, json5, jsonl} = {}) {
 		STATE_LIT = 4,
 		STATE_NUM = 5,
 		OBJECT_BARE_KEY = 6,
+		YAML_VALUE = 7,
 
-		STATE_NORM = 7,
-		OBJECT_KEY_AFTER = 8,
-		OBJECT_BEGIN = 9,
-		AFTER = 10,
-		ENDED = 11,
+		STATE_NORM = 8,
+		OBJECT_KEY_AFTER = 9,
+		OBJECT_BEGIN = 10,
+		AFTER = 11,
+		ENDED = 12,
 
-		COMMENT_START = 12,
+		COMMENT_START = 13,
 		COMMENT_MULTI_LINE = 16 | (0 << 5),
 		COMMENT_SINGLE_LINE = 16 | (2 << 5);
 
@@ -249,8 +252,21 @@ export function createJsonParser(onValue, {emitDelta, json5, jsonl} = {}) {
 
 					state = STATE_NORM;
 					continue;
+				case YAML_VALUE:
+					const inTrait = CHAR_TRAITS[input.charCodeAt(i)];
+					if (inTrait & YAML_KEY_END) {
+						pushValue(buf.trim().replace(/  +/g, ' '));
+					} else {
+						if (!(inTrait & CHAR_TRAITS[buf.charCodeAt(buf.length-1)] & WHITESPACE)) {
+							buf += ch;
+						}
+						break;
+					}
+
 				// {"a":1  or [1
 				//       ^      ^
+
+				// noinspection FallThroughInSwitchStatementJS
 				case AFTER:
 					if (ch === ',') {
 						if (Array.isArray(stack.at(-1))) {
@@ -333,7 +349,9 @@ export function createJsonParser(onValue, {emitDelta, json5, jsonl} = {}) {
 								state = STATE_NUM;
 								break;
 							}
-							FAIL("VALUE", ch);
+							if (!yaml) FAIL("VALUE", ch);
+							state = YAML_VALUE;
+							buf += ch;
 					}
 				}
 				break;
@@ -362,7 +380,7 @@ export function createJsonParser(onValue, {emitDelta, json5, jsonl} = {}) {
 					buf += input.slice(prevI, i);
 
 					// or just i === length
-					if (!earlyExitFlag) return;
+					if (!earlyExitFlag) break;
 					if (earlyExitFlag === enterCh) {
 						pushValue(buf);
 					} else {
@@ -485,13 +503,17 @@ export function createJsonParser(onValue, {emitDelta, json5, jsonl} = {}) {
 	}
 }
 
+const DEFAULT_OPTIONS = {json5: true};
+
 /**
  * 宽容解析JSON（例如用户输入）
+ * 默认模式：JSON5
  * @param {string} str
+ * @param {StreamJsonParserOptions} [options]
  * @return {any}
  */
-export const parseJson5 = (str) => {
-	const parser = createJsonParser(AS_IS, {json5: true});
+export const parseJson5 = (str, options = DEFAULT_OPTIONS) => {
+	const parser = createJsonParser(AS_IS, options);
 	try {
 		parser.write(str);
 		return parser.end();

@@ -27,7 +27,7 @@
 
 ### 1.1 响应式核心（Full Mode）
 * **`$state(obj, deep?)`**: 创建响应式代理。基本类型修改 `.value`；对象/数组直接修改或使用 mutator 方法（`push`/`pop`等）。
-* **`$computed(fn, deps?)`**: 计算属性，自动追踪依赖。
+* **`$computed(fn, deps?)`**: 计算属性，自动追踪依赖，也可以手动传入。
 * **`$watch(targets, cb, triggerNow? = true)`**: 监听变化。`cb` 可返回一个清理函数（在下一次触发或销毁前执行）。
 * **`$effect(fn)`**: 自动依赖副作用。
 
@@ -35,7 +35,7 @@
 * **命名**：首字母大写且长度 > 1 的函数即为组件。接收 `(props, children)`，其中 `props` 和 `children` **已被冻结（Object.freeze）**。
 * **挂载**：**必须**使用 挂载响应式根节点，绝不要使用原生的 `appendChild`。
 * **热重载**：组件只能通过 `export function Foo` 或 `export const Foo = () => {}` 导出，不能使用顶层 `const` 直接导出（会被 HMR 拦截）。
-* **状态保持**：组件内的 `$state` 必须包裹 `preserveState($state(...))` 以支持 HMR。
+* **状态保持**：组件内需要保留的非响应式状态必须包裹 `preserveState(...)` 以支持 HMR。
 * **ref 引用**：直接定义变量 `let element;`，然后在 JSX 中使用 `<div ref={element}>...</div>` 来对它赋值
 
 ---
@@ -69,15 +69,15 @@
 ## 4. 任务输出分支规范
 
 ```jsx:Counter.jsx
-import { $state, $computed, preserveState, $watchWithCleanup, unconscious } from 'unconscious';
+import { $state, $computed, $watchWithCleanup, unconscious } from 'unconscious';
 import './Counter.css';
 
 /**
  * @param {{ initial?: number, onLimit?: (val: number) => void }} props
  */
 export function Counter(props) {
-  // 1. 状态声明与 HMR 保持
-  const count = preserveState($state(props.initial || 0));
+  // 1. 状态声明（HMR 自动保持，无需 preserveState）
+  const count = $state(props.initial || 0);
 
   // 2. 计算属性
   const isDoubleEven = $computed(() => (unconscious(count) * 2) % 4 === 0);

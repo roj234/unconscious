@@ -79,7 +79,6 @@ export class VirtualList {
 	/**
 	 * @type {ResizeObserverCallback}
 	 * @param {{target: HTMLElement}[]} entries
-	 * @return {boolean}
 	 * @private
 	 */
 	_onResize = (entries, preservedViewTop) => {
@@ -95,7 +94,6 @@ export class VirtualList {
 		let scrollAnchorIndex;
 		let heightChanged = 0;
 		let beforeAnchorHeightChanged = 0;
-		let hasHeightChanged = false;
 
 		for (let {target, borderBoxSize} of entries) {
 			const itemIndex = target[INDEX];
@@ -104,9 +102,10 @@ export class VirtualList {
 			if (!item) continue;
 
 			const targetRect = borderBoxSize ? borderBoxSize[0].blockSize : target.getBoundingClientRect().height;
+			if (targetRect === 0) continue;
+
 			const gap = this.gap;
 			const measuredHeight = targetRect + (typeof gap === "function" ? gap.call(this, target) : gap);
-			if (!measuredHeight) continue;
 
 			let expectedHeight = item[ITEM_HEIGHT] ?? this.itemHeight;
 			if (null == expectedHeight) {
@@ -122,14 +121,13 @@ export class VirtualList {
 				const delta = measuredHeight - expectedHeight;
 				item[ITEM_HEIGHT] = measuredHeight;
 				heightChanged += delta;
-				hasHeightChanged = true;
 				if (null == scrollAnchorIndex) scrollAnchorIndex = this._getScrollAnchorIndex(viewTop);
 				if (itemIndex < scrollAnchorIndex) beforeAnchorHeightChanged += delta;
 			}
 		}
 
-		if (hasHeightChanged) {
-			this._height += heightChanged;
+		if (heightChanged) {
+			this._height = Math.max(0, this._height + heightChanged);
 
 			// 必须基于测量前保存的逻辑位置设置绝对值，不能在当前 scrollTop 上累加。
 			// DOM 更新期间浏览器可能已经把当前 scrollTop 夹取到临时的最大值；
@@ -149,17 +147,23 @@ export class VirtualList {
 				this.render();
 			}
 		}
-		// 高度差即使互相抵消，也需要让 render 再跑一轮来更新 padding。
-		return hasHeightChanged;
 	}
 
 	#ro = new ResizeObserver(this._onResize);
 	#io = new IntersectionObserver(entries => {
 		if((this._visible = entries.at(-1).isIntersecting) && this._dirty) {
-			this.resize();
+			this._height = 0;
+
+			const style = this._wrapper?.firstElementChild.style;
+			if (style) style.height = `1e6px`;
+			this.render();
+			if (style) style.height = '';
 		}
 	});
-	#mainRo = new ResizeObserver(() => this.resize());
+	#mainRo = new ResizeObserver((entries) => {
+		const rect = entries.at(-1).contentRect;
+		if (rect.width * rect.height) this.render();
+	});
 
 	/**
 	 * @param {VirtualListConfig} config
@@ -169,7 +173,7 @@ export class VirtualList {
 		this.renderer = config.renderer;
 		this.gap = config.gap || 0;
 		this.keyFunc = config.keyFunc || (item => item[ITEM_KEY] ?? item);
-		this.isSameKey = config.isSameKey || ((a, b) => a[ITEM_KEY] === b);
+		this.reuseHook = config.reuseHook || ((a, b) => a[ITEM_KEY] === b);
 		this.overscan = config.overscan || 100;
 
 		this._dirty = !!(this.items = config.data);
@@ -179,6 +183,8 @@ export class VirtualList {
 			wrapper.appendChild(this.dom);
 			this.attach(wrapper);
 		}
+
+		this.dom._vl = this;
 	}
 
 	/**
@@ -199,10 +205,7 @@ export class VirtualList {
 	}
 
 	resize() {
-		//const style = this._wrapper?.firstElementChild.style;
-		//if (style) style.height = `1e6px`;
 		this.render();
-		//if (style) style.height = '';
 	}
 
 	scrollToBottom() {
@@ -421,7 +424,7 @@ export class VirtualList {
 			noRender: {
 				if (node) {
 					existingItems.delete(item);
-					if (this.isSameKey(node, key = this.keyFunc(item, i))) {
+					if (this.reuseHook(node, key = this.keyFunc(item, i), item, i)) {
 						if (node[INDEX] !== i) break noRender;
 						node[INDEX] = i;
 						node[ITEM_KEY] = key;

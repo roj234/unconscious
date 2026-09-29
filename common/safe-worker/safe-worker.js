@@ -28,7 +28,7 @@ const
 	IDENT_START = /[a-zA-Z_$]/,
 	IDENT_PART = /[a-zA-Z\d_$]/,
 	DIGIT = /\d/,
-	OPERATORS = /=>|===|!==|\.\.\.|&&|\|\||\?[?.]|(?:<<|>>>?|\*\*|[-+*/%><!=])=?/y;
+	OPERATORS = /=>|===|!==|\+\+|--|\.\.\.|&&=?|\|\|=?|\?\?=?|\?\.?|(?:<<|>>>?|\*\*|[-+*/%><!=|&^])=?/y;
 
 // Regex context: characters/tokens after which '/' starts a regex literal
 // This is not fully compliant, but enough for now.
@@ -94,12 +94,25 @@ function parseModule(code, ctx) {
 		prevIndex = pos;
 	};
 
+	const IMPORT_OR_EXPORT_STATEMENT = {
+		test(ch) {
+			return (ch === '\n' && /[}'"]$/.test(tokens.at(-1))) || ch === ';';
+		}
+	};
+
 	const parse = () => {
 		while (pos < len) {
 			const ch = code[pos];
 
 			// ---- Whitespace ----
-			if (SPACE.has(ch)) { pos++; continue; }
+			if (SPACE.has(ch)) {
+				if (ch === '\n') {
+					if (!depth && inStmt?.test(ch)) break;
+					tokens.push('\n');
+				}
+				pos++;
+				continue;
+			}
 
 			// ---- Comment ----
 			if (ch === '/') {
@@ -223,7 +236,7 @@ function parseModule(code, ctx) {
 						const importMeta = ctx.importMeta;
 						pos++;
 						const outLen = parseDescents({ test() {return true;} });
-						const statement = tokens.splice(outLen);
+						const statement = tokens.splice(outLen).filter(s => s !== '\n');
 						if (importMeta && statement[0] === 'meta') importMeta(tokens, statement);
 						else tokens.push('undefined.', ...statement);
 						afterMutate();
@@ -231,7 +244,7 @@ function parseModule(code, ctx) {
 					}
 					if (code[pos] === '(') {
 						const outLen = parseDescents(/\)/);
-						const statement = tokens.splice(outLen);
+						const statement = tokens.splice(outLen).filter(s => s !== '\n');
 						try {
 							parseDynamicImport(statement, tokens, ctx);
 						} catch (e) {
@@ -247,10 +260,8 @@ function parseModule(code, ctx) {
 							ERR();
 						tokens.push('undefined');
 					} else {
-						const func = ctx.runtimeImportFunc;
-						if (!func) throw new ParseError('import() is not supported');
-						const outLen = parseDescents(/;/);
-						const statement = tokens.splice(outLen);
+						const outLen = parseDescents(IMPORT_OR_EXPORT_STATEMENT);
+						const statement = tokens.splice(outLen).filter(s => s !== '\n');
 						try {
 							parseImport(statement, tokens, ctx);
 						} catch (e) {
@@ -272,8 +283,22 @@ function parseModule(code, ctx) {
 						tokens.push('undefined');
 					}
 
-					const outLen = parseDescents(/[};]/);
-					const statement = tokens.splice(outLen);
+					const next = code[pos];
+
+					let outLen;
+
+					if (next === '{' || next === 'default' || next === '*') {
+						outLen = parseDescents(IMPORT_OR_EXPORT_STATEMENT);
+					} else {
+						//const cont = /const|let|var/.test(next);
+						outLen = parseDescents({
+							test(ch) {
+								return (ch === '\n' && tokens.at(-1) !== ',') || ch === ';';
+							}
+						});
+					}
+
+					const statement = tokens.splice(outLen).filter(s => s !== '\n');
 					try {
 						parseExport(statement, tokens, ctx);
 					} catch (e) {
@@ -320,52 +345,12 @@ function parseModule(code, ctx) {
 }
 
 /**
- * Token to JavaScript
+ * Token to string.
+ * No ASI needed as we keep LF
  * @param {string[]} tokens
- * @param {boolean=true} prettify
  * @returns {string}
  */
-const prettifier = (tokens, prettify = true) => {
-	let code = '';
-	let indent = 0;
-	let newline = false;
-
-	for (const token of tokens) {
-		if (newline && token !== '}' && token !== ']') {
-			code += '\n' + '  '.repeat(indent);
-			newline = false;
-		}
-
-		const lastChar = code[code.length - 1];
-		if ((lastChar === ')' && token === '{')/* || (OPERATORS.test(token) || OPERATORS.test(lastChar))*/ || (IDENT_PART.test(lastChar) && IDENT_PART.test(token[0]))) {
-			code += ' ';
-		}
-
-		if (prettify) {
-			if (token.endsWith(';')) {
-				newline = true;
-			} else if (token === '[' || token === '{') {
-				indent++;
-				code += token;
-				code += '\n' + '  '.repeat(indent);
-				newline = false;
-				continue;
-			} else if (token === ']' || token === '}') {
-				indent--;
-				code += '\n' + '  '.repeat(indent);
-				newline = false;
-			}
-		}
-
-		code += token;
-	}
-
-	if (newline) {
-		code += '\n';
-	}
-
-	return code;
-};
+const prettifier = (tokens) => tokens.join(' ');
 
 /**
  * @param {string[]} tokens
@@ -565,7 +550,7 @@ const parseExport = (tokens, output, ctx) => {
 		if (/const|let|var/.test(token)) {
 			for (const name of parseVariableDecl(tokens, i+1)) {
 				if (token !== 'const') {
-					emit(`Object.defineProperty(${field}, ${JSON.stringify(name)}, { get: () => ${name}, set: () => false });`);
+					emit(`Object.defineProperty(${field}, ${JSON.stringify(name)}, { get: () => ${name} });`);
 				} else {
 					emit(`${field}.${name} = ${name};`);
 				}
@@ -679,7 +664,7 @@ function bundleModule(path, code, prettifyCode = true) {
 			}
 		},
 	});
-	let out = prettifier(tokens, prettifyCode);
+	let out = prettifier(tokens);
 	if (path?.endsWith(".cjs")) out = `const module = {exports};`+out+"\n;Object.assign(exports,module.exports)";
 
 	return `const __moduleId=${JSON.stringify(path||'inlineModule')};\n`+metaUsed+out;
@@ -748,7 +733,7 @@ export function createWorker(rpcHandler, logHandler, name) {
 	/** @type {undefined|Error} */
 	let destroyed;
 	const onError = (e) => {
-		destroyed = new Error(e.message || String(e) || 'Worker error');
+		destroyed = e instanceof Error ? e : new DOMException(String(e) || 'aborted', 'AbortError');
 		rpcTasks.forEach((p) => p[1](destroyed));
 		rpcTasks.clear();
 	};

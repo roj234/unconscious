@@ -132,6 +132,7 @@ export function nodeResolve({removeComment = true, basePath} = {}) {
 			// 导入的
 			if (id.startsWith('.')) return;
 			if (id[0] === '/') return { id: path.join(basePath, id) };
+			if (path.isAbsolute(id)) return { id };
 
 			let end = id.indexOf('/');
 			if (end > 0 && id.startsWith('@')) end = id.indexOf('/', end+1);

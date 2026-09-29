@@ -31,7 +31,7 @@ const createFunction = (code, name) => {
 		try {
 			codeCache.set(code, fn = fun('return async function '+(name ? name.replaceAll(/[^a-zA-Z]/g, '_') : 'inlineModule')+"(__onload, exports){"+code+"\n};")());
 		} catch (e) {
-			throw new Error("Failed to load module "+name+": "+e.message);
+			throw new SyntaxError("Module "+name+": "+e.message);
 		}
 		if (codeCache.size > 200) codeCache.delete(codeCache.keys().next().value);
 	}
@@ -126,10 +126,10 @@ const init = ([permissions, hm, prefix]) => {
 		nodeModules.set('url', immutableObjectMap({
 			fileURLToPath(url) {
 				const rawPart = url.toString().slice("file:///".length);
-				return "./" + (emulatedPath.resolve(rawPart));
+				return emulatedPath.resolve(decodeURIComponent(rawPart));
 			},
 			pathToFileURL(path1) {
-				return new URL("file:///"+emulatedPath.resolve(path1));
+				return new URL("file://"+emulatedPath.resolve(path1));
 			}
 		}));
 		nodeModules.set('util', immutableObjectMap({ inspect }));
@@ -376,7 +376,7 @@ const global = {
 			}
 			if (name.startsWith("file:")) {
 				const rawPart = name.slice("file:///".length);
-				name = "./" + (emulatedPath.resolve(rawPart));
+				name = emulatedPath.resolve(decodeURIComponent(rawPart));
 				break found;
 			}
 			if (allowRemoteImport) {

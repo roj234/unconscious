@@ -43,7 +43,7 @@ export const createFragment = (...children) => {
  * @param {Array} children - 子元素列表（支持字符串、节点、响应式变量）
  */
 export const appendChildren = (parent, children) => {
-	for (const child of children) {
+	for (const child of children.flat()) {
 		if (child == null) continue;
 		parent.appendChild(createChildNode(child));
 	}

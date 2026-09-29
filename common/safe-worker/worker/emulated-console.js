@@ -1,14 +1,37 @@
-import {inspect} from "../../inspect.js";
+import {inspect, INSPECT_ALL} from "../../inspect.js";
 
 const counters = new Map();
 const timers = new Map();
 let groupIndent = 0;
 
 const perf = performance;
-const formatArgs = args => args.map(stringify).join(' ');
+const stringify = arg => typeof arg !== 'string' ? inspect(arg, INSPECT_ALL) : arg;
 const indent = () => '  '.repeat(groupIndent);
+const FORMAT_SPECIFIER = /%[sdifoO%]/g;
 
-const stringify = arg => typeof arg !== 'string' ? inspect(arg) : arg;
+/**
+ * @param {any[]} args
+ * @returns {string}
+ */
+const formatArgs = (args) => {
+	if (typeof args[0] !== 'string') return args.map(stringify).join(' ');
+
+	let i = 1;
+	const str = args[0].replace(FORMAT_SPECIFIER, (spec) => {
+		if (spec === '%%') return '%';
+		if (i >= args.length) return spec;
+		const val = args[i++];
+		switch (spec) {
+			case '%s': return val;
+			case '%d': return Number(val);
+			case '%i': return parseInt(val, 10);
+			case '%f': return parseFloat(val);
+			default: return stringify(val); // %o %O
+		}
+	});
+
+	return i < args.length ? str + ' ' + args.slice(i).map(stringify).join(' ') : str;
+};
 
 export const emulateConsole = (postMessage) => {
 	const writePrefix = (prefix) => (...args) => postMessage({log: indent() + prefix + formatArgs(args)});

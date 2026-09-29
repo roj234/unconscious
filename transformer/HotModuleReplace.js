@@ -82,6 +82,9 @@ export default () => {return {
 				}
 			}
 
+			// 忽略 export { x } from './mod'
+			if (node.source) return;
+
 			for (const specifier of node.specifiers) {
 				// 修改 local const 为 let
 				const localName = specifier.local.name;
