@@ -1,11 +1,41 @@
 import {UTF8_TEXT_DECODER} from "../../../shared.js";
+import {emulatedPath} from "./emulated-path.js";
+import {betterObject, immutableObjectMap} from "../../Utils.js";
 
 const FALSE = () => false;
+
+const Dirent = Object.assign(Object.create(betterObject), {
+	isBlockDevice: FALSE,
+	isCharacterDevice: FALSE,
+	isSymbolicLink: FALSE,
+	isFIFO: FALSE,
+	isSocket: FALSE,
+	isFile() {return this._type === 'file';},
+	isDirectory() {return this._type === 'dir';},
+	get path() {return this.parentPath},
+	[Symbol.hasInstance](v) {
+		return v != null && Object.getPrototypeOf(v) === Dirent
+	},
+	[Symbol.toStringTag]: "Dirent"
+});
+
+const badTime = new Date(0);
+const Stats = Object.assign(Object.create(Dirent), {
+	dev: 0, ino: 0, mode: 0, nlink: 1, uid: 0, gid: 0, rdev: 0,
+	blksize: 4096, size: 0,
+	atime: badTime, ctime: badTime, mtime: badTime, birthtime: badTime,
+	atimeMs: 0, ctimeMs: 0, mtimeMs: 0, birthtimeMs: 0,
+	[Symbol.hasInstance](v) {
+		return v != null && Object.getPrototypeOf(v) === Stats
+	},
+	[Symbol.toStringTag]: "Stats"
+});
+
 /**
  * Parse fs.stat string output into an object resembling fs.Stats
  */
 const parseStat = text => {
-	const stats = {};
+	const stats = Object.create(Stats);
 	const lines = text.trim().split('\n');
 	for (const line of lines) {
 		const idx = line.indexOf(':');
@@ -13,37 +43,52 @@ const parseStat = text => {
 		const key = line.slice(0, idx).trim();
 		const val = line.slice(idx + 1).trim();
 		switch (key) {
-			case 'type':
-				stats._type = val;
-				break;
+			case 'type':stats._type = val;break;
 			case 'size':
-				stats.size = parseInt(val, 10) || 0;
-				break;
-			case 'mode':
-				stats.mode = val;
-				break;
-			case 'mtime':
-				stats.mtimeMs = (stats.mtime = new Date(val)).getTime();
-				break;
-			case 'atime':
-				stats.atimeMs = (stats.atime = new Date(val)).getTime();
-				break;
-			case 'ctime':
-				stats.ctimeMs = (stats.ctime = new Date(val)).getTime();
-				break;
-			case 'nlink':
-				stats.nlink = parseInt(val, 10) || 0;
-				break;
+				stats.size = parseInt(val, 10);
+				stats.blocks = Math.ceil(stats.size / 512);
+			break;
+			case 'mode':stats.mode = val;break;
+			case 'mtime':stats.mtimeMs = (stats.mtime = new Date(val)).getTime();break;
+			case 'atime':stats.atimeMs = (stats.atime = new Date(val)).getTime();break;
+			case 'ctime':stats.ctimeMs = (stats.ctime = new Date(val)).getTime();break;
+			case 'nlink':stats.nlink = parseInt(val, 10);break;
 		}
 	}
-	stats.isFile = () => stats._type === 'file';
-	stats.isDirectory = () => stats._type === 'dir';
-	stats.isBlockDevice = FALSE;
-	stats.isCharacterDevice = FALSE;
-	stats.isSymbolicLink = FALSE;
-	stats.isFIFO = FALSE;
-	stats.isSocket = FALSE;
 	return stats;
+};
+
+const BIGINT_FIELDS = ['dev', 'ino', 'mode', 'nlink', 'uid', 'gid', 'rdev', 'size', 'blksize', 'blocks', 'atimeMs', 'mtimeMs', 'ctimeMs', 'birthtimeMs'];
+
+/**
+ * 转换为相对路径
+ * @param {string|Uint8Array|URL} path
+ * @returns {string}
+ */
+const toHostPath = (path) => {
+	if (path instanceof URL) {
+		if (path.protocol !== 'file:') throw new TypeError('path must be a file: URL');
+		path = decodeURIComponent(path.pathname);
+	} else if (typeof path !== 'string') {
+		if (path instanceof Uint8Array) path = UTF8_TEXT_DECODER.decode(path);
+		else throw new TypeError('path must be a string, Buffer, or URL');
+	}
+	return emulatedPath.resolve(path).slice(1) || '.';
+};
+
+/**
+ * 带parentPath的Dirent
+ * @param {string} parentPath cwd
+ */
+const mapToDirent = (parentPath) => ([relPath, type]) => {
+	const idx = relPath.lastIndexOf('/');
+	const pp = idx < 0 ? parentPath : parentPath+'/'+relPath.slice(0, idx);
+	const isDir = type.startsWith('dir');
+	return immutableObjectMap({
+		parentPath: pp,
+		name: idx < 0 ? relPath : relPath.slice(idx + 1),
+		_type: isDir ? 'dir' : type
+	}, Dirent);
 };
 
 const getTransfer = (data, options) => {
@@ -93,11 +138,11 @@ class RAF {
 	}
 
 	#canRead() {
-		return this.#mode.includes('r') || this.#mode.includes('+') || this.#mode.includes('a');
+		return /[ra+]/.test(this.#mode);
 	}
 
 	#canWrite() {
-		return this.#mode.includes('w') || this.#mode.includes('a') || this.#mode.includes('+');
+		return /[wa+]/.test(this.#mode);
 	}
 
 	/** 读取文件内容，模仿 fs.promises.FileHandle.read */
@@ -105,7 +150,7 @@ class RAF {
 		await this.#assertOpen();
 
 		if (!this.#canRead()) throw new Error('File not opened for reading');
-		this.#flush();
+		await this.#flush();
 
 		let positionProvided = position != null;
 		if (position == null) position = this.#position;
@@ -185,7 +230,7 @@ class RAF {
 
 	/** 读整个文件 */
 	async readFile(options = {}) {
-		this.#flush();
+		await this.#flush();
 
 		const file = await this.#handle.getFile();
 		const arrayBuffer = await file.arrayBuffer();
@@ -220,13 +265,15 @@ class RAF {
 	/** 获取文件状态 */
 	async stat() {
 		await this.#assertOpen();
+		await this.#flush();
 		const file = await this.#handle.getFile();
-		return {
+		return immutableObjectMap({
+			_type: 'file',
 			size: file.size,
-			lastModified: file.lastModified,
-			isFile: () => true,
-			isDirectory: () => false,
-		};
+			blocks: Math.ceil(file.size / 512),
+			mtimeMs: file.lastModified,
+			mtime: new Date(file.lastModified),
+		}, Stats);
 	}
 
 	/** 关闭句柄（浏览器 FileSystemFileHandle 本身没有 close，这里只做标记） */
@@ -240,23 +287,24 @@ class RAF {
 	async datasync() {return this.#flush();}
 }
 
-const mapToDirent = ([name, type]) => ({
-	name,
-	isFile: () => type === 'file',
-	isDirectory: () => type === 'dir',
-	isBlockDevice: () => false,
-	isCharacterDevice: () => false,
-	isSymbolicLink: () => false,
-	isFIFO: () => false,
-	isSocket: () => false,
-});
+const promiseToCallback = fn => (...args) => {
+	const callback = args.at(-1);
+	if (typeof callback === 'function') {
+		args.pop();
+		fn(...args).then((...res) => callback(null, ...res), callback);
+		return;
+	}
+
+	// backward compatibility
+	return fn(...args);
+};
 
 export const emulateFsPromises = (RPC) => {
-	const fsPromises = {
-		async open(path, mode, options) {
-			if (!/[rwa]/.test(mode)) throw new DOMException("Mode must be r, w or a", "InvalidAccessError");
-			const handle = await RPC('open', [path, mode !== 'r']);
-			const fh = new RAF(handle, path, mode);
+	const promises = {
+		async open(path, flag = 'r', mode) {
+			if (!/^[rwa]\+?$/.test(flag)) throw new DOMException("Flags must be r, w or a", "InvalidAccessError");
+			const handle = await RPC('open', [toHostPath(path), /[wa+]/.test(flag)]);
+			const fh = new RAF(handle, path, flag);
 			await fh._init();
 			return fh;
 		},
@@ -268,6 +316,7 @@ export const emulateFsPromises = (RPC) => {
 		 * @returns {Promise<string|Uint8Array>}
 		 */
 		async readFile(path, options) {
+			path = toHostPath(path);
 			const encoding = typeof options === 'string' ? options : options?.encoding;
 			if (encoding == null || encoding === 'binary' || encoding === 'hex') {
 				const blob = await RPC('readRaw', [path]);
@@ -287,6 +336,7 @@ export const emulateFsPromises = (RPC) => {
 		 * @returns {Promise<void>}
 		 */
 		writeFile(path, data, options) {
+			path = toHostPath(path);
 			if (data instanceof Uint8Array) {
 				return RPC('writeRaw', [path, data, options], getTransfer(data, options));
 			}
@@ -301,6 +351,7 @@ export const emulateFsPromises = (RPC) => {
 		 * @returns {Promise<void>}
 		 */
 		appendFile(path, data, options) {
+			path = toHostPath(path);
 			if (data instanceof Uint8Array) {
 				return RPC('appendRaw', [path, data, options], getTransfer(data, options));
 			}
@@ -313,8 +364,8 @@ export const emulateFsPromises = (RPC) => {
 		 * @param {{recursive?: boolean, mode?: number}} [options]
 		 * @returns {Promise<void>}
 		 */
-		mkdir(path, options) {
-			return RPC('mkdir', [path]);
+		mkdir(path, {recursive} = {}) {
+			return RPC('mkdir', [toHostPath(path), !!recursive]);
 		},
 
 		/**
@@ -323,30 +374,30 @@ export const emulateFsPromises = (RPC) => {
 		 * @param {{recursive?: boolean, force?: boolean}} [options]
 		 * @returns {Promise<void>}
 		 */
-		rm(path, options) {
-			return RPC('delete', [path]);
+		rm(path, {force, recursive} = {}) {
+			return RPC('delete', [toHostPath(path), {force: !!force, recursive: !!recursive}]);
 		},
-		unlink(path) {return this.rm(path);},
-
-		/**
-		 * Remove a directory.
-		 * @param {string} path
-		 * @param {{recursive?: boolean}} [options]
-		 * @returns {Promise<void>}
-		 */
-		rmdir(path, options) {return this.rm(path, options);},
+		unlink(path) {return promises.rm(path);},
 
 		/**
 		 * Read the contents of a directory.
 		 * @param {string} path
-		 * @param {{encoding?: string, withFileTypes?: boolean}|string} [options]
+		 * @param {{encoding?: string, withFileTypes?: boolean, recursive?: boolean}|string} [options]
 		 * @returns {Promise<string[]|Dirent[]>}
 		 */
 		async readdir(path, options) {
+			path = toHostPath(path);
 			const withFileTypes = options?.withFileTypes;
 			const recursive = options?.recursive;
 			const files = await RPC('list', [path, true, recursive ? "**" : null]);
-			return files.map(withFileTypes ? mapToDirent : f => f[0]);
+
+			if (!files.length) {
+				await RPC('stat', [path]);
+				return files;
+			}
+
+			if (!withFileTypes) return files.map(f => f[0]);
+			return files.map(mapToDirent(path));
 		},
 
 		/**
@@ -356,39 +407,38 @@ export const emulateFsPromises = (RPC) => {
 		 * @returns {Promise<object>}
 		 */
 		async stat(path, options) {
-			const result = await RPC('stat', [path]);
-			return parseStat(result);
+			const result = await RPC('stat', [toHostPath(path)]);
+			const stats = parseStat(result);
+			if (options?.bigint) {
+				for (const key of BIGINT_FIELDS) stats[key] = BigInt(stats[key]);
+			}
+			return stats;
 		},
 
 		/**
-		 * Like stat but doesn't follow symlinks (same as stat in this env).
+		 * 解析为沙箱内绝对路径（以 '/' 为根）。没有符号链接，即规范化 + 存在性检查。
 		 * @param {string} path
-		 * @param {{bigint?: boolean}} [options]
-		 * @returns {Promise<object>}
+		 * @param options
+		 * @returns {Promise<string>}
 		 */
-		lstat(path, options) {
-			return this.stat(path, options);
-		},
-
-		/**
-		 * Test user's permissions for a file.
-		 * @param {string} path
-		 * @param {number} [mode]
-		 * @returns {Promise<void>}
-		 */
-		async access(path, mode) {
-			await this.stat(path);
+		async realpath(path, options) {
+			const resolved = emulatedPath.resolve(toHostPath(path));
+			await promises.stat(resolved, options);
+			return resolved;
 		},
 
 		/**
 		 * Copy src to dest.
 		 * @param {string} src
 		 * @param {string} dest
-		 * @param {number} [mode]
+		 * @param {number | Object} [options]
 		 * @returns {Promise<void>}
 		 */
-		copyFile(src, dest, mode) {
-			return RPC('copy', [src, dest, false]);
+		cp(src, dest,  options) {
+			if (typeof options === 'number') {
+				options = { mode: options };
+			}
+			return RPC('copy', [toHostPath(src), toHostPath(dest), false]);
 		},
 
 		/**
@@ -398,7 +448,7 @@ export const emulateFsPromises = (RPC) => {
 		 * @returns {Promise<void>}
 		 */
 		rename(oldPath, newPath) {
-			return RPC('copy', [oldPath, newPath, true]);
+			return RPC('copy', [toHostPath(oldPath), toHostPath(newPath), true]);
 		},
 
 		/**
@@ -408,7 +458,9 @@ export const emulateFsPromises = (RPC) => {
 		 * @returns {Promise<AsyncIterable<Dirent>>}
 		 */
 		async opendir(path, options) {
+			path = toHostPath(path);
 			const files = await RPC('list', [path, true, null]);
+			const toDirent = mapToDirent(path);
 			let idx = 0;
 
 			return {
@@ -416,7 +468,7 @@ export const emulateFsPromises = (RPC) => {
 					return {
 						async next() {
 							if (idx >= files.length) return {done: true};
-							return {done: false, value: mapToDirent(files[idx++])};
+							return {done: false, value: toDirent(files[idx++])};
 						}
 					};
 				},
@@ -427,45 +479,75 @@ export const emulateFsPromises = (RPC) => {
 		/**
 		 * Match files using glob patterns.
 		 * @param {string|string[]} pattern
-		 * @param {{cwd?: string, exclude?: string[], nodir?: boolean}|string} [options]
-		 * @returns {Promise<string[]>}
+		 * @param {{cwd?: string, exclude?: string[], nodir?: boolean, withFileTypes?: boolean}} [options]
+		 * @returns {Promise<string[]|Dirent[]>}
 		 */
 		async glob(pattern, options) {
 			const withFileTypes = options?.withFileTypes;
-			const cwd = options?.cwd || '.';
+			const cwd = toHostPath(options?.cwd || '.');
 			const exclude = options?.exclude;
+			const nodir = options?.nodir;
+			const convert = withFileTypes ? mapToDirent(cwd) : f => f[0];
 
-			if (Array.isArray(pattern)) {
-				const files = await RPC('list', [cwd, true, pattern, exclude]);
-				return files.filter(f => f[1] === 'file').map(withFileTypes ? mapToDirent : f => f[0]);
+			if (!Array.isArray(pattern)) {
+				let files = await RPC('list', [cwd, true, pattern, exclude]);
+				if (nodir) files = files.filter(f => f[1] === 'file');
+				return files.map(convert);
 			} else {
 				const all = new Set;
 				for (const pat of pattern) {
 					const result = await RPC('list', [cwd, true, pat, exclude]);
 					if (Array.isArray(result)) {
 						for (const arr of result) {
-							if (arr[1] === 'file')
+							if (!nodir || arr[1] === 'file')
 								all.add(arr);
 						}
 					}
 				}
-				return [...all].map(withFileTypes ? mapToDirent : f => f[0]);
+				return [...all].map(convert);
 			}
 		},
+
+		/**
+		 *
+		 * @param {string} path
+		 * @param {number} [len=0]
+		 * @return {Promise<void>}
+		 */
+		truncate(path, len = 0) {
+			if (!Number.isSafeInteger(len) || len < 0) throw new Error('length must be a positive integer');
+			return RPC('truncate', [toHostPath(path), len]);
+		}
 	};
 
-	// Also expose as fs.promises for Node.js compatibility
+	const legacyCallback = { ...promises };
+
+	for (let k in promises) {
+		legacyCallback[k] = promiseToCallback(legacyCallback[k]);
+	}
+
+	for (const [k, v] of [['lstat', 'stat'], ['access', 'stat'], ['rmdir', 'rm'], ['copyFile', 'cp']]) {
+		promises[k] = promises[v];
+		legacyCallback[k] = legacyCallback[v];
+	}
+
+	const constants = immutableObjectMap({
+		F_OK: 0,
+		R_OK: 4,
+		W_OK: 2,
+		X_OK: 1,
+		COPYFILE_EXCL: 1,
+		COPYFILE_FICLONE: 2,
+		COPYFILE_FICLONE_FORCE: 4,
+	});
+
+	promises.constants = constants;
+
 	return {
-		...fsPromises,
-		promises: fsPromises,
-		constants: {
-			F_OK: 0,
-			R_OK: 4,
-			W_OK: 2,
-			X_OK: 1,
-			COPYFILE_EXCL: 1,
-			COPYFILE_FICLONE: 2,
-			COPYFILE_FICLONE_FORCE: 4,
-		}
+		...legacyCallback,
+		Stats,
+		Dirent,
+		constants,
+		promises
 	};
 };

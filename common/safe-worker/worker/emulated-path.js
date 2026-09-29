@@ -1,3 +1,4 @@
+import emulatedProcess from "./emulated-process.js";
 
 const sep = '/';
 const delimiter = ':';
@@ -66,7 +67,7 @@ function join(...paths) {
 }
 
 function resolve(...paths) {
-	let resolved = './';
+	let resolved = emulatedProcess.cwd();
 	for (const p of paths) {
 		if (isAbsolute(p)) resolved = p;
 		else resolved += (resolved.endsWith('/') ? '' : '/') + p;

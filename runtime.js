@@ -1,6 +1,5 @@
 import {ID_CLASSLIST, ID_DANGEROUSLY_SET_INNERHTML, ID_EVENTHANDLER, ID_NAMESPACE, ID_STYLELIST} from "./constant.js";
 import {AS_IS, debugSymbol, isPureObject} from "./shared.js";
-import {VirtualList} from "./common/VirtualList.js";
 
 export * from './shared.js';
 
@@ -35,8 +34,10 @@ function _devError(first, ...then) {
 	);
 }
 
+const HOT_RELOAD_ID = '__HMR\u2333';
+
 //region DOM核心 (由Babel导入)
-const LAZY_DISPOSE_FALLBACK = new Error();
+const LAZY_DISPOSE_FALLBACK = /* #__PURE__ */ new Error();
 
 //region DOM
 /**
@@ -355,6 +356,7 @@ Element.prototype.remove = function(skip) {
 	if (skip) elementRemove.call(this);
 	else $dispose(this);
 };
+
 /**
  * 移除元素并删除它的响应式监听器
  * @param {Element|Text} element - 需要删除的元素
@@ -384,13 +386,14 @@ export const $dispose = (element, keep) => {
 };
 
 // 第一层代理直接在容器中保存数据
-const $LISTENERS = debugSymbol("Listeners");
-const $DISPOSABLE = debugSymbol("DisposableRef");
+const $LISTENERS = /* #__PURE__ */ debugSymbol("Listeners");
+const $DISPOSABLE = /* #__PURE__ */ debugSymbol("DisposableRef");
+const $SELF = debugSymbol("Self(Idx)");
 /**
  * 嵌套代理不能在holder容器中用symbol保存数据
  * @type {WeakMap<Object, Proxy>}
  */
-const deepProxyCache = new WeakMap();
+const deepProxyCache = /* #__PURE__ */ new WeakMap();
 /**
  * 依赖捕获
  * @type {Set<Reactive>}
@@ -440,6 +443,7 @@ const getArray = deep => (target, prop, proxy) => {
 	if (dependCapture != null) dependCapture.add(proxy);
 
 	if (Object.hasOwn(target, prop)) return target[prop];
+	if (prop === $SELF) return target;
 
 	const container = target.value;
 	if (prop === "toJSON") return () => container;
@@ -472,8 +476,8 @@ const _ALWAYS_FALSE = () => false;
  */
 const
 	proxyCommons = {
-		getOwnPropertyDescriptor: (target, p) => Reflect.getOwnPropertyDescriptor(unconscious(target), p),
-		getPrototypeOf: (target) => Reflect.getPrototypeOf(unconscious(target)),
+		//getOwnPropertyDescriptor: (target, p) => Reflect.getOwnPropertyDescriptor(unconscious(target), p),
+		//getPrototypeOf: (target) => Reflect.getPrototypeOf(unconscious(target)),
 		has: (target, p) => Reflect.has(unconscious(target), p),
 		ownKeys: (target) => Reflect.ownKeys(unconscious(target)),
 		setPrototypeOf: _ALWAYS_FALSE,
@@ -526,7 +530,7 @@ const
 		set: ShallowProxy.set
 	};
 
-const MUTATOR_METHODS = new Set([
+const MUTATOR_METHODS = /* #__PURE__ */ new Set([
 	'push', 'pop', 'shift', 'unshift',
 	'splice', 'reverse', 'sort', 'copyWithin',
 	'fill',
@@ -539,18 +543,23 @@ const MUTATOR_METHODS = new Set([
  * @template T
  * @param {T} object - 需要代理的目标对象
  * @param {boolean} [deep=false] - 是否启用深度响应
+ * @param {Map} [initialListeners]
+ * @param {string} [__stateId]
  * @returns {Reactive<T> & T} 响应式代理对象
  */
-export const $state = (object, deep, initialListeners = new Map) => {
+export const $state = (object, deep, initialListeners = new Map, __stateId) => {
 	if (isReactive(object)) return object;
 
-	return new Proxy(
+	let proxy = new Proxy(
 		{
 			value: object,
 			[$LISTENERS]: initialListeners
 		},
 		deep ? DeepShallowProxy : ShallowProxy
 	);
+
+	if (import.meta.env.DEV) return __HMR.captureState(proxy, __stateId);
+	return proxy;
 };
 
 /**
@@ -655,7 +664,7 @@ export const $unwatch = (object, listener) => {
 /**
  * @type {ProxyHandler}
  */
-const DevComputeProxy = {
+const DevComputeProxy = /* #__PURE__ */ {
 	...proxyCommons,
 	defineProperty: _ALWAYS_FALSE,
 	deleteProperty: _ALWAYS_FALSE,
@@ -664,10 +673,101 @@ const DevComputeProxy = {
 };
 
 /**
- * 创建计算属性（自动捕获依赖）
+ * 避免每个computed更新时都创建一个Set
+ * @type {Set<Reactive>[]}
+ */
+const capturedSetPool = [];
+const allocCaptureSet = () => capturedSetPool.pop() ?? new Set();
+const freeCaptureSet = set => {
+	set.clear();
+	if (capturedSetPool.length < 8) capturedSetPool.push(set);
+};
+
+/**
+ * @returns {(newValue: any) => void}
+ */
+const createValueCommitter = (holder, passthrough, doUpdate) => newValue => {
+	const oldValue = holder.value;
+	if (!passthrough && oldValue === newValue) return;
+	holder.value = newValue;
+
+	$unwatch(oldValue, doUpdate);
+	if (isReactive(newValue)) {
+		if (import.meta.env.DEV) {
+			if (import.meta.hot && newValue[HOT_RELOAD_ID]) {
+
+			} else {
+				_devError("不建议在计算属性中返回响应式属性 (不过好像也没有什么实际上问题)", newValue)
+			}
+		}
+		$watch(newValue, doUpdate);
+	} else {
+		doUpdate();
+	}
+};
+
+/**
+ * 创建计算属性（显式依赖，由转换器处理）
+ * @template T
+ * @param {(oldValue: T|undefined) => T|undefined} callback
+ * @param {Array<Reactive<any>>} dependencies
+ * @param {boolean} [passthrough]
+ * @returns {Readonly<Reactive<T>>}
+ */
+export const $computedNoTrack = (callback, dependencies, passthrough) => {
+	if (!dependencies.length) return callback();
+	const holder = { value: callback(), [$LISTENERS]: new Map() };
+
+	let proxy;
+	const commit = createValueCommitter(holder, passthrough, () => $update(proxy));
+	const updateValue = () => commit(callback(holder.value));
+
+	$watch(dependencies, updateValue, false);
+	holder[$DISPOSABLE] = [dependencies, updateValue];
+
+	return proxy = new Proxy(holder, import.meta.env.DEV ? DevComputeProxy : ShallowProxy);
+}
+
+/**
+ * Did not used now
+ * @template T
+ * @param {(oldValue: T|undefined) => T|undefined} callback
+ * @param {undefined} _
+ * @param {boolean} [passthrough]
+ * @returns {Readonly<Reactive<T>>}
+ */
+export const $computedStatic = (callback, _, passthrough) => {
+	const depSet = allocCaptureSet();
+
+	const prevCapture = dependCapture;
+	dependCapture = depSet;
+
+	let holder, dependencies;
+	try {
+		const value =  callback();
+		if (!depSet.size) return value;
+
+		holder = { value, [$LISTENERS]: new Map() };
+		dependencies = [...depSet];
+	} finally {
+		dependCapture = prevCapture;
+		freeCaptureSet(depSet);
+	}
+
+	let proxy;
+	const commit = createValueCommitter(holder, passthrough, () => $update(proxy));
+	const updateValue = () => commit(callback(holder.value));
+	$watch(dependencies, updateValue, false);
+	holder[$DISPOSABLE] = [dependencies, updateValue];
+
+	return proxy = new Proxy(holder, import.meta.env.DEV ? DevComputeProxy : ShallowProxy);
+}
+
+/**
+ * 创建计算属性（每次捕获依赖）
  * @template T
  * @param {(oldValue: T|undefined) => T|undefined} callback - 计算函数（接收旧值作为参数，初始调用时为undefined）
- * @param {Array<Reactive<any>>|undefined} [dependencies=undefined] - 如果你的处理函数很复杂, 第一次调用不会访问所有的依赖, 那么可从这个数组指定
+ * @param {undefined} _
  * @param {boolean} [passthrough] - 返回值未改变时也触发更新
  * @returns {Readonly<Reactive<T>>} 只读的响应式计算属性
  *
@@ -678,49 +778,93 @@ const DevComputeProxy = {
  * - 运行时与 $state 共用 Proxy 实现以减小体积，这意味着：
  *   - 开发环境返回的计算属性是只读的
  *   - 生产环境返回的计算属性无写保护
- * - 我只能期待你在开发环境把各种分支都测试到了（
  */
-export const $computed = (callback, dependencies, passthrough) => {
+export const $computed = (callback, _, passthrough) => {
+	const depSet = allocCaptureSet();
+
 	const prevCapture = dependCapture;
-	if (!dependencies) dependCapture = new Set();
+	dependCapture = depSet;
 
-	const holder = { value: callback(), [$LISTENERS]: new Map() };
+	let holder, dependencies;
+	try {
+		const value =  callback();
+		if (!depSet.size) return value;
 
-	if (!dependencies) {
-		dependencies = [...dependCapture];
+		holder = { value, [$LISTENERS]: new Map() };
+		dependencies = [...depSet];
+	} finally {
 		dependCapture = prevCapture;
+		freeCaptureSet(depSet);
 	}
 
-	if (!dependencies.length) return holder.value;
-
 	let proxy;
-
-	const doUpdate = () => $update(proxy);
+	const commit = createValueCommitter(holder, passthrough, () => $update(proxy));
 
 	const updateValue = () => {
-		const oldValue = holder.value;
-		const newValue = callback(oldValue);
-		if (!passthrough && oldValue === newValue) return;
-		holder.value = newValue;
+		const prevCapture = dependCapture;
+		const newDeps = allocCaptureSet();
+		dependCapture = newDeps;
 
-		$unwatch(oldValue, doUpdate);
-		if (isReactive(newValue)) {
-			if (import.meta.env.DEV) {
-				if (import.meta.hot && newValue.__ === "DevHotReload") {
-
-				} else {
-					_devError("不建议在计算属性中返回响应式属性 (不过好像也没有什么实际上问题)", newValue)
-				}
-			}
-			$watch(newValue, doUpdate);
-		} else {
-			$update(proxy);
+		let newValue;
+		try {
+			newValue = callback(holder.value);
+		} finally {
+			dependCapture = prevCapture;
 		}
+
+		for (let i = dependencies.length - 1; i >= 0; i--) {
+			const dep = dependencies[i];
+			if (!newDeps.delete(dep)) {
+				// 移除
+				dependencies.splice(i, 1);
+				$unwatch(dep, updateValue);
+			}
+		}
+		// 新增
+		if (newDeps.size) for (const dep of newDeps) {
+			dependencies.push(dep);
+			dep[$LISTENERS].set(updateValue, undefined);
+		}
+
+		freeCaptureSet(newDeps);
+
+		commit(newValue);
 	};
 	$watch(dependencies, updateValue, false);
 	holder[$DISPOSABLE] = [dependencies, updateValue];
 
 	return proxy = new Proxy(holder, import.meta.env.DEV ? DevComputeProxy : ShallowProxy);
+}
+
+const KEYOF_LIST = /* #__PURE__ */ debugSymbol("KeyOfList");
+
+/**
+ * 最小状态更新（只监听响应式对象的一个字段）
+ * @param {Reactive<any>} obj
+ * @param {string} key
+ * @return {Reactive<any>}
+ */
+export const $derived = (obj, key) => {
+	if (import.meta.env.DEV && !isReactive(obj)) throw new TypeError("obj is not reactive");
+
+	let caches = obj[$SELF][KEYOF_LIST];
+	if (caches == null) caches = obj[$SELF][KEYOF_LIST] = Object.create(null);
+
+	let instance = caches[key];
+	if (instance) return instance;
+
+	const holder = { value: obj[key], [$LISTENERS]: new Map() };
+	const proxy = new Proxy(holder, import.meta.env.DEV ? DevComputeProxy : ShallowProxy);
+
+	$watch(obj, () => {
+		const oldValue = holder.value;
+		const newValue = obj[key];
+		if (oldValue === newValue) return;
+		holder.value = newValue;
+		$update(proxy);
+	});
+
+	return caches[key] = proxy;
 }
 
 /**
@@ -835,7 +979,7 @@ export const $update = object => {
 export const createComponent = (component, props, ...children) => component(Object.freeze(props), Object.freeze(children));
 
 /**
- * 一个受监控的$state，函数组件使用它标记需要被转移的值
+ * 一个受监控的$state，函数组件使用它标记需要被转移的值（如果不是通过$state创建的）
  * @template T
  * @param {T} t
  * @param p
@@ -861,6 +1005,26 @@ export const assertReactive = t => {
 
 //region 组件热重载 HMR
 if (import.meta.hot) {
+	const hook = (obj, fn) => {
+		const pro = obj.prototype[fn];
+		Object.defineProperty(obj.prototype, fn, {
+			value: function () {
+				return pro.apply(this, [...arguments].map(x => {
+					while (x?.[HOT_RELOAD_ID]) x = x.value;
+					return x;
+				}));
+			},
+			configurable: true
+		})
+	};
+	hook(Node, "insertBefore");
+	hook(Node, "appendChild");
+	hook(Element, "prepend");
+	hook(Element, "append");
+	hook(Element, "after");
+	hook(Element, "before");
+	hook(Element, "replaceWith");
+
 	/**
 	 * @typedef {Object} StateRepo
 	 * @property {any[]} props
@@ -878,6 +1042,20 @@ if (import.meta.hot) {
 			proxy.$key = [instance, listener];
 		}
 	}
+
+	/**
+	 * @param {string} id
+	 * @return {string}
+	 */
+	const normalizeModuleId = id => {
+		const queryIndex = id.indexOf('?');
+		if (queryIndex >= 0) id = id.slice(0, queryIndex);
+		if (id[0] === '/') id = id.slice(1);
+		return id.replaceAll('\\', '/');
+	};
+
+	const HMRData = debugSymbol("HMR");
+	const cantHotreload = new Set;
 
 	window.__HMR = {
 		/**
@@ -908,6 +1086,10 @@ if (import.meta.hot) {
 		 */
 		modules: new Map(),
 
+		fr: new FinalizationRegistry(([mod, key]) => {
+			__HMR.instances.get(mod).delete(key);
+		}),
+
 		/**
 		 *
 		 * @param {string} moduleId
@@ -933,21 +1115,19 @@ if (import.meta.hot) {
 		 * @param {ModuleUpdateInfo} moduleUpdateInfo
 		 */
 		updateModuleGraph(moduleUpdateInfo) {
-			const id = moduleUpdateInfo.id;
-			const timestamp = moduleUpdateInfo.timestamp;
 			const updated = moduleUpdateInfo.updated;
 			for (const that of updated) {
-				let self = this._findModule(that.id);
+				let self = this._findModule(normalizeModuleId(that.id));
 
 				for (const [moduleId, version] of self.using) {
-					const refCnt = this.modules.get(moduleId).refCnt;
-					if (!refCnt) break;
-
+					const refCnt = this.modules.get(moduleId)?.refCnt;
+					if (!refCnt) continue;
 					refCnt.set(version, refCnt.get(version)-1);
 				}
 
 				self.using.clear();
-				for (const moduleId of that.child) {
+				for (const rawModuleId of that.child) {
+					const moduleId = normalizeModuleId(rawModuleId);
 					const module = this._findModule(moduleId);
 					const refCnt = module.refCnt;
 					const version = module.version;
@@ -969,6 +1149,8 @@ if (import.meta.hot) {
 		 */
 		updateModule(moduleId, newModule, exports, update) {
 			if (newModule == null) return "模块寄了";
+
+			moduleId = normalizeModuleId(moduleId);
 
 			for (const name of exports) {
 				if (!(name in newModule)) {
@@ -1007,7 +1189,7 @@ if (import.meta.hot) {
 		},
 
 		/**
-		 * @type {Map<Object, Set<[Renderable, Reactive<Renderable>, StateRepo]>>}
+		 * @type {Map<Object, Map<Object, WeakRef<[Renderable, Reactive<Renderable>, StateRepo]>>>}
 		 */
 		instances: new Map(), // 模块ID -> 组件实例集合
 
@@ -1019,6 +1201,12 @@ if (import.meta.hot) {
 		 * @type {StateRepo|null}
 		 */
 		reloadingState: null,
+
+		/**
+		 * 正在执行初始化代码的组件
+		 * @type {StateRepo[]}
+		 */
+		initializing: [],
 
 		/**
 		 * @param {IArguments} args
@@ -1037,10 +1225,13 @@ if (import.meta.hot) {
 			if (children?.length && argc < 2)
 				throw new Error("模块"+identifier+"不允许子元素！");
 
-			return this.reloading === identifier ? this.reloadingState : {
+			const repo = this.reloading === identifier ? this.reloadingState : {
 				props: Array.from(args),
 				states: new Map()
 			};
+
+			this.initializing.push(repo);
+			return repo;
 		},
 
 		/**
@@ -1064,6 +1255,33 @@ if (import.meta.hot) {
 		},
 
 		/**
+		 * @template {any} T
+		 * @param {Reactive<T>} value
+		 * @param stateId
+		 */
+		captureState(value, stateId) {
+			const repo = this.initializing.at(-1);
+			if (repo == null) return value;
+
+			repo.states.set(stateId, value);
+			if (repo.prevStates?.has(stateId)) {
+				return repo.prevStates.get(stateId);
+			}
+			return value;
+		},
+
+		_registerInstance(instance, proxy, stateRepo, identifier) {
+			const subkey = Object.create(null);
+			subkey[HMRData] = "HMRWeakKey";
+
+			const value = [instance, proxy, stateRepo];
+			proxy[HMRData] = value;
+
+			this.instances.get(identifier).set(subkey, new WeakRef(value));
+			this.fr.register(value, [identifier, subkey], subkey);
+		},
+
+		/**
 		 *
 		 * @param {string} moduleId
 		 * @param {string} componentId
@@ -1073,11 +1291,22 @@ if (import.meta.hot) {
 		 */
 		wrapComponent(moduleId, componentId, stateRepo, instance) {
 			const identifier = moduleId+":"+componentId;
+			if (Array.isArray(instance)) {
+				if (!cantHotreload.has(identifier)) {
+					cantHotreload.add(identifier);
+					console.warn("组件 "+identifier+" 返回了数组所以没法热重载", instance);
+				}
+				return instance;
+			}
+
+			const stack = this.initializing;
+			const idx = stack.lastIndexOf(stateRepo);
+			if (idx >= 0) stack.length = idx;
 
 			if (this.reloading === identifier) return instance;
 
 			const proxy = {
-				__: "DevHotReload",
+				[HOT_RELOAD_ID]: true,
 				__self: stateRepo,
 				__source: identifier,
 				value: instance,
@@ -1087,9 +1316,9 @@ if (import.meta.hot) {
 			createSeperatedListener(proxy, instance);
 
 			if (!this.instances.has(identifier)) {
-				this.instances.set(identifier, new Set());
+				this.instances.set(identifier, new Map());
 			}
-			this.instances.get(identifier).add([instance, proxy, stateRepo]);
+			this._registerInstance(instance, proxy, stateRepo, identifier);
 
 			return new Proxy(proxy, ShallowProxy);
 		},
@@ -1115,18 +1344,27 @@ if (import.meta.hot) {
 				const identifier = moduleId+":"+componentId;
 
 				const instances = this.instances.get(identifier);
-				const newInstances = new Set();
+				const newInstances = new Map();
 				this.instances.set(identifier, newInstances);
 				this.reloading = identifier;
 
-				instances?.forEach(([instance, proxy, stateRepo]) => {
+				instances?.forEach((ref, key) => {
+					const data = ref.deref();
+					if (!data) return;
+
+					this.fr.unregister(key);
+					const [instance, proxy, stateRepo] = data;
+
 					if (proxy.$key) {
 						$unwatch(...proxy.$key);
 						delete proxy.$key;
 					}
 
-					if (!proxy.value?.isConnected) return;
-					proxy.value[$DISPOSABLE]?.clear();
+					const oldValue = proxy.value;
+					const connected = Array.isArray(oldValue)
+						? oldValue.some(node => node?.isConnected)
+						: oldValue?.isConnected;
+					if (!connected) return;
 
 					this.reloadingState = stateRepo;
 					stateRepo.prevStates = stateRepo.states;
@@ -1136,7 +1374,9 @@ if (import.meta.hot) {
 					try {
 						newInstance = component.apply(null, stateRepo.props);
 					} catch (e) {
+						console.error("热更新组件 "+identifier+" 失败", e);
 						location.reload();
+						return;
 					}
 
 					this.reloadingState = null;
@@ -1145,6 +1385,7 @@ if (import.meta.hot) {
 						if (!stateRepo.prevStates.has(key)) {
 							console.info("New state "+key+" added, no parity, reload.")
 							location.reload();
+							return;
 						}
 					}
 
@@ -1152,11 +1393,7 @@ if (import.meta.hot) {
 
 					proxy.value = newInstance;
 
-					newInstances.add([
-						newInstance,
-						proxy,
-						stateRepo
-					]);
+					this._registerInstance(newInstance, proxy, stateRepo, identifier);
 
 					createSeperatedListener(proxy, proxy.value);
 
@@ -1204,10 +1441,13 @@ const findChildIndex = (parent, self) => Array.prototype.indexOf.call(parent.chi
  * @param {(item: T, index: number) => E} renderItem - 生成列表项元素的函数
  * @param {(item: T, index: number) => K} [keyFunc=item => item] - 生成唯一标识的函数
  * @param {Map<K, E>} currentKeys
- * @param {(key: K, node: Renderable) => void} morphChild
+ * @param {(node: Renderable, item: T, index: number) => void} onReuse
  * @returns {AppendObserver} 包含动态列表的自定义元素
  */
-export const $foreach = (list, renderItem, keyFunc = AS_IS, {currentKeys = new Map, morphChild = AS_IS} = {}) => {
+export const $foreach = (list, renderItem, keyFunc = AS_IS, {
+	currentKeys = new Map,
+	onReuse = AS_IS
+} = {}) => {
 	if (!isReactive(list)) {
 		//if (import.meta.env.DEV) _devError("不应对非响应式数组使用$foreach; 以Array.prototype.map代替");
 		return list && list.map(renderItem);
@@ -1242,14 +1482,14 @@ export const $foreach = (list, renderItem, keyFunc = AS_IS, {currentKeys = new M
 			const key = newKeys[index];
 
 			let node = currentKeys.get(key);
-			if (!node?.isConnected) {
+			if (!isReactive(node) && !node?.isConnected) {
 				// 创建新元素
 				node = renderItem(item, index);
 				if (!isReactive(node))
 					node = createChildNode(node);
 				currentKeys.set(key, node);
 			} else {
-				morphChild(item, node);
+				onReuse(node, item, index);
 			}
 
 			// 调整位置
@@ -1262,10 +1502,12 @@ export const $foreach = (list, renderItem, keyFunc = AS_IS, {currentKeys = new M
 				if (isReactive(node)) {
 					const reactiveNode = node;
 					const listener = () => {
-						let orig = createChildNode(reactiveNode.value);
+						let orig = createChildNode(unconscious(reactiveNode));
 						if (node !== orig) {
 							node.replaceWith(orig);
 							$dispose(node, listenerKey);
+							$cleanup(orig, listenerKey);
+							currentKeys.set(key, orig);
 						}
 						node = orig;
 					};
@@ -1273,6 +1515,7 @@ export const $foreach = (list, renderItem, keyFunc = AS_IS, {currentKeys = new M
 					$watch(reactiveNode, listener, false);
 					node = createChildNode(unconscious(node));
 					$cleanup(node, listenerKey);
+					currentKeys.set(key, node);
 				}
 				parent.insertBefore(node, referenceNode);
 			}
@@ -1337,40 +1580,7 @@ export const $forElseAsyncState = (state, renderItem, emptyElement, loadingEleme
 };
 //endregion
 
-class VirtualListElement extends HTMLElement {
-	/**
-	 * @param {VirtualList} list
-	 */
-	constructor(list) {
-		super();
-		this.classList.add("_vl");
-		this.list = list;
-	}
-	connectedCallback() {this.list.attach(this.parentElement);}
-	disconnectedCallback() {this.list.destroy();}
-}
-customElements.define('virtual-list', VirtualListElement);
-
-/**
- * 创建按需更新的虚拟列表，复用现有DOM元素
- * @template T item type
- * @template {T|any} K key type
- * @template {Renderable} E element type
- * @param {Reactive<T[]>} list - 响应式列表
- * @param {(item: T, index: number) => E} renderer - 生成列表项元素的函数
- * @param {(item: T, index: number) => K} [keyFunc=item => item] - 生成唯一标识的函数
- * @returns {HTMLElement} 包含动态列表的自定义元素
- */
-export function $vforeach(list, renderer, keyFunc) {
-	const vl = new VirtualList({
-		renderer,
-		keyFunc,
-	});
-	$watch(list, (v, k) => {
-		vl.setItems(unconscious(list) ?? []);
-	});
-	return vl.dom = new VirtualListElement(vl);
-}
+export {$vforeach} from "./common/vforeach.js";
 
 //region 动画管理 $animate
 const $ANIM_CANCEL = debugSymbol("AnimationCancel");

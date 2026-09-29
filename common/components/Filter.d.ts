@@ -5,7 +5,7 @@ export interface Config {
     id?: string;
     name?: string;
     title?: string | Record<string, string>
-    type?: 'input' | 'textbox' | 'radio' | 'multiple' | 'range' | 'secret' | 'element' | 'number';
+    type?: 'input' | 'textbox' | 'radio' | 'multiple' | 'range' | 'secret' | 'element' | 'number' | 'list';
     element?: JSX.Element;
     min?: number;
     max?: number;

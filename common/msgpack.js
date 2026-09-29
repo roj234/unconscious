@@ -16,6 +16,7 @@
 "use strict";
 
 import {AS_IS, UTF8_TEXT_DECODER, UTF8_TEXT_ENCODER} from "../shared.js";
+import {betterObject} from "./Utils.js";
 
 /**
  * Prepares a schema for fast index lookup by adding a `locate` method.
@@ -92,14 +93,6 @@ export const decodeMsg = (input, options) => {
 		return decodeRawMsg(input, 0, options)[0];
 	}
 };
-
-const basicToStringAble = /*#__PURE__*/ Object.create(null);
-for (const n of ["toString", "valueOf"]) {
-	Object.defineProperty(basicToStringAble, n, {
-		value: Object.prototype[n]
-	});
-}
-Object.freeze(basicToStringAble);
 
 const LOOKUP = /*#__PURE__*/ new Uint8Array(256);
 for (let i = 0; i <= 0x7F; i++) LOOKUP[i] = i;
@@ -335,7 +328,7 @@ export const decodeRawMsg = (buf, offset, options = {}) => {
 		return arr;
 	};
 	const decodeMap = schema ? size => {
-		const obj = Object.create(basicToStringAble);
+		const obj = Object.create(betterObject);
 		const currSchema = schema;
 
 		for (let i = 0; i < size; i++) {
@@ -362,7 +355,7 @@ export const decodeRawMsg = (buf, offset, options = {}) => {
 
 		return obj;
 	} : size => {
-		const obj = Object.create(basicToStringAble);
+		const obj = Object.create(betterObject);
 
 		for (let i = 0; i < size; i++) {
 			const key = decodeMapKey();

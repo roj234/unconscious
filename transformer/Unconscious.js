@@ -1,6 +1,6 @@
 "use strict";
 
-import {normalizePath} from "vite";
+import {normalizePath} from "../common/path-utils.js";
 
 import t from "@babel/types";
 import {generate as babelGenerate} from '@babel/generator';
@@ -189,9 +189,11 @@ function createPlugin(_, options) {
 				let factory = this.existingStaticHtml.get(html);
 				if (!factory) {
 					factory = this.rootScope.generateUidIdentifier('__staticHTML');
+					const factoryInit = t.callExpression(getContext(file, 'id/clone')(), [t.stringLiteral(html)]);
+					babelAnnotateAsPure.default(factoryInit);
 					this.rootScope.push({
 						id: factory,
-						init: t.callExpression(getContext(file, 'id/clone')(), [t.stringLiteral(html)]),
+						init: factoryInit,
 						kind: 'const',  // 可选，默认是 'let'
 					});
 					this.existingStaticHtml.set(html, factory);
@@ -226,6 +228,7 @@ function createPlugin(_, options) {
 					lazyImport("id/many", "createFragment");
 					lazyImport("id/component", "createComponent");
 					lazyImport("id/computed", "$computed");
+					lazyImport("id/computedNoTrack", "$computedNoTrack");
 					lazyImport("id/deco/left", "_left");
 					lazyImport("id/deco/middle", "_middle");
 					lazyImport("id/deco/right", "_right");
@@ -401,6 +404,37 @@ function createPlugin(_, options) {
 			ArrowFunctionExpression: unwatchOnDispose,
 			FunctionDeclaration: unwatchOnDispose,
 
+			CallExpression(path, state) {
+				if (state.opts.micro) return;
+
+				const args = path.node.arguments;
+
+				if (isUnconsciousFunction(path, "$computed")) {
+					if (args.length >= 2 && !isNullOrUndefinedLiteral(args[1])) {
+						path.node.callee = getContext(state, "id/computedNoTrack")();
+					}
+					return;
+				}
+
+				// $derived(a.b) => $derived(a, "b")
+				if (isUnconsciousFunction(path, "$derived")) {
+					if (args.length !== 1) return;
+					const target = args[0];
+					if (!t.isMemberExpression(target) || t.isOptionalMemberExpression(target)) return;
+					if (t.isSuper(target.object)) return;
+
+					let key;
+					if (target.computed) {
+						if (!t.isExpression(target.property)) return;
+						key = target.property;
+					} else {
+						if (!t.isIdentifier(target.property)) return;
+						key = t.stringLiteral(target.property.name);
+					}
+					path.node.arguments = [target.object, key];
+				}
+			},
+
 			ExportDefaultDeclaration(path, state) {
 				const development = state.opts.envName === "development";
 				if (!development) return;
@@ -423,15 +457,10 @@ function createPlugin(_, options) {
 				if (t.isVariableDeclaration(decl)) {
 					let i = 0;
 					for (const declarator of decl.declarations) {
-						if (declarator.init) {
+						if (declarator.init && t.isIdentifier(declarator.id)
+							&& (t.isArrowFunctionExpression(declarator.init) || t.isFunctionExpression(declarator.init))) {
 							const componentId = declarator.id.name;
-
-							if (t.isArrowFunctionExpression(decl)) {
-								componentHMR(componentId, path.get('declaration.declarations.'+i+'.init'), state);
-							}
-							if (t.isFunctionDeclaration(decl)) {
-								componentHMR(componentId, path.get('declaration.declarations.'+i+'.init'), state);
-							}
+							componentHMR(componentId, path.get('declaration.declarations.'+i+'.init'), state);
 						}
 
 						i++;
@@ -458,11 +487,99 @@ function createPlugin(_, options) {
 	};
 }
 
+/**
+ * 判断该调用是不是对 unconscious 模块指定导出的直接调用（支持别名导入）
+ * @param {import('@babel/traverse').NodePath} path CallExpression 路径
+ * @param {string} name 导出名（如 "$computed"）
+ */
+function isUnconsciousFunction(path, name) {
+	const callee = path.node.callee;
+	if (!t.isIdentifier(callee)) return false;
+
+	const binding = path.scope.getBinding(callee.name);
+	if (binding?.kind !== "module") return false;
+
+	const source = binding.path.parent.source.value;
+	if (source !== "unconscious") return false;
+
+	const imported = binding.path.node.imported;
+	const importedName = imported ? imported.name ?? imported.value : callee.name;
+	return importedName === name;
+}
+
+const isNullOrUndefinedLiteral = node =>
+	t.isNullLiteral(node)
+	|| (t.isIdentifier(node) && node.name === "undefined")
+	|| (t.isUnaryExpression(node) && node.operator === "void");
+
+const isJSX = node => t.isJSXElement(node) || t.isJSXFragment(node);
+function containsJSX(node) {
+	if (isJSX(node)) return true;
+
+	let found = false;
+	t.traverseFast(node, (n) => {
+		if (found) return false;
+		if (t.isFunction(n)) return false;
+		if (isJSX(n)) {
+			found = true;
+			return false;
+		}
+	});
+	return found;
+}
+
+/** return 后面的表达式"是否可能是 JSX"——支持追踪局部变量绑定 */
+function exprMayBeJSX(path, seen = new Set()) {
+	if (containsJSX(path.node)) return true;
+	if (!path.isIdentifier()) return false;
+
+	const binding = path.scope.getBinding(path.node.name);
+	if (!binding || seen.has(binding)) return false;// 防止循环
+	seen.add(binding);
+
+	if (!binding.path.isVariableDeclarator()) return false;
+	if (!t.isIdentifier(binding.path.node.id)) return false;
+
+	const init = binding.path.get("init");
+	if (init.isExpression() && exprMayBeJSX(init, seen)) return true;
+
+	for (const v of binding.constantViolations) {
+		if (v.isAssignmentExpression({ operator: "=" })) {
+			if (exprMayBeJSX(v.get("right"), seen)) return true;
+		}
+	}
+	return false;
+}
+
 function componentHMR(componentId, path, state) {
 	const {node} = path;
 
 	const name = componentId === "default" ? node.id?.name : componentId;
 	if (!name || !isFirstCharUpperCase(name) || name.length === 1) return;
+
+	const body = path.get("body");
+	if (path.isArrowFunctionExpression()) {
+		if (!exprMayBeJSX(body)) return;
+	} else {
+		if (body.isBlockStatement()) {
+			if (body.node.directives?.some((d) => d.value.value === "no component")) return;
+		}
+
+		let jsx = false;
+		path.traverse({
+			Function(nested) {
+				nested.skip();
+			},
+			ReturnStatement(ret) {
+				const arg = ret.get("argument");
+				if (arg.isExpression() && exprMayBeJSX(arg)) {
+					jsx = true;
+					ret.stop();
+				}
+			},
+		});
+		if (!jsx) return;
+	}
 
 	let components = getContext(state, "knownComponents");
 	if (components == null) {
@@ -473,6 +590,16 @@ function componentHMR(componentId, path, state) {
 
 	if (node.params.length > 2) {
 		throw path.buildCodeFrameError('组件函数声明至多具有两个参数');
+	}
+
+	if (!t.isBlockStatement(node.body)) {
+		node.body = t.blockStatement([t.returnStatement(node.body)]);
+	}
+
+	if (t.isArrowFunctionExpression(node)) {
+		node.type = "FunctionExpression";
+		node.expression = false;
+		node.generator = false;
 	}
 
 	let stateRepoName = path.scope.generateUidIdentifier("stateRepo");
@@ -491,14 +618,17 @@ function componentHMR(componentId, path, state) {
 	const rootPath = path;
 	path.traverse({
 		Scope(path) {
-			if (path.scope !== rootPath.scope) {
+			if (path.isFunction()) {
 				path.skip();
 			}
 		},
 
 		ReturnStatement(path) {
 			if (!path.get('argument').node) {
-				throw path.buildCodeFrameError('组件必须返回"值"');
+				if (path.parentPath.node === rootPath.node.body) {
+					throw path.buildCodeFrameError('组件必须返回"值"');
+				}
+				return;
 			}
 
 			const originalArg = path.node.argument;
@@ -514,26 +644,40 @@ function componentHMR(componentId, path, state) {
 		},
 
 		CallExpression(path) {
-			const {callee, arguments: args} = path.node;
+			if (isUnconsciousFunction(path, "preserveState")) {
+				const {arguments: args} = path.node;
+				if (args.length !== 1 && args.length !== 2) {
+					throw path.buildCodeFrameError('preserveState只允许提供1或2个参数');
+				}
 
-			if (!t.isIdentifier(callee) || callee.name !== 'preserveState') return;
-			const binding = path.scope.getBinding("preserveState");
-			if (binding.kind !== "module" || binding.path.parent.source.value !== "unconscious") return;
+				if (args.length === 1) {
+					const code = babelGenerate(args[0]).code;
+					const index = counter.get(code) || 0;
+					counter.set(code, index + 1);
+					args.push(t.stringLiteral(code+"_"+index));
+				}
 
-			if (args.length !== 1 && args.length !== 2) {
-				throw path.buildCodeFrameError('preserveState只允许提供1或2个参数');
+				args.push(stateRepoName);
+				return;
 			}
 
-			if (args.length === 1) {
+			if (isUnconsciousFunction(path, "$state")) {
+				const {arguments: args} = path.node;
+				if (args.length > 3) throw path.buildCodeFrameError('$state 最多只能有3个参数');
+
+				while (args.length < 3) args.push(undefinedLiteral());
+
 				const code = babelGenerate(args[0]).code;
 				const index = counter.get(code) || 0;
 				counter.set(code, index + 1);
 				args.push(t.stringLiteral(code+"_"+index));
 			}
-
-			args.push(stateRepoName);
 		}
 	});
+}
+
+function undefinedLiteral() {
+	return t.unaryExpression("void", t.numericLiteral(0), true);
 }
 
 /**
@@ -872,7 +1016,7 @@ export function getFileName(path, state) {
 		const fileNameIdentifier = path.scope.generateUidIdentifier("_moduleId");
 		path.scope.getProgramParent().push({
 			id: fileNameIdentifier,
-			init: t.stringLiteral(normalizePath(filename))
+			init: t.stringLiteral(normalizePath(filename).join('/'))
 		});
 		state.fileNameIdentifier = fileNameIdentifier;
 	}

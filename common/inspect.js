@@ -50,7 +50,8 @@ const stringifyString = s => {
 	return escapeChar + escaped + escapeChar;
 };
 
-const TKV = (k, v) => v;
+const INSPECT_NOTHING = (k, v) => v;
+export const INSPECT_ALL = (k, v) => v;
 
 /**
  *
@@ -65,7 +66,7 @@ export function inspect(value, replacer, indent = 2) {
 
 	const prepared = prepare(value);
 	if (prepared === undefined) return;
-	return serialize(prepared, 0, space, seen, replacer ?? TKV);
+	return serialize(prepared, 0, space, seen, replacer ?? INSPECT_NOTHING);
 }
 
 /**
@@ -100,7 +101,7 @@ function serialize(value, depth, space, seen, replacer) {
 			if (typeof typeName !== "string") {
 				const prototype = value.__proto__;
 				if (!prototype) {
-					if (replacer !== TKV)
+					if (replacer === INSPECT_ALL)
 						typeName = "[Object: null prototype]";
 				} else {
 					typeName = prototype.constructor.name;
@@ -125,7 +126,7 @@ function serialize(value, depth, space, seen, replacer) {
 			return serializeObject(value, depth, space, seen, replacer);
 		case "function":return '[Function: '+(value.name || 'anonymous')+']';
 		//case "undefined":
-		default:return replacer === TKV ? "null" : "undefined";
+		default:return replacer === INSPECT_ALL ? "undefined" : "null";
 	}
 }
 
@@ -183,7 +184,7 @@ function serializeObject(obj, depth, space, seen, replacer) {
 
 	for (const [key, value] of entries) {
 		const prepared = prepare(replacer(key, value));
-		if (prepared === undefined && replacer === TKV) continue;
+		if (prepared === undefined && replacer !== INSPECT_ALL) continue;
 
 		result += delimiter;
 		result += childIndent + stringifyKey(key) + ": " + serialize(prepared, depth, space, seen, replacer);

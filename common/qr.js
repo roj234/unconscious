@@ -2,6 +2,7 @@
 // - Minified with BYTE_ONLY flag and Canvas backend only (ideal for browser). other backends are tree-shared.
 // - For Smart mode (no BYTE_ONLY), ~7.5 KiB minified.
 // - Require ~2.2KiB RAM for constants.
+// - Not caching RS/Geometry, not as fast as those cached.
 
 const BYTE_ONLY = false;
 
@@ -75,18 +76,9 @@ const RS_PATTERNS = new Uint8Array(4 * 4 * 40);
 {
 
 // 使用 delta 编码以压缩文件大小
-const RS_BLOCKS_ACC = Int8Array.of(
-	1, 0, 0, 1, 0, 2, 0, 0, 1, 0, 0, 3, 1, 0, 1, 0, 1, 2, 1, 2, 1, 0, 1, 2, 1, 2, 2, 1, 2, 1, 2, 2, 2, 2, 1, 2, 3, 2, 2, 2,
-	1, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, 0, 0, 1, 1, 0, 1, 0, 1, 2, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 2, 1,
-	1, 0, 1, 2, 0, 0, 1, 1, 2, 0, 3, 0, 5, 0, 2, -2, 3, 2, 4, 0, 0, 9, -4, 2, 3, 2, 3, 2, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 3, 4,
-	1, 0, 1, 0, 2, 0, 2, 0, 2, 0, 0, 2, 2, 4, -4, 5, -1, 2, 3, -1, 3, 0, 2, 2, 2, 5, 0, 1, 3, 2, 3, 2, 3, 3, 2, 3, 3, 3, 3, 3
-);
-const RS_SIZES_ACC = Int8Array.of(
-	10, 6, 10, -8, 6, -8, 2, 4, 0, 4, 4, -8, 0, 2, 0, 4, 0, -2, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	7, 3, 5, 5, 6, -8, 2, 4, 6, -12, 2, 4, 2, 4, -8, 2, 4, 2, -2, 0, 0, 0, 2, 0, -4, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	17, 11, -6, -6, 6, 6, -2, 0, -2, 4, -4, 4, -6, 2, 0, 6, -2, 0, -2, 2, 2, -6, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	13, 9, -4, 8, -8, 6, -6, 4, -2, 4, 4, -2, -2, -4, 10, -6, 4, 0, -2, 4, -2, 2, 0, 0, 0, -2, 2//, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-);
+const CHR_BASE = 103;
+const RS_BLOCKS_ACC = `hgghgigghggjhghghihihghihiihihiiiihijiiihgggghgggiggggiggghhghghigghhhhhhhghhhihhghigghhigjglgiejikggpcijijijjjjjjjjkkjkhghgigigiggiikclfijfjgiiilghjijijjijjjjj`;
+const RS_SIZES_ACC = `qmq_m_ikgkk_gigkgegggiggggggggggggggggggnjllm_ikm[ikik_ikiegggigciigggggggggggggxraammegekckaigmegeiiamgggggggggggggggggtpco_makekkeecqakgekeigggei`;
 
 /**
  *
@@ -108,8 +100,8 @@ for (let level = 0; level < 4; level++) {
 	for (let version = 0; version < 40;) {
 		const tab = version + level * 40;
 
-		blocks += RS_BLOCKS_ACC[tab];
-		ecLength += RS_SIZES_ACC[tab] | 0;
+		blocks += RS_BLOCKS_ACC.charCodeAt(tab) - CHR_BASE;
+		ecLength += (RS_SIZES_ACC.charCodeAt(tab) ?? CHR_BASE) - CHR_BASE;
 
 		const dataModules = countDataModules(++version) >> 3;
 		const shortBlocks = blocks - dataModules % blocks;
@@ -124,11 +116,8 @@ for (let level = 0; level < 4; level++) {
 
 }
 
-const ALIGNMENT_PATTERNS = Uint8Array.of(
-	11, 15, 19, 23, 27, 31,
-	16, 18, 20, 22, 24, 26, 28, 20, 22, 24, 24, 26, 28, 28, 22, 24, 24,
-	26, 26, 28, 28, 24, 24, 26, 26, 26, 28, 28, 24, 26, 26, 26, 28, 28
-);
+const ALIGNMENT_BASE = 86;
+const ALIGNMENT_PATTERNS = 'aeimqufhjlnprjlnnprrlnnpprrnnppprrnppprr';
 
 // BCH generator polynomials & mask used for format / version information.
 
@@ -416,7 +405,7 @@ const buildMatrix = version => {
 	probe(size - 7, 0);
 
 	// --- alignment patterns ---
-	const pos = version > 1 && ALIGNMENT_PATTERNS[version - 1];
+	const pos = version > 1 && (ALIGNMENT_PATTERNS.charCodeAt(version - 1) - ALIGNMENT_BASE);
 	if (pos) {
 		const addAlignment = (r, c) => {
 			if (get(r, c) !== -1) return; // avoid overlap with finder patterns
@@ -530,47 +519,42 @@ const buildMask = (mat, version, level, codewords, maskPattern) => {
  * Mask evaluation
  * @param {Int8Array} mat
  * @param {number} size
+ * @param {number} bestPoint
  * @return {number}
  */
-const lostPoint = (mat, size) => {
-	const end = size * size;
-	const runs = new Int16Array(size);
+const lostPoint = (mat, size, bestPoint) => {
 	let point = 0;
 	let darkCount = 0;
 
-	// N1 + N3 in one pass
-	for (let pass = 0; pass < 2; pass++) {
-		const stride = pass === 0 ? 1 : size; // pass0 为行，pass1 为列
-		for (let o = 0; o < size; o++) {
-			const base = pass === 0 ? o * size : o;
-			let color = mat[base];
-			const startColor = color;
-			let nc = 0;
-			runs[0] = 1;
+	// N1 + N3 + N4 in one pass
+	for (let axis = 0; axis < 2; axis++) {
+		for (let a = 0; a < size; a++) {
+			let runColor = -1;
+			let runLength = 0;
+			let window = 0;
 
-			for (let k = 1; k < size; k++) {
-				const c = mat[base + k * stride];
-				if (c === color) {
-					runs[nc]++;
+			for (let b = 0; b < size; b++) {
+				const color = axis === 0 ? mat[a * size + b] : mat[b * size + a];
+				if (axis === 0) darkCount += color;
+
+				window = ((window << 1) | color) & 0x7ff;
+				if (window === 0b10111010000 || window === 0b00001011101) point += 40;
+				if (color === runColor) {
+					runLength++;
+					if (runLength >= 5) point += runLength === 5 ? 3 : 1;
 				} else {
-					if (runs[nc] >= 5) point += 3 + (runs[nc] - 5);
-					color = c;
-					runs[++nc] = 1;
+					runColor = color;
+					runLength = 1;
 				}
 			}
-			if (runs[nc] >= 5) point += 3 + (runs[nc] - 5);
 
 			// N3 1011101 pattern
-			const darkParity = 1 - startColor;
-			for (let i = 2; i + 2 <= nc; i++) {
-				if ((i & 1) !== darkParity) continue;
-				if (runs[i] === 3 && runs[i - 2] === 1 && runs[i - 1] === 1 &&
-					runs[i + 1] === 1 && runs[i + 2] === 1) {
-					const leftPad = (i - 3 < 0) || runs[i - 3] >= 4;
-					const rightPad = (i + 3 > nc) || runs[i + 3] >= 4;
-					if (leftPad || rightPad) point += 40;
-				}
+			for (let k = 0; k < 4; k++) {
+				window = (window << 1) & 0x7ff;
+				if (window === 0b10111010000) point += 40;
 			}
+
+			if (point >= bestPoint) return point;
 		}
 	}
 
@@ -583,9 +567,9 @@ const lostPoint = (mat, size) => {
 		}
 	}
 
-	// N4: dark-module proportion
-	for (let i = 0; i < end; i++) if (mat[i] === 1) darkCount++;
-	point += Math.abs(100 * darkCount / end - 50) / 5 * 10;
+	const total = size * size;
+	// N4
+	point += Math.abs(100 * darkCount / total - 50) / 5 * 10;
 
 	return point;
 };
@@ -637,15 +621,17 @@ export const generateQRCode = (data, options = {}) => {
 	if (version == null) {
 		const max = options.maxVersion ?? 40;
 		let bits;
-		for (version = options.minVersion ?? 1; version < max; version++) {
+		for (version = options.minVersion ?? 1; version <= max; version++) {
 			bits = getRawLength(version, data);
 			if (bits <= getDataCapacity(version, level) * 8) break;
 		}
 
+		if (version > max) throw new RangeError("maxVersion is too low");
+
 		// auto use higher level if unspecified and applicable.
 		if (!options.dumb && null == options.level) {
 			for (const c of [0,3,2]) { // M Q H
-				if (bits > getDataCapacity(version, c)) break;
+				if (bits > getDataCapacity(version, c) * 8) break;
 				level = c;
 			}
 		}
@@ -668,7 +654,7 @@ export const generateQRCode = (data, options = {}) => {
 		for (let m = 0; m < 8; m++) {
 			mastMat.set(mat);
 			buildMask(mastMat, version, level, codewords, m);
-			const p = lostPoint(mastMat, size);
+			const p = lostPoint(mastMat, size, bestPoint);
 			if (p < bestPoint) { bestPoint = p; bestMask = m; }
 		}
 	}

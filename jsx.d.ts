@@ -490,10 +490,6 @@ interface DataHTMLAttributes<T> extends HTMLAttributes<T> {
     value?: string | string[] | number;
 }
 
-interface DetailsHTMLAttributes<T> extends HTMLAttributes<T> {
-    open?: boolean;
-}
-
 interface DelHTMLAttributes<T> extends HTMLAttributes<T> {
     cite?: string;
     dateTime?: string;
@@ -501,6 +497,8 @@ interface DelHTMLAttributes<T> extends HTMLAttributes<T> {
 
 interface DialogHTMLAttributes<T> extends HTMLAttributes<T> {
     open?: boolean;
+    onToggle?: EventHandler<ToggleEvent<T> & { target: T }>
+    'onToggle.once'?: EventHandler<ToggleEvent<T> & { target: T }>
 }
 
 interface EmbedHTMLAttributes<T> extends HTMLAttributes<T> {
@@ -1177,7 +1175,7 @@ declare global {
             datalist: HTMLProps<HTMLAttributes<HTMLDataListElement>, HTMLDataListElement>;
             dd: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
             del: HTMLProps<DelHTMLAttributes<HTMLElement>, HTMLElement>;
-            details: HTMLProps<DetailsHTMLAttributes<HTMLElement>, HTMLElement>;
+            details: HTMLProps<DialogHTMLAttributes<HTMLDetailsElement>, HTMLDetailsElement>;
             dfn: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
             dialog: HTMLProps<DialogHTMLAttributes<HTMLDialogElement>, HTMLDialogElement>;
             div: HTMLProps<HTMLAttributes<HTMLDivElement>, HTMLDivElement>;

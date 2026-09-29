@@ -20,12 +20,15 @@ const K = new Uint32Array([
 	0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
 ]);
 
+/**
+ * @typedef {{buf: Uint8Array, len: number, state: Uint32Array}} SHA256State
+ */
+
 export class SHA256 {
 	#buffer = new Uint8Array(64);
 	#view = new DataView(this.#buffer.buffer);
 	#pos = 0;
-	#lenH = 0;
-	#lenL = 0;
+	#len = 0;
 	#state = new Uint32Array([
 		0x6a09e667,
 		0xbb67ae85,
@@ -50,8 +53,7 @@ export class SHA256 {
 		let result = this.#result,
 			buffer = this.#buffer,
 			pos = this.#pos,
-			lenH = this.#lenH,
-			lenL = this.#lenL;
+			len = this.#len;
 		if (result) throw new Error('实例已完成');
 
 		// 字符串统一转为 Uint8Array
@@ -72,18 +74,36 @@ export class SHA256 {
 			if (pos === 64) {
 				this.#processChunk();
 
-				lenL = (lenL + 512) >>> 0;
-				if (lenL < 512) {
-					lenH = (lenH + 1) >>> 0;
-				}
+				len ++;
 				pos = 0;
 			}
 		}
 
 		this.#pos = pos;
-		this.#lenL = lenL;
-		this.#lenH = lenH;
+		this.#len = len;
 		return this;
+	}
+
+	/**
+	 * 备份和还原内部状态
+	 * @param {SHA256State} [set]
+	 * @return {SHA256State | undefined}
+	 */
+	state(set) {
+		if (set != null) {
+			this.#len = set.len;
+			this.#buffer.set(set.buf);
+			this.#pos = set.buf.length;
+			this.#state.set(set.state);
+			this.#result = null;
+			return;
+		}
+
+		return {
+			state: this.#state.slice(),
+			len: this.#len,
+			buf: this.#buffer.slice(0, this.#pos),
+		}
 	}
 
 	/**
@@ -91,18 +111,15 @@ export class SHA256 {
 	 * @param {'hex'|'arraybuffer'} [format='arraybuffer']
 	 * @returns {string|ArrayBuffer}
 	 */
-	digest(format ) {
+	digest(format) {
 		let result = this.#result,
 			buffer = this.#buffer,
 			view = this.#view,
 			pos = this.#pos,
-			lenH = this.#lenH,
-			lenL = this.#lenL,
+			len = this.#len,
 			state = this.#state;
 
 		if (!result) {
-			const bits = pos * 8;
-
 			buffer[pos] = 0x80;
 			buffer.fill(0, pos + 1);
 
@@ -113,11 +130,14 @@ export class SHA256 {
 			}
 
 			// 计算包含缓冲区的完整消息位长度
-			const sumLow = lenL + bits;
-			const carry = sumLow > 0xFFFFFFFF ? 1 : 0;
-
-			view.setUint32(56, lenH + carry);
-			view.setUint32(60, sumLow);
+			const bitLength = len * 512 + pos * 8;
+			if (bitLength > Number.MAX_SAFE_INTEGER) {
+				// 额，如果你需要算1PB哈希，其实你应该换一个算法，比如BLAKE3什么的……
+				view.setBigUint64(56, (BigInt(len) << 9n) | (BigInt(pos) << 3n));
+			} else {
+				view.setUint32(56, bitLength / 4294967296);
+				view.setUint32(60, bitLength);
+			}
 
 			this.#processChunk();
 

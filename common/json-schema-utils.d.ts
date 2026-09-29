@@ -31,7 +31,7 @@ export type ObjectSchema = BaseSchema & {
 export type ArraySchema = BaseSchema & {
     type: 'array';
     items?: Schema;
-    //prefixItems?: Schema;
+    prefixItems?: Schema[];
     minItems?: number;
     maxItems?: number;
 }

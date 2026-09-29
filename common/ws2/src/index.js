@@ -249,13 +249,17 @@ class WS2 extends EventEmitter {
 			if (idleMs >= intervalMs) {
 				if (!this.#heartbeatPingSent) {
 					this.#heartbeatPingSent = true;
-					this.#sendFrame(FRAME_PING, EMPTY_BUFFER);
+					this.ping();
 				} else if (idleMs >= (intervalMs + timeoutMs)) {
-					this.close(ERR_UNEXPECTED, 'timeout');
+					this.errCode = ERR_UNEXPECTED;
+					this.errMsg = 'timeout';
+					this.terminate();
 					this.isAlive = false;
 				}
 			}
 		}, timeoutMs / 2);
+
+		this.#heartbeatTimer.unref?.();
 	}
 
 	/** 停止心跳定时器 */
@@ -276,7 +280,21 @@ class WS2 extends EventEmitter {
 			}
 		});
 
-		socket.on('error', (e) => this.emit('error', e));
+		socket.on('error', (e) => {
+			if (this.readyState >= CLOSING) return;
+			this.emit('error', e);
+		});
+		socket.on('end', () => {
+			if (this.readyState === OPEN) {
+				this.readyState = CLOSING;
+				this.errCode = 1006;
+				this.errMsg = '';
+
+				if (socket.writable) this.#sendFrame(FRAME_CLOSE, EMPTY_BUFFER);
+			}
+
+			this.#endSocket();
+		})
 		socket.on('close', () => this._onClosed());
 
 		if (head?.length) this.#onData(head);
@@ -288,7 +306,9 @@ class WS2 extends EventEmitter {
 		if (!socket) return;
 
 		socket.end();
-		socket.once('finish', socket.destroy);
+		const listener = () => socket.destroy();
+		socket.once('finish', listener);
+		setTimeout(listener, 100)?.unref();
 	}
 
 	_onClosed() {
@@ -525,16 +545,14 @@ class WS2 extends EventEmitter {
 			case FRAME_PONG: this.emit('pong', Buffer.from(payload)); break;
 
 			case FRAME_CLOSE: {
-				if (payload.length < 2) { this.close(ERR_CLOSED, 'closed'); return; }
-
 				if (!this.errCode) {
-					this.errCode = payload.readUInt16BE(0);
-					this.errMsg = payload.toString('utf8', 2);
+					let code = ERR_CLOSED, reason = '';
+					if (payload.length >= 2) {
+						code = payload.readUInt16BE(0);
+						reason = payload.toString('utf8', 2);
+					}
+					this.close(code, reason);
 				}
-
-				try {
-					this.close(FRAME_CLOSE, EMPTY_BUFFER);
-				} catch {}
 				break;
 			}
 		}
@@ -843,6 +861,11 @@ class WS2 extends EventEmitter {
 		buf[--prefix] = frameType;
 
 		const socket = this.#socket;
+		if (!socket.writable) {
+			realPayload && this.#bufferReleased(ref);
+			return;
+		}
+
 		if (realPayload) {
 			socket.cork();
 			socket.write(Buffer.from(buf.subarray(prefix)));
@@ -969,7 +992,7 @@ function abortHandshake(socket, code, message, headers) {
 		...headers
 	};
 
-	socket.once('finish', socket.destroy);
+	socket.once('finish', () => socket.destroy());
 
 	socket.end(
 		`HTTP/1.1 ${code} ${http.STATUS_CODES[code]}\r\n` +
@@ -1126,7 +1149,7 @@ Sec-WebSocket-Accept: ${createHash('sha1').update(key + HANDSHAKE_GUID).digest('
 		ws.packetLimit = this.options.packetLimit ?? maxPayload;
 		ws.fragmentSize = this.options.fragmentSize ?? 0;
 		ws.compressThreshold = compressThreshold;
-		ws.extensions = compressThreshold ? 'permessage-deflate' : '';
+		ws.extensions = deflateExt ? 'permessage-deflate' : '';
 		ws.deflateWindowBits = deflateWindowBits;
 		ws.inflateWindowBits = inflateWindowBits;
 		ws.flags = flags;
@@ -1281,7 +1304,7 @@ export function WebSocket(url, options = {}) {
 			ws.fragmentSize = options.fragmentSize ?? 0;
 			const threshold = resolveDeflateThreshold(options.perMessageDeflate);
 			if (threshold !== 0) ws.compressThreshold = threshold;
-			ws.extensions = ws.compressThreshold !== 0 ? 'permessage-deflate' : '';
+			ws.extensions = deflateExt && ws.compressThreshold !== 0 ? 'permessage-deflate' : '';
 
 			ws._attach(socket, responseBuffer.subarray(headerEnd + 4, recv.writeIndex));
 			ws.emit('open');

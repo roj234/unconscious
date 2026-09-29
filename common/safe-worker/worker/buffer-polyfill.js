@@ -12,7 +12,7 @@ const _hexDecode = str => {
 	if (str.length & 1) throw new TypeError('Invalid hex string');
 	const len = str.length >>> 1;
 	const out = new Uint8Array(len);
-	for (let i = 0; i < len; i++) out[i] = parseInt(str.slice(i << 1, 2), 16);
+	for (let i = 0; i < len; i++) out[i] = parseInt(str.slice(i << 1, (i << 1) + 2), 16);
 	return out;
 };
 
@@ -61,6 +61,7 @@ const _ENCODERS = {
 };
 _ENCODERS['utf-8'] = _ENCODERS['utf8'];
 _ENCODERS['binary'] = _ENCODERS['latin1'];
+_ENCODERS['ascii'] = _ENCODERS['latin1'];
 
 const _encoder = enc => {
 	enc = (enc || 'utf8').toLowerCase();

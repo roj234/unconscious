@@ -154,6 +154,7 @@ export interface Sandbox {
      * @param env    - Value bound to `process.env` inside the module.
      *   Must be structured-cloneable.  Use for passing parameters without
      *   editing the source file.
+     * @param argv
      * @returns The module's default export, or `{}` if no `export default`.
      */
     execute(

@@ -2,7 +2,7 @@
  * shim 冒烟测试: 验证 ws 风格 API 语义 + 与 ws 客户端的互通。
  * 用法: node src/smoke.mjs
  */
-import {WebSocket as ShimWebSocket, WebSocketServer} from '../src/ndex.js';
+import {WebSocket as ShimWebSocket, WebSocketServer} from '../src/index.js';
 import {WebSocket as WSClient} from 'ws';
 
 let passed = 0;

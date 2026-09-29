@@ -134,12 +134,21 @@ export const formatSize = size => {
 	return (size / parseFloat(cap)).toFixed(i ? 2 : 0)+(SCALE[i-1]||'')+'B';
 };
 
+export const betterObject = /*#__PURE__*/ Object.create(null);
+for (const n of ["toString", "valueOf"]) {
+	Object.defineProperty(betterObject, n, {
+		value: Object.prototype[n]
+	});
+}
+Object.freeze(betterObject);
+
 /**
  * @template T
  * @param {T} input
+ * @param {Object} [prototype=null]
  * @return {Readonly<T>}
  */
-export const immutableObjectMap = input => Object.freeze(Object.assign(Object.create(null), input));
+export const immutableObjectMap = (input, prototype = betterObject) => Object.freeze(Object.assign(Object.create(prototype), input));
 
 /**
  * @param {Object} obj

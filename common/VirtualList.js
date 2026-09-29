@@ -79,23 +79,17 @@ export class VirtualList {
 	/**
 	 * @type {ResizeObserverCallback}
 	 * @param {{target: HTMLElement}[]} entries
-	 * @return {boolean}
 	 * @private
 	 */
 	_onResize = (entries, preservedViewTop) => {
 		const wrapper = this._wrapper;
-		// ResizeObserver 会把 observer 作为第二参数；只有内部同步测量传入的
-		// number 才表示修改 padding 前应保持的逻辑滚动位置。
-		const viewTop = typeof preservedViewTop === "number" ? preservedViewTop : (wrapper?.scrollTop ?? 0);
+		if (!wrapper) return;
 
-		// 必须在写入真实高度前，用旧高度模型确定当前可视锚点。
-		// overscan 中位于锚点前的项目高度变化时，需要同步补偿 scrollTop，
-		// 否则这些项目从估算高度切换到真实高度会推动可视内容瞬移。
-		// 移动到下方懒加载以优化宽度resize时的性能
-		let scrollAnchorIndex;
+		const viewTop = typeof preservedViewTop === "number" ? preservedViewTop : wrapper.scrollTop;
+
+		let scrollAnchorIndex = -1;
 		let heightChanged = 0;
-		let beforeAnchorHeightChanged = 0;
-		let hasHeightChanged = false;
+		let aboveAnchorHeightChanged = 0;
 
 		for (let {target, borderBoxSize} of entries) {
 			const itemIndex = target[INDEX];
@@ -104,62 +98,60 @@ export class VirtualList {
 			if (!item) continue;
 
 			const targetRect = borderBoxSize ? borderBoxSize[0].blockSize : target.getBoundingClientRect().height;
+			if (targetRect === 0) continue;
+
 			const gap = this.gap;
 			const measuredHeight = targetRect + (typeof gap === "function" ? gap.call(this, target) : gap);
-			if (!measuredHeight) continue;
 
 			let expectedHeight = item[ITEM_HEIGHT] ?? this.itemHeight;
 			if (null == expectedHeight) {
 				this.itemHeight = measuredHeight;
-				requestAnimationFrame(() => {
-					this._start = this._offset = this._height = 0;
-					this.render();
-				});
-				return;
+				this._start = this._offset = this._height = 0;
 			}
 
 			if (Math.abs(measuredHeight - expectedHeight) > 0.5) {
+				// 必须在写入新高度之前确定锚点，保证它基于本次批量变化前的布局。
+				if (scrollAnchorIndex < 0) scrollAnchorIndex = this._getScrollAnchorIndex(viewTop);
+
 				const delta = measuredHeight - expectedHeight;
 				item[ITEM_HEIGHT] = measuredHeight;
 				heightChanged += delta;
-				hasHeightChanged = true;
-				if (null == scrollAnchorIndex) scrollAnchorIndex = this._getScrollAnchorIndex(viewTop);
-				if (itemIndex < scrollAnchorIndex) beforeAnchorHeightChanged += delta;
+
+				if (itemIndex < scrollAnchorIndex) aboveAnchorHeightChanged += delta;
 			}
 		}
 
-		if (hasHeightChanged) {
-			this._height += heightChanged;
+		if (!heightChanged) return;
 
-			// 必须基于测量前保存的逻辑位置设置绝对值，不能在当前 scrollTop 上累加。
-			// DOM 更新期间浏览器可能已经把当前 scrollTop 夹取到临时的最大值；
-			// 若在夹取值上再加高度差，会把浏览器夹取和高度补偿重复计算。
-			const targetScrollTop = viewTop + beforeAnchorHeightChanged;
-			if (wrapper && (beforeAnchorHeightChanged || typeof preservedViewTop === "number")) {
-				wrapper.scrollTop = targetScrollTop;
+		if (this._height)
+			this._height = Math.max(0, this._height + heightChanged);
+
+		// 把第一个可见项钉回原来的屏幕位置
+		const newTop = Math.max(0, viewTop + aboveAnchorHeightChanged);
+		if (Math.abs(wrapper.scrollTop - newTop) > 0.5) wrapper.scrollTop = newTop;
+
+		if (!this._dirty) {
+			let recalculated = 0;
+			for (let j = 0; j < this._start; j++) {
+				recalculated += this._h(j);
 			}
+			this._offset = recalculated;
 
-			if (!this._dirty) {
-				let recalculated = 0;
-				for (let j = 0; j < this._start; j++) {
-					recalculated += this._h(j);
-				}
-				this._offset = recalculated;
-
-				this.render();
-			}
+			this.render();
 		}
-		// 高度差即使互相抵消，也需要让 render 再跑一轮来更新 padding。
-		return hasHeightChanged;
 	}
 
 	#ro = new ResizeObserver(this._onResize);
 	#io = new IntersectionObserver(entries => {
-		if((this._visible = entries.at(-1).isIntersecting) && this._dirty) {
-			this.resize();
+		if ((this._visible = entries.at(-1).isIntersecting) && this._dirty !== false) {
+			this._height = 0;
+			this.render();
 		}
 	});
-	#mainRo = new ResizeObserver(() => this.resize());
+	#mainRo = new ResizeObserver((entries) => {
+		const rect = entries.at(-1).contentRect;
+		if (rect.width * rect.height) this.render();
+	});
 
 	/**
 	 * @param {VirtualListConfig} config
@@ -169,7 +161,7 @@ export class VirtualList {
 		this.renderer = config.renderer;
 		this.gap = config.gap || 0;
 		this.keyFunc = config.keyFunc || (item => item[ITEM_KEY] ?? item);
-		this.isSameKey = config.isSameKey || ((a, b) => a[ITEM_KEY] === b);
+		this.reuseHook = config.reuseHook || ((a, b) => a[ITEM_KEY] === b);
 		this.overscan = config.overscan || 100;
 
 		this._dirty = !!(this.items = config.data);
@@ -179,6 +171,8 @@ export class VirtualList {
 			wrapper.appendChild(this.dom);
 			this.attach(wrapper);
 		}
+
+		this.dom._vl = this;
 	}
 
 	/**
@@ -199,10 +193,7 @@ export class VirtualList {
 	}
 
 	resize() {
-		//const style = this._wrapper?.firstElementChild.style;
-		//if (style) style.height = `1e6px`;
 		this.render();
-		//if (style) style.height = '';
 	}
 
 	scrollToBottom() {
@@ -222,7 +213,8 @@ export class VirtualList {
 		this._height = totalHeight;
 		this._dirty = 0;
 
-		dom.style = `padding-top:${startHeight}px;padding-bottom:0`;
+		dom.style.paddingTop = `${startHeight}px`;
+		dom.style.paddingBottom = '0px';
 		this.render();
 	}
 
@@ -257,11 +249,9 @@ export class VirtualList {
 	 */
 	setItems(items) {
 		this.items = items;
+		this._start = 0;
+		this._offset = 0;
 		this._height = 0;
-		if (items.length < this._start) {
-			this._start = 0;
-			this._offset = 0;
-		}
 		this.resize();
 	}
 
@@ -298,20 +288,24 @@ export class VirtualList {
 	destroy() {
 		this.#io.disconnect();
 		this.#mainRo.disconnect();
+		this.#ro.disconnect();
 		this._wrapper?.removeEventListener('scroll', this.render);
 		this._wrapper = null;
 	}
 
-	_h = (j) => this.items[j][ITEM_HEIGHT] ?? (this.itemHeight || 1);
+	_h = (j) => this.items[j][ITEM_HEIGHT] ?? (this.itemHeight || 16);
 
 	render = () => {
 		const scrolling = this._dirty === 0;
-		this._dirty = true;
 		let {
 			dom: container,
 			_visible,
 		} = this;
-		if (!_visible || !container.isConnected) return;
+
+		if (!_visible || !container.isConnected) {
+			this._dirty = scrolling ? 0 : true;
+			return;
+		}
 
 		let {
 			items,
@@ -327,7 +321,7 @@ export class VirtualList {
 		} = this;
 
 		if (scrolling) {
-			viewStart = this._wrapper.scrollHeight - viewHeight;
+			viewStart = Math.max(0, totalHeight - viewHeight);
 		}
 
 		// 只处理两次滚动之间的差值 O(n) => O(residual) ≈ O(1)
@@ -421,7 +415,7 @@ export class VirtualList {
 			noRender: {
 				if (node) {
 					existingItems.delete(item);
-					if (this.isSameKey(node, key = this.keyFunc(item, i))) {
+					if (this.reuseHook(node, key = this.keyFunc(item, i), item, i)) {
 						if (node[INDEX] !== i) break noRender;
 						node[INDEX] = i;
 						node[ITEM_KEY] = key;

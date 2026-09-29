@@ -80,11 +80,21 @@ export function $watch(objects: Reactive<any> | Reactive<any>[] | (() => any), l
 export function $watchOn(object: Reactive<any>, listener: () => void, element: HTMLElement): void;
 export function $unwatch(object: Reactive<any>, listener: Function): void;
 
+/**
+ * 创建计算属性
+ * 不传 dependencies 时自动捕获依赖，且每次求值都重新捕获（避免分支）
+ */
 export function $computed<T>(
     callback: (oldValue?: T) => T | undefined,
     dependencies?: Reactive<any>[],
     passthrough?: boolean
 ): Readonly<Reactive<T>>;
+
+/**
+ * 语法糖
+ */
+export function $derived<T>(path: T): Readonly<Reactive<T>>;
+export function $derived(obj: Readonly<Reactive<?>>, key: string): Readonly<Reactive<?>>;
 
 export function $update(objects: Reactive<any> | Reactive<any>[]): void;
 
@@ -115,17 +125,17 @@ export function assertReactive<T>(t: Reactive<T> | object): Reactive<T>;
  * @param [keyFunc=item => item] - 生成唯一标识的函数
  * @param options - 扩展配置对象
  * @param options.currentKeys - 可以替换成NestedMap
- * @param options.morphChild - key未变化时更新节点内部内容的函数（可选）
+ * @param options.onReuse -节点复用回调
  * @returns {AppendObserver} 包含动态列表的自定义元素
  */
 export function $foreach<T, K, E extends Renderable>(
     list: T[] | Reactive<T[]>,
     renderItem: (item: T, index: number) => E,
     keyFunc?: (item: T, index: number) => K,
-    options?: Partial<{
+    options?: {
         currentKeys?: Map<K, E>,
-        morphChild?: (key: K, node: Renderable) => void
-    }>
+        onReuse?: (node: E, item: T, index: number) => void;
+    }
 ): AppendObserver;
 
 /**
@@ -133,12 +143,16 @@ export function $foreach<T, K, E extends Renderable>(
  * @param list - 响应式列表
  * @param renderItem - 生成列表项元素的函数
  * @param [keyFunc=item => item] - 生成唯一标识的函数
+ * @param options - 扩展配置对象
  * @returns {AppendObserver} 包含动态列表的自定义元素
  */
 export function $vforeach<T, K, E extends Renderable>(
     list: T[] | Reactive<T[]>,
     renderItem: (item: T, index: number) => E,
     keyFunc?: (item: T, index: number) => K,
+    options?: {
+        reuseHook?: (node: E, newKey: K, item: K, index: number) => boolean;
+    }
 ): AppendObserver;
 
 export class AppendObserver extends HTMLElement {

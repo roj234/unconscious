@@ -398,7 +398,7 @@ export function validate(o, schema, issues, path = "$") {
 		case 'object': {
 			let {required = [], properties, additionalProperties = 1} = schema;
 			if (!properties) {
-				if (!required.length) break;
+				if (!required.length && additionalProperties === 1) break;
 				properties = {};
 			}
 			const additional = !additionalProperties && [];
@@ -448,14 +448,14 @@ export function validate(o, schema, issues, path = "$") {
 		}
 		break;
 		case 'array': {
-			const {minItems = 0, maxItems = NaN, items} = schema;
+			const {minItems = 0, maxItems = NaN, items, prefixItems} = schema;
 			const len = o.length;
 			if (len < minItems || len > maxItems) {
 				error(`length(${len}) must in [${minItems || ''}, ${maxItems || ''}]`);
 			}
-			if (items) {
+			if (items || prefixItems) {
 				for (let i = 0; i < len; i++) {
-					o[i] = validate(o[i], items, issues, path+"["+i+"]");
+					o[i] = validate(o[i], prefixItems?.[i] ?? items, issues, path+"["+i+"]");
 				}
 			}
 		}

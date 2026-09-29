@@ -1,34 +1,29 @@
-# Unconscious
+# Unconscious (蕨了)
 
 '上一代' 轻量级响应式框架，直接操作真实 DOM，提供细粒度更新和高性能。专注于最小化运行时开销，支持现代函数组件和丰富的 JSX 扩展语法。
-- Svelte家的Vue风味的React
+- 参考Svelte的Vue风味React
 
-### 你已经被警告过了
-- 对于除我以外的人来说，用起来很麻烦，**真的，真的很麻烦**
-- unconscious 在这个框架里是一个函数的名称
-  - 它的功能是从响应式对象中提取不具备更新能力的原始对象
+## 设计哲学
+
+- `unconscious` 是本框架核心函数的名称
+  - 它从响应式对象中提取不具备更新能力的原始对象
   - 因为响应式对象是"有意识的"，它知道自己什么时候要更新，原始数据是"无意识的"
-- 这个框架和函数的名字一样——它没有自己的意识。它不替开发者做决定。开发者应该清醒地知道每一行代码在做什么。
+- 这个框架和它的名字一样——没有自己的意识。它不替开发者做决定。开发者*需要*清醒地知道每一行代码在做什么。
   - 事件监听没有包装，没有代理（除非你自己在修饰符里加），你自己决定挂在哪个元素上，不会替你提升到window
-  - 响应式不是自然而然的表达式，你必须写 {a && b} 或者 {() => ...} 这两种编译器支持的自动转计算属性的语法
-    - 否则，他们就真的只会在调用时执行一次
-- 这不是一个完美的框架，而是一个诚实的框架。它如实告诉你：我不帮你做什么，你需要自己决定。
-- 我不建议在任何多人合作项目中使用这个框架，它是为一个人能完全理解所有代码行为的项目设计的。
-- 为了性能上限我牺牲了这么多，它的回报（大概）也是值得的
-
-
-- [Injector.js](Injector.js)会修改node_modules中部分文件的内容
-- - 修改了babel以暴露一些parser的内部API
-- - 修改了Vite WebWorker Polyfill的代码，理论上不影响现代浏览器
+  - 响应式不是自然而然的，你只能用 {reactiveVariable} 或者 {() => ...} 这两种语法，后者自动生成一个计算属性
+    - 否则，它们只会在调用时执行一次
+- 它不是让你轻松写出高性能应用的框架，也不能让你用更少的代码写出应用，甚至AI也不懂它；
+- 它只是一个诚实的框架：如何操作DOM，请*自己*决定。
+- 我不建议在任何协作项目中使用这个框架，它是为一个人理解所有代码的项目设计的。
 
 ## 特点
 
-✅ **真实 DOM 操作**
-- 放弃虚拟 DOM，直接修改真实 DOM 元素，实现属性/文本节点的精确更新
-- 更多 JSX 灵活性：支持 React 之外的语法，如事件装饰器（结合 CSS 选择器和修饰符）和元素装饰器
-- 示例：`<ol onclick.child(":scope>li").prevent={handler}>`，委托事件到特定子元素
+⚡ **高性能**
+- 不使用虚拟DOM，不存在Diff过程，元素何时更新、如何更新完全由开发者决定。
+- 这带来的是更高的性能，更小的内存，以及极高的开发难度（至少对比React和Vue那些宝宝巴士来说）
+- 但我还是希望能确定的知道代码会干什么，而不是“修改的VDOM会在下一个微任务上进行Diff并选择性更新”
 
-📦 **微型体积**  
+📦 **轻量级**  
 下面是未进行 tree-shaking 的大小
 
 | 版本     | 功能范围                  | Minfied大小 |
@@ -36,17 +31,16 @@
 | Normal | 完整功能（包括动画、存储、异步） | 9.5KB     |
 | Micro  | 基础 JSX 语法支持         | 1KB       |
 
-⚡ **极速性能**
-- 异步合并更新，减少重绘
-- 细粒度响应式：浅代理模式（`$update` 手动触发）或自动依赖追踪（`$computed`）
-- 列表渲染优化：`$foreach` 复用 DOM 元素，支持 key-based diff
+🔥 **现代化**
+- 更多 JSX 灵活性：支持 React 之外的语法，如事件装饰器（结合 CSS 选择器和修饰符）和元素装饰器
+  - 示例：`<ol onclick.child(":scope>li").prevent={handler}>`，委托事件到特定子元素
+- 支持 Vite 热重载（HMR）
+- 完善的类型定义，支持 TypeScript 开发和构建
+- 提供大量开箱即用的附加模块，例如动画管理，store，Promise组件，虚拟列表等
 
-🔥 **便捷现代**
-- 原生支持 Vite 热重载（HMR），函数组件状态无缝迁移
-- 带有完善的类型定义，支持 TypeScript 开发和构建
-- 响应式动画管理（`$animate` 返回 Promise）
-- 全局存储（`$store`）：LocalStorage 持久化 + 跨标签页同步
-- 异步状态管理：`$asyncState` 处理 loading/error，`$asyncComponent` 懒加载
+❌ **文档缺失和过时**
+- 单人项目的宿命，因为更新文档对我来说是一个完全没有回报的事情
+- 所以，有什么新功能自己翻 commit history 吧
 
 ## 快速开始
 
@@ -59,16 +53,16 @@ npm install
 一个计数器组件，我尽可能多的使用了不被IDE兼容的语法糖，这些糖有的我写了IDE兼容的workaround，但很不幸没有文档
 
 ```jsx
-import {$state, $computed, preserveState} from "unconscious";
+import {$state, $computed, unconscious} from "unconscious";
 // 函数组件
 export default function Counter() {
 	// 响应式状态
-	const count = preserveState($state(0));
+	const count = $state(0);
 	// 计算属性（自动追踪依赖）
 	const double = $computed(() => count.value * 2);
 
 	return <div onclick.children("button")={() => count.value++}>
-        {count.value === 1 ? "Counts" : "Count"}: {count} (Double: {double}) <br />
+        {() => unconscious(count) === 1 ? "Counts" : "Count"}: {count} (Double: {double}) <br />
         <button @styles={{color: "red"}}> +1 </button>
     </div>;
 }
@@ -77,28 +71,21 @@ export default function Counter() {
 ### 示例
 - 要理解示例代码，我假设你对JSX语法有一定了解，使用或了解过Vue和React
 - 点击查看或者在本地运行[全功能示例](example/src/main.js)，这个示例使用了后面介绍的所有函数
+- 示例也可能过时，另外现在不建议使用 `x.value` 取值，请使用 `unconscious(x)`
 
 ## API
 
-### 响应式核心
-| 方法                          | 说明                                                                 |
-|-------------------------------|----------------------------------------------------------------------|
-| `$state(obj, deep)`           | 创建响应式代理对象（`deep` 为 true 启用深度代理）                    |
-| `$watch(target, callback, triggerNow)` | 监听变化，支持返回清理函数（`triggerNow` 默认 true 立即执行）        |
-| `$computed(fn, lazy, dependencies)` | 创建计算属性（`lazy` 延迟计算；`dependencies` 手动指定依赖）         |
-| `$unwatch(target, callback)`  | 取消监听                                                             |
-| `$update(target)`             | 手动触发更新（支持数组，多变量共用监听器只触发一次）                 |
-| `unconscious(reactive)`       | 获取响应式对象的原始值                                               |
-| `isReactive(obj)`             | 检查是否为响应式对象                                                 |
+请直接阅读 `types.d.ts`  
+它控制 IDE 补全，所以是我唯一积极维护的【文档】  
+很多新 API 都没有在示例中出现，毕竟它是两年前写的了，例如 $vforeach $stampLock $derived 等  
+可以直接看我其他项目怎么用的。
 
-### 工具函数
-| 方法                          | 说明                                                                 |
-|-------------------------------|----------------------------------------------------------------------|
-| `appendChildren(parent, children)` | 插入子元素（支持响应式；触发 `append` 自定义事件，`detail` 为父元素） |
-| `$foreach(array, renderFn, keyFn?)` | 动态列表渲染（复用 DOM，支持 key 函数优化 diff）                     |
-| `$animate(element, options)`  | CSS 动画（返回 Promise，options: `{duration, easing, from, to}`）    |
-| `$forElse(array, renderFn, emptyEl)` | 带空状态的列表（数组为空时显示 `emptyEl`）                           |
-
+还有一些事：
+- `a && b` 会被翻译成 `a ? b : null`
+- HMR 不是只应用于模块的，它处理所有JS代码，并且使用的是类似代理模块的方案（vite 自己都说不建议）
+- 因此很容易因为 stale reference 造成该整页刷新的时候没刷新。例如JS模块重载后，旧的class实例还是旧模块
+- 我从来不用深度响应，它已经被 $derived 和 $computed 部分取代，主要是它不符合这个框架整体的设计哲学，因此，它可能在未来被删除。
+- 为了实现JSX新语法，我会修改node_modules的代码，当然你可以使用pnpm，因为这些修改都是opt-in的不破坏原版功能。
 
 ## 内置功能
 

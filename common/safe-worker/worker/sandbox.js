@@ -31,7 +31,7 @@ const createFunction = (code, name) => {
 		try {
 			codeCache.set(code, fn = fun('return async function '+(name ? name.replaceAll(/[^a-zA-Z]/g, '_') : 'inlineModule')+"(__onload, exports){"+code+"\n};")());
 		} catch (e) {
-			throw new Error("Failed to load module "+name+": "+e.message);
+			throw new SyntaxError("Module "+name+": "+e.message);
 		}
 		if (codeCache.size > 200) codeCache.delete(codeCache.keys().next().value);
 	}
@@ -92,6 +92,7 @@ const init = ([permissions, hm, prefix]) => {
 		global.Function = fun;
 		global.eval = eval;
 		global.WebAssembly = WebAssembly;
+		global.Worker = Worker;
 		allowRemoteImport = true;
 	}
 
@@ -101,7 +102,9 @@ const init = ([permissions, hm, prefix]) => {
 		const bufferModule = immutableObjectMap({ Buffer: Buffer, default: Buffer });
 
 		const emulatedFs = emulateFsPromises(RPC);
+		const emulatedFsPromises = emulatedFs.promises;
 		const fsModule = immutableObjectMap({ ...emulatedFs, default: emulatedFs });
+		const fsPromisesModule = immutableObjectMap({ ...emulatedFsPromises, default: emulatedFsPromises });
 
 		const pathModule = immutableObjectMap({ ...emulatedPath, default: emulatedPath });
 
@@ -121,15 +124,15 @@ const init = ([permissions, hm, prefix]) => {
 		nodeModules.set('buffer', bufferModule);
 		nodeModules.set('fs', fsModule);
 		nodeModules.set('process', processModules);
-		nodeModules.set('fs/promises', fsModule);
+		nodeModules.set('fs/promises', fsPromisesModule);
 		nodeModules.set('path', pathModule);
 		nodeModules.set('url', immutableObjectMap({
 			fileURLToPath(url) {
 				const rawPart = url.toString().slice("file:///".length);
-				return "./" + (emulatedPath.resolve(rawPart));
+				return emulatedPath.resolve(decodeURIComponent(rawPart));
 			},
 			pathToFileURL(path1) {
-				return new URL("file:///"+emulatedPath.resolve(path1));
+				return new URL("file://"+emulatedPath.resolve(path1));
 			}
 		}));
 		nodeModules.set('util', immutableObjectMap({ inspect }));
@@ -215,7 +218,8 @@ const onload = (module, callback) => moduleCache.get(module)?.then?.(callback);
  * 执行代码
  * @param {string|undefined} path - 模块名称(可选)
  * @param {string} code - 转换后的模块代码
- * @param {Object|undefined} env - 运行时的 process.env 上下文
+ * @param {Record<string, string>} [env] - 运行时的 process.env 上下文
+ * @param {string[]} [argv]
  * @returns {*}
  */
 const _eval = async ([path, code, env, argv]) => {
@@ -313,8 +317,10 @@ self.onmessage = async (e) => {
 		const pending = rpcTasks.get(id);
 		if (pending) {
 			rpcTasks.delete(id);
-			const error = data.error;
+			let error = data.error;
 			if (error) {
+				if (error.stack)
+					error = new Error(error.message);
 				pending[1](error);
 			} else {
 				pending[0](data.value);
@@ -350,9 +356,12 @@ const createHostModule = name => {
 	return fakePromise;
 };
 
+const resolvedPromise = Promise.resolve.bind(Promise);
+
 const global = {
 	Request,
 	Response,
+	FormData,
 	performance,
 	console: emulatedConsole,
 	OffscreenCanvas,
@@ -370,22 +379,23 @@ const global = {
 		if (isSystemModule) {
 			if (type) throw new Error('Builtin module cannot use type assertion');
 
-			if (name.startsWith("data:")) {
+			if (name.startsWith("data:") || name.startsWith("blob:")) {
 				if (!global.Function) throw new Error('\"data:\" is not allowed');
 				return import(name);
 			}
 			if (name.startsWith("file:")) {
 				const rawPart = name.slice("file:///".length);
-				name = "./" + (emulatedPath.resolve(rawPart));
+				name = emulatedPath.resolve(decodeURIComponent(rawPart));
+				isSystemModule = false;
 				break found;
 			}
 			if (allowRemoteImport) {
-				if (name.startsWith("http://") || name.startsWith("https://")) return import(name);
+				if (name.startsWith("http://") || name.startsWith("https://")) return import( /* @vite-ignore */ name);
 			}
 
 			let prefix = name.startsWith('node:') ? 5 : 0;
 			const nodeModule = nodeModules.get(name.slice(prefix));
-			if (nodeModule) return nodeModule;
+			if (nodeModule) return resolvedPromise(nodeModule);
 
 			const cache = moduleCache.get(name);
 			if (cache) return cache;
