@@ -180,6 +180,7 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 			}
 			break;
 			case 'multiple': {
+				const values = Object.values(item.choices);
 				const handler = ({target: btn}) => {
 					const value = item.choices[btn.firstChild.textContent];
 
@@ -190,7 +191,17 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 						const idx = arr.indexOf(value);
 
 						selectedNow = idx < 0;
-						if (selectedNow) arr.push(value);
+						if (selectedNow) {
+							let off = 0;
+							const selfIdx = values.indexOf(value);
+							let i = 0;
+							for (; i < arr.length; i++) {
+								off = values.indexOf(arr[i], off);
+								if (off > selfIdx) break;
+							}
+							if (off === 0) arr.unshift(value);
+							else arr.splice(i, 0, value);
+						}
 						else arr.splice(idx, 1);
 
 						let err = emit(id, arr);
@@ -466,8 +477,9 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 
 						let error;
 						if (result) {
-							[error, value] = result;
-							if (value != null) input.value = value;
+							let value2;
+							[error, value2] = result;
+							if (value2 != null) value = input.value = value2;
 						}
 
 						setWarning(wrapper, error);

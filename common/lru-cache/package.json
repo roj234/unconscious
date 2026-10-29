@@ -1,0 +1,14 @@
+{
+  "name": "@roj234/lru-cache",
+  "description": "Another LRU cache implementation.",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "types": "types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "import": "./index.js"
+    }
+  }
+}
