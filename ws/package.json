@@ -1,0 +1,21 @@
+{
+  "name": "@roj234/ws",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Slightly faster ws alternate",
+  "scripts": {
+    "test": "node test/smoke.mjs && node test/extra.mjs"
+  },
+  "peerDependencies": {
+    "bufferutil": ">=4"
+  },
+  "exports": {
+    ".": {
+      "_types": "./types/index.d.ts",
+      "import": "./src/index.js"
+    }
+  },
+  "peerDependenciesMeta": {
+    "bufferutil": { "optional": true }
+  }
+}

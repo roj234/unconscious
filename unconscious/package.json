@@ -1,0 +1,35 @@
+{
+	"name": "unconscious",
+	"version": "2.0.0",
+	"description": "Unconscious Web Framework",
+	"type": "module",
+	"author": "Roj234",
+	"license": "BSD-3-Clause",
+	"scripts": {
+		"example": "vite example",
+		"postinstall": "node Injector.js"
+	},
+
+	"exports": {
+		".": {
+			"types": "./types.d.ts",
+			"import": "./runtime.js"
+		},
+		"./vite": "./VitePlugin.mjs",
+		"./transformer": "./transform.js",
+		"./common/*": "./common/*"
+	},
+
+	"dependencies": {
+		"@babel/code-frame": "^7.27.1",
+		"@babel/generator": "^7.27.1",
+		"@babel/helper-annotate-as-pure": "^7.27.1",
+		"@babel/helper-module-imports": "^7.27.1",
+		"@babel/parser": "^7.27.1",
+		"@babel/template": "^7.27.1",
+		"@babel/traverse": "^7.27.1",
+		"@babel/types": "^7.27.1",
+		"@roj234/shared": "^1.0.0",
+		"@roj234/ie": "^0.1.0"
+	}
+}

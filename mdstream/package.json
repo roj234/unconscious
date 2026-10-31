@@ -1,0 +1,19 @@
+{
+  "name": "@roj234/mdstream",
+  "version": "1.2.5",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "import": "./index.js"
+    }
+  },
+  "license": "BSD-3",
+  "keywords": [
+    "markdown",
+    "incremental",
+    "stream",
+    "parser",
+    "render"
+  ]
+}

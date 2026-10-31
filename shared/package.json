@@ -1,0 +1,26 @@
+{
+	"name": "@roj234/shared",
+	"version": "1.0.0",
+	"description": "Very very common library just like add()",
+	"type": "module",
+	"author": "Roj234",
+	"license": "CC0",
+	"exports": {
+		".": {
+			"types": "./types/shared.d.ts",
+			"import": "./shared.js"
+		},
+		"./objects": {
+			"types": "./types/objects.d.ts",
+			"import": "./objects.js"
+		},
+		"./strings": {
+			"types": "./types/strings.d.ts",
+			"import": "./strings.js"
+		},
+		"./path": {
+			"types": "./types/path.d.ts",
+			"import": "./path.js"
+		}
+	}
+}

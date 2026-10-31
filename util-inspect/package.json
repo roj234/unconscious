@@ -1,0 +1,15 @@
+{
+	"name": "@roj234/util-inspect",
+	"version": "1.0.0",
+	"type": "module",
+	"author": "Roj234",
+	"exports": {
+		".": {
+			"types": "./types/index.d.ts",
+			"import": "./index.js"
+		}
+	},
+	"dependencies": {
+		"@roj234/lru-cache": "^1.0.0"
+	}
+}

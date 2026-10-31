@@ -1,0 +1,24 @@
+{
+	"name": "@roj234/ie",
+	"version": "0.1.0",
+	"type": "module",
+	"description": "A bit more than half of vItE",
+	"bin": {
+		"ie": "./cli.js"
+	},
+	"exports": {
+		".": "./src/index.js",
+		"./plugins/*": "./plugins/*",
+		"./utils/*": "./utils/*"
+	},
+	"scripts": {
+		"postinstall": "node ./scripts/prune-rollup.mjs"
+	},
+	"dependencies": {
+		"chokidar": "^4.0.3",
+		"esbuild": "^0.27.4",
+		"rollup": "^4.59.0",
+		"picomatch": "^4.0.4",
+		"postcss": "^8.5.8"
+	}
+}

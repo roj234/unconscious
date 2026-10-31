@@ -1,0 +1,25 @@
+{
+  "name": "@roj234/sadbox",
+  "version": "0.1.0",
+  "description": "COW-based Full Access sandbox for Agents. (Windows: Sandboxie; Linux: bwrap + overlayfs)",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/sadbox.d.ts",
+      "default": "./src/sadbox.js"
+    }
+  },
+  "files": [
+    "src/",
+    "prebuilds/",
+    "build.sh"
+  ],
+  "scripts": {
+    "build": "bash build.sh",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "license": "MIT"
+}

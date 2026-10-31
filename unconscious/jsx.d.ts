@@ -1,0 +1,1350 @@
+import type {Reactive} from "./types";
+
+type EventHandler<E extends Event> = { bivarianceHack(event: E): void }["bivarianceHack"];
+
+/** 事件对象上额外带的字段 */
+type EventExtras<T> = { target: T; delegateTarget?: Element };
+
+type GenericEventHandler<T = Element> = EventHandler<Event & EventExtras<T>>;
+type ClipboardEventHandler<T = Element> = EventHandler<ClipboardEvent & EventExtras<T>>;
+type CompositionEventHandler<T = Element> = EventHandler<CompositionEvent & EventExtras<T>>;
+type DragEventHandler<T = Element> = EventHandler<DragEvent & EventExtras<T>>;
+type FocusEventHandler<T = Element> = EventHandler<FocusEvent & EventExtras<T>>;
+type InputEventHandler<T = Element> = EventHandler<InputEvent & EventExtras<T>>;
+type KeyboardEventHandler<T = Element> = EventHandler<KeyboardEvent & EventExtras<T>>;
+type MouseEventHandler<T = Element> = EventHandler<MouseEvent & EventExtras<T>>;
+type TouchEventHandler<T = Element> = EventHandler<TouchEvent & EventExtras<T>>;
+type PointerEventHandler<T = Element> = EventHandler<PointerEvent & EventExtras<T>>;
+type UIEventHandler<T = Element> = EventHandler<UIEvent & EventExtras<T>>;
+type WheelEventHandler<T = Element> = EventHandler<WheelEvent & EventExtras<T>>;
+type AnimationEventHandler<T = Element> = EventHandler<AnimationEvent & EventExtras<T>>;
+type TransitionEventHandler<T = Element> = EventHandler<TransitionEvent & EventExtras<T>>;
+type SubmitEventHandler<T = Element> = EventHandler<SubmitEvent & EventExtras<T>>;
+
+/** lib.dom 里没有 Booleanish（是 @types/react 的私有类型） */
+type Booleanish = boolean | "true" | "false";
+
+interface EventHandlers<T> {
+    // Clipboard Events
+    onCopy?: ClipboardEventHandler<T>;
+    onCut?: ClipboardEventHandler<T>;
+    onPaste?: ClipboardEventHandler<T>;
+
+    // Composition Events
+    onCompositionEnd?: CompositionEventHandler<T>;
+    onCompositionStart?: CompositionEventHandler<T>;
+    onCompositionUpdate?: CompositionEventHandler<T>;
+
+    // Focus Events
+    onFocus?: FocusEventHandler<T>;
+    onBlur?: FocusEventHandler<T>;
+
+    // Form Events
+    onChange?: GenericEventHandler<T>;
+    onBeforeInput?: InputEventHandler<T>;
+    onInput?: InputEventHandler<T>;
+    onReset?: GenericEventHandler<T>;
+    onSubmit?: SubmitEventHandler<T>;
+    onInvalid?: GenericEventHandler<T>;
+
+    // Image Events
+    onLoad?: GenericEventHandler<T>;
+    onError?: GenericEventHandler<T>; // also a Media Event
+
+    // Keyboard Events
+    onKeyDown?: KeyboardEventHandler<T>;
+    onKeyPress?: KeyboardEventHandler<T>;
+    onKeyUp?: KeyboardEventHandler<T>;
+
+    // Media Events
+    onAbort?: GenericEventHandler<T>;
+    onCanPlay?: GenericEventHandler<T>;
+    onCanPlayThrough?: GenericEventHandler<T>;
+    onDurationChange?: GenericEventHandler<T>;
+    onEmptied?: GenericEventHandler<T>;
+    onEncrypted?: GenericEventHandler<T>;
+    onEnded?: GenericEventHandler<T>;
+    onLoadedData?: GenericEventHandler<T>;
+    onLoadedMetadata?: GenericEventHandler<T>;
+    onLoadStart?: GenericEventHandler<T>;
+    onPause?: GenericEventHandler<T>;
+    onPlay?: GenericEventHandler<T>;
+    onPlaying?: GenericEventHandler<T>;
+    onProgress?: GenericEventHandler<T>;
+    onRateChange?: GenericEventHandler<T>;
+    onSeeked?: GenericEventHandler<T>;
+    onSeeking?: GenericEventHandler<T>;
+    onStalled?: GenericEventHandler<T>;
+    onSuspend?: GenericEventHandler<T>;
+    onTimeUpdate?: GenericEventHandler<T>;
+    onVolumeChange?: GenericEventHandler<T>;
+    onWaiting?: GenericEventHandler<T>;
+
+    // MouseEvents
+    onAuxClick?: MouseEventHandler<T>;
+    onClick?: MouseEventHandler<T>;
+    onContextMenu?: MouseEventHandler<T>;
+    onDblClick?: MouseEventHandler<T>;
+    onDrag?: DragEventHandler<T>;
+    onDragEnd?: DragEventHandler<T>;
+    onDragEnter?: DragEventHandler<T>;
+    onDragExit?: DragEventHandler<T>;
+    onDragLeave?: DragEventHandler<T>;
+    onDragOver?: DragEventHandler<T>;
+    onDragStart?: DragEventHandler<T>;
+    onDrop?: DragEventHandler<T>;
+    onMouseDown?: MouseEventHandler<T>;
+    onMouseEnter?: MouseEventHandler<T>;
+    onMouseLeave?: MouseEventHandler<T>;
+    onMouseMove?: MouseEventHandler<T>;
+    onMouseOut?: MouseEventHandler<T>;
+    onMouseOver?: MouseEventHandler<T>;
+    onMouseUp?: MouseEventHandler<T>;
+
+    // Selection Events
+    onSelect?: GenericEventHandler<T>;
+
+    // Touch Events
+    onTouchCancel?: TouchEventHandler<T>;
+    onTouchEnd?: TouchEventHandler<T>;
+    onTouchMove?: TouchEventHandler<T>;
+    onTouchStart?: TouchEventHandler<T>;
+
+    // Pointer Events
+    onPointerDown?: PointerEventHandler<T>;
+    onPointerMove?: PointerEventHandler<T>;
+    onPointerUp?: PointerEventHandler<T>;
+    onPointerCancel?: PointerEventHandler<T>;
+    onPointerEnter?: PointerEventHandler<T>;
+    onPointerLeave?: PointerEventHandler<T>;
+    onPointerOver?: PointerEventHandler<T>;
+    onPointerOut?: PointerEventHandler<T>;
+    onGotPointerCapture?: PointerEventHandler<T>;
+    onLostPointerCapture?: PointerEventHandler<T>;
+
+    // UI Events
+    onScroll?: UIEventHandler<T>;
+
+    // Wheel Events
+    onWheel?: WheelEventHandler<T>;
+
+    // Animation Events
+    onAnimationStart?: AnimationEventHandler<T>;
+    onAnimationEnd?: AnimationEventHandler<T>;
+    onAnimationIteration?: AnimationEventHandler<T>;
+
+    // Transition Events
+    onTransitionEnd?: TransitionEventHandler<T>;
+}
+
+type EventHandlerKeys<T> = keyof EventHandlers<T>;
+type EventModifiers =
+    'passive' | 'noPassive' | 'capture' | 'once' |
+    'prevent' | 'stop' | 'children' | 'delegate' |
+    'left' | 'right' | 'middle';
+
+type ModifiedEventHandlers<T> = {
+    // 注意 ?：mapped type 不会继承源属性的可选性，漏掉它就是“每个元素都缺 900 个必填属性”
+    [K in EventHandlerKeys<T> as `${K}.${EventModifiers}`]?: EventHandlers<T>[K];
+};
+
+
+type Maybe<T> = T | (() => T) | Reactive<T>;
+
+type WrapMaybe<T> = {
+    [K in keyof T]?: Maybe<T[K]>;
+};
+
+interface ClassProps {
+    [key: `class:${string}`]: boolean;
+}
+interface StyleProps {
+    [key: `style:${string}`]: string | number;
+}
+
+type DOMAttributes<T> = ClassProps & StyleProps & {
+    children?: any;
+    dangerouslySetInnerHTML?: string;
+    [data: `data-${string}`]: string;
+    //[key: string]: any;
+}
+
+// All the WAI-ARIA 1.1 attributes from https://www.w3.org/TR/wai-aria-1.1/
+interface AriaAttributes {
+    /** Identifies the currently active element when DOM focus is on a composite widget, textbox, group, or application. */
+    'aria-activedescendant'?: string;
+    /** Indicates whether assistive technologies will present all, or only parts of, the changed region based on the change notifications defined by the aria-relevant attribute. */
+    'aria-atomic'?: boolean | 'false' | 'true';
+    /**
+     * Indicates whether inputting text could trigger display of one or more predictions of the user's intended value for an input and specifies how predictions would be
+     * presented if they are made.
+     */
+    'aria-autocomplete'?: 'none' | 'inline' | 'list' | 'both';
+    /** Indicates an element is being modified and that assistive technologies MAY want to wait until the modifications are complete before exposing them to the user. */
+    'aria-busy'?: boolean | 'false' | 'true';
+    /**
+     * Indicates the current "checked" state of checkboxes, radio buttons, and other widgets.
+     * @see aria-pressed @see aria-selected.
+     */
+    'aria-checked'?: boolean | 'false' | 'mixed' | 'true';
+    /**
+     * Defines the total number of columns in a table, grid, or treegrid.
+     * @see aria-colindex.
+     */
+    'aria-colcount'?: number;
+    /**
+     * Defines an element's column index or position with respect to the total number of columns within a table, grid, or treegrid.
+     * @see aria-colcount @see aria-colspan.
+     */
+    'aria-colindex'?: number;
+    /**
+     * Defines the number of columns spanned by a cell or gridcell within a table, grid, or treegrid.
+     * @see aria-colindex @see aria-rowspan.
+     */
+    'aria-colspan'?: number;
+    /**
+     * Identifies the element (or elements) whose contents or presence are controlled by the current element.
+     * @see aria-owns.
+     */
+    'aria-controls'?: string;
+    /** Indicates the element that represents the current item within a container or set of related elements. */
+    'aria-current'?: boolean | 'false' | 'true' | 'page' | 'step' | 'location' | 'date' | 'time';
+    /**
+     * Identifies the element (or elements) that describes the object.
+     * @see aria-labelledby
+     */
+    'aria-describedby'?: string;
+    /**
+     * Identifies the element that provides a detailed, extended description for the object.
+     * @see aria-describedby.
+     */
+    'aria-details'?: string;
+    /**
+     * Indicates that the element is perceivable but disabled, so it is not editable or otherwise operable.
+     * @see aria-hidden @see aria-readonly.
+     */
+    'aria-disabled'?: boolean | 'false' | 'true';
+    /**
+     * Indicates what functions can be performed when a dragged object is released on the drop target.
+     * @deprecated in ARIA 1.1
+     */
+    'aria-dropeffect'?: 'none' | 'copy' | 'execute' | 'link' | 'move' | 'popup';
+    /**
+     * Identifies the element that provides an error message for the object.
+     * @see aria-invalid @see aria-describedby.
+     */
+    'aria-errormessage'?: string;
+    /** Indicates whether the element, or another grouping element it controls, is currently expanded or collapsed. */
+    'aria-expanded'?: boolean | 'false' | 'true';
+    /**
+     * Identifies the next element (or elements) in an alternate reading order of content which, at the user's discretion,
+     * allows assistive technology to override the general default of reading in document source order.
+     */
+    'aria-flowto'?: string;
+    /**
+     * Indicates an element's "grabbed" state in a drag-and-drop operation.
+     * @deprecated in ARIA 1.1
+     */
+    'aria-grabbed'?: boolean | 'false' | 'true';
+    /** Indicates the availability and type of interactive popup element, such as menu or dialog, that can be triggered by an element. */
+    'aria-haspopup'?: boolean | 'false' | 'true' | 'menu' | 'listbox' | 'tree' | 'grid' | 'dialog';
+    /**
+     * Indicates whether the element is exposed to an accessibility API.
+     * @see aria-disabled.
+     */
+    'aria-hidden'?: boolean | 'false' | 'true';
+    /**
+     * Indicates the entered value does not conform to the format expected by the application.
+     * @see aria-errormessage.
+     */
+    'aria-invalid'?: boolean | 'false' | 'true' | 'grammar' | 'spelling';
+    /** Indicates keyboard shortcuts that an author has implemented to activate or give focus to an element. */
+    'aria-keyshortcuts'?: string;
+    /**
+     * Defines a string value that labels the current element.
+     * @see aria-labelledby.
+     */
+    'aria-label'?: string;
+    /**
+     * Identifies the element (or elements) that labels the current element.
+     * @see aria-describedby.
+     */
+    'aria-labelledby'?: string;
+    /** Defines the hierarchical level of an element within a structure. */
+    'aria-level'?: number;
+    /** Indicates that an element will be updated, and describes the types of updates the user agents, assistive technologies, and user can expect from the live region. */
+    'aria-live'?: 'off' | 'assertive' | 'polite';
+    /** Indicates whether an element is modal when displayed. */
+    'aria-modal'?: boolean | 'false' | 'true';
+    /** Indicates whether a text box accepts multiple lines of input or only a single line. */
+    'aria-multiline'?: boolean | 'false' | 'true';
+    /** Indicates that the user may select more than one item from the current selectable descendants. */
+    'aria-multiselectable'?: boolean | 'false' | 'true';
+    /** Indicates whether the element's orientation is horizontal, vertical, or unknown/ambiguous. */
+    'aria-orientation'?: 'horizontal' | 'vertical';
+    /**
+     * Identifies an element (or elements) in order to define a visual, functional, or contextual parent/child relationship
+     * between DOM elements where the DOM hierarchy cannot be used to represent the relationship.
+     * @see aria-controls.
+     */
+    'aria-owns'?: string;
+    /**
+     * Defines a short hint (a word or short phrase) intended to aid the user with data entry when the control has no value.
+     * A hint could be a sample value or a brief description of the expected format.
+     */
+    'aria-placeholder'?: string;
+    /**
+     * Defines an element's number or position in the current set of listitems or treeitems. Not required if all elements in the set are present in the DOM.
+     * @see aria-setsize.
+     */
+    'aria-posinset'?: number;
+    /**
+     * Indicates the current "pressed" state of toggle buttons.
+     * @see aria-checked @see aria-selected.
+     */
+    'aria-pressed'?: boolean | 'false' | 'mixed' | 'true';
+    /**
+     * Indicates that the element is not editable, but is otherwise operable.
+     * @see aria-disabled.
+     */
+    'aria-readonly'?: boolean | 'false' | 'true';
+    /**
+     * Indicates what notifications the user agent will trigger when the accessibility tree within a live region is modified.
+     * @see aria-atomic.
+     */
+    'aria-relevant'?: 'additions' | 'additions text' | 'all' | 'removals' | 'text';
+    /** Indicates that user input is required on the element before a form may be submitted. */
+    'aria-required'?: boolean | 'false' | 'true';
+    /** Defines a human-readable, author-localized description for the role of an element. */
+    'aria-roledescription'?: string;
+    /**
+     * Defines the total number of rows in a table, grid, or treegrid.
+     * @see aria-rowindex.
+     */
+    'aria-rowcount'?: number;
+    /**
+     * Defines an element's row index or position with respect to the total number of rows within a table, grid, or treegrid.
+     * @see aria-rowcount @see aria-rowspan.
+     */
+    'aria-rowindex'?: number;
+    /**
+     * Defines the number of rows spanned by a cell or gridcell within a table, grid, or treegrid.
+     * @see aria-rowindex @see aria-colspan.
+     */
+    'aria-rowspan'?: number;
+    /**
+     * Indicates the current "selected" state of various widgets.
+     * @see aria-checked @see aria-pressed.
+     */
+    'aria-selected'?: boolean | 'false' | 'true';
+    /**
+     * Defines the number of items in the current set of listitems or treeitems. Not required if all elements in the set are present in the DOM.
+     * @see aria-posinset.
+     */
+    'aria-setsize'?: number;
+    /** Indicates if items in a table or grid are sorted in ascending or descending order. */
+    'aria-sort'?: 'none' | 'ascending' | 'descending' | 'other';
+    /** Defines the maximum allowed value for a range widget. */
+    'aria-valuemax'?: number;
+    /** Defines the minimum allowed value for a range widget. */
+    'aria-valuemin'?: number;
+    /**
+     * Defines the current value for a range widget.
+     * @see aria-valuetext.
+     */
+    'aria-valuenow'?: number;
+    /** Defines the human readable text alternative of aria-valuenow for a range widget. */
+    'aria-valuetext'?: string;
+}
+
+interface HTMLAttributes<T> extends AriaAttributes, DOMAttributes<T> {
+    // Standard HTML Attributes
+    accessKey?: string;
+    className?: string;
+    contentEditable?: Booleanish | "inherit";
+    contextMenu?: string;
+    dir?: string;
+    draggable?: Booleanish;
+    hidden?: boolean;
+    id?: string;
+    lang?: string;
+    placeholder?: string;
+    slot?: string;
+    spellCheck?: Booleanish;
+    style?: string | Partial<CSSStyleDeclaration>;
+    tabIndex?: number;
+    title?: string;
+    translate?: 'yes' | 'no';
+
+    // Unknown
+    radioGroup?: string; // <command>, <menuitem>
+
+    // WAI-ARIA
+    role?: string;
+
+    // RDFa Attributes
+    about?: string;
+    datatype?: string;
+    inlist?: any;
+    prefix?: string;
+    property?: string;
+    resource?: string;
+    typeof?: string;
+    vocab?: string;
+
+    // Non-standard Attributes
+    autoCapitalize?: string;
+    autoCorrect?: string;
+    autoSave?: string;
+    color?: string;
+    itemProp?: string;
+    itemScope?: boolean;
+    itemType?: string;
+    itemID?: string;
+    itemRef?: string;
+    results?: number;
+    security?: string;
+    unselectable?: 'on' | 'off';
+
+    // Living Standard
+    /**
+     * Hints at the type of data that might be entered by the user while editing the element or its contents
+     * @see https://html.spec.whatwg.org/multipage/interaction.html#input-modalities:-the-inputmode-attribute
+     */
+    inputMode?: 'none' | 'text' | 'tel' | 'url' | 'email' | 'numeric' | 'decimal' | 'search';
+    /**
+     * Specify that a standard HTML element should behave like a defined custom built-in element
+     * @see https://html.spec.whatwg.org/multipage/custom-elements.html#attr-is
+     */
+    is?: string;
+}
+
+interface AnchorHTMLAttributes<T> extends HTMLAttributes<T> {
+    download?: any;
+    href?: string;
+    hrefLang?: string;
+    media?: string;
+    ping?: string;
+    rel?: string;
+    target?: string;
+    type?: string;
+    referrerPolicy?: string;
+}
+
+// tslint:disable-next-line:no-empty-interface
+interface AudioHTMLAttributes<T> extends MediaHTMLAttributes<T> {}
+
+interface AreaHTMLAttributes<T> extends HTMLAttributes<T> {
+    alt?: string;
+    coords?: string;
+    download?: any;
+    href?: string;
+    hrefLang?: string;
+    media?: string;
+    rel?: string;
+    shape?: string;
+    target?: string;
+}
+
+interface BaseHTMLAttributes<T> extends HTMLAttributes<T> {
+    href?: string;
+    target?: string;
+}
+
+interface BlockquoteHTMLAttributes<T> extends HTMLAttributes<T> {
+    cite?: string;
+}
+
+interface ButtonHTMLAttributes<T> extends HTMLAttributes<T> {
+    autoFocus?: boolean;
+    disabled?: boolean;
+    form?: string;
+    formAction?: string;
+    formEncType?: string;
+    formMethod?: string;
+    formNoValidate?: boolean;
+    formTarget?: string;
+    name?: string;
+    type?: 'submit' | 'reset' | 'button';
+    value?: string | string[] | number;
+}
+
+interface CanvasHTMLAttributes<T> extends HTMLAttributes<T> {
+    height?: number | string;
+    width?: number | string;
+}
+
+interface ColHTMLAttributes<T> extends HTMLAttributes<T> {
+    span?: number;
+    width?: number | string;
+}
+
+interface ColgroupHTMLAttributes<T> extends HTMLAttributes<T> {
+    span?: number;
+}
+
+interface DataHTMLAttributes<T> extends HTMLAttributes<T> {
+    value?: string | string[] | number;
+}
+
+interface DelHTMLAttributes<T> extends HTMLAttributes<T> {
+    cite?: string;
+    dateTime?: string;
+}
+
+interface DialogHTMLAttributes<T> extends HTMLAttributes<T> {
+    open?: boolean;
+    onToggle?: EventHandler<ToggleEvent & { target: T }>
+    'onToggle.once'?: EventHandler<ToggleEvent & { target: T }>
+}
+
+interface EmbedHTMLAttributes<T> extends HTMLAttributes<T> {
+    height?: number | string;
+    src?: string;
+    type?: string;
+    width?: number | string;
+}
+
+interface FieldsetHTMLAttributes<T> extends HTMLAttributes<T> {
+    disabled?: boolean;
+    form?: string;
+    name?: string;
+}
+
+interface FormHTMLAttributes<T> extends HTMLAttributes<T> {
+    acceptCharset?: string;
+    action?: string;
+    autoComplete?: string;
+    encType?: string;
+    method?: string;
+    name?: string;
+    noValidate?: boolean;
+    target?: string;
+}
+
+interface HtmlHTMLAttributes<T> extends HTMLAttributes<T> {
+    manifest?: string;
+}
+
+interface IframeHTMLAttributes<T> extends HTMLAttributes<T> {
+    allow?: string;
+    allowFullScreen?: boolean;
+    allowTransparency?: boolean;
+    frameBorder?: number | string;
+    height?: number | string;
+    marginHeight?: number;
+    marginWidth?: number;
+    name?: string;
+    referrerPolicy?: string;
+    sandbox?: string;
+    scrolling?: string;
+    seamless?: boolean;
+    src?: string;
+    srcDoc?: string;
+    width?: number | string;
+}
+
+interface ImgHTMLAttributes<T> extends HTMLAttributes<T> {
+    alt?: string;
+    crossOrigin?: "anonymous" | "use-credentials" | "";
+    decoding?: "async" | "auto" | "sync";
+    height?: number | string;
+    loading?: "eager" | "lazy";
+    referrerPolicy?: "no-referrer" | "origin" | "unsafe-url";
+    sizes?: string;
+    src?: string;
+    srcSet?: string;
+    useMap?: string;
+    width?: number | string;
+}
+
+interface InsHTMLAttributes<T> extends HTMLAttributes<T> {
+    cite?: string;
+    dateTime?: string;
+}
+
+interface InputHTMLAttributes<T> extends HTMLAttributes<T> {
+    accept?: string;
+    alt?: string;
+    autoComplete?: string;
+    autoFocus?: boolean;
+    capture?: boolean | string; // https://www.w3.org/TR/html-media-capture/#the-capture-attribute
+    checked?: boolean;
+    crossOrigin?: string;
+    disabled?: boolean;
+    form?: string;
+    formAction?: string;
+    formEncType?: string;
+    formMethod?: string;
+    formNoValidate?: boolean;
+    formTarget?: string;
+    height?: number | string;
+    list?: string;
+    max?: number | string;
+    maxLength?: number;
+    min?: number | string;
+    minLength?: number;
+    multiple?: boolean;
+    name?: string;
+    pattern?: string;
+    placeholder?: string;
+    readOnly?: boolean;
+    required?: boolean;
+    size?: number;
+    src?: string;
+    step?: number | string;
+    type?: string;
+    value?: string | string[] | number;
+    width?: number | string;
+
+    //onChange?: ChangeEventHandler<T>;
+}
+
+interface KeygenHTMLAttributes<T> extends HTMLAttributes<T> {
+    autoFocus?: boolean;
+    challenge?: string;
+    disabled?: boolean;
+    form?: string;
+    keyType?: string;
+    keyParams?: string;
+    name?: string;
+}
+
+interface LabelHTMLAttributes<T> extends HTMLAttributes<T> {
+    form?: string;
+    htmlFor?: string;
+}
+
+interface LiHTMLAttributes<T> extends HTMLAttributes<T> {
+    value?: string | string[] | number;
+}
+
+interface LinkHTMLAttributes<T> extends HTMLAttributes<T> {
+    as?: string;
+    crossOrigin?: string;
+    href?: string;
+    hrefLang?: string;
+    integrity?: string;
+    media?: string;
+    rel?: string;
+    sizes?: string;
+    type?: string;
+    charSet?: string;
+}
+
+interface MapHTMLAttributes<T> extends HTMLAttributes<T> {
+    name?: string;
+}
+
+interface MenuHTMLAttributes<T> extends HTMLAttributes<T> {
+    type?: string;
+}
+
+interface MediaHTMLAttributes<T> extends HTMLAttributes<T> {
+    autoPlay?: boolean;
+    controls?: boolean;
+    controlsList?: string;
+    crossOrigin?: string;
+    loop?: boolean;
+    mediaGroup?: string;
+    muted?: boolean;
+    playsInline?: boolean;
+    preload?: string;
+    src?: string;
+}
+
+interface MetaHTMLAttributes<T> extends HTMLAttributes<T> {
+    charSet?: string;
+    content?: string;
+    httpEquiv?: string;
+    name?: string;
+}
+
+interface MeterHTMLAttributes<T> extends HTMLAttributes<T> {
+    form?: string;
+    high?: number;
+    low?: number;
+    max?: number | string;
+    min?: number | string;
+    optimum?: number;
+    value?: string | string[] | number;
+}
+
+interface QuoteHTMLAttributes<T> extends HTMLAttributes<T> {
+    cite?: string;
+}
+
+interface ObjectHTMLAttributes<T> extends HTMLAttributes<T> {
+    classID?: string;
+    data?: string;
+    form?: string;
+    height?: number | string;
+    name?: string;
+    type?: string;
+    useMap?: string;
+    width?: number | string;
+    wmode?: string;
+}
+
+interface OlHTMLAttributes<T> extends HTMLAttributes<T> {
+    reversed?: boolean;
+    start?: number;
+    type?: '1' | 'a' | 'A' | 'i' | 'I';
+}
+
+interface OptgroupHTMLAttributes<T> extends HTMLAttributes<T> {
+    disabled?: boolean;
+    label?: string;
+}
+
+interface OptionHTMLAttributes<T> extends HTMLAttributes<T> {
+    disabled?: boolean;
+    label?: string;
+    selected?: boolean;
+    value?: string | string[] | number;
+}
+
+interface OutputHTMLAttributes<T> extends HTMLAttributes<T> {
+    form?: string;
+    htmlFor?: string;
+    name?: string;
+}
+
+interface ParamHTMLAttributes<T> extends HTMLAttributes<T> {
+    name?: string;
+    value?: string | string[] | number;
+}
+
+interface ProgressHTMLAttributes<T> extends HTMLAttributes<T> {
+    max?: number | string;
+    value?: string | string[] | number;
+}
+
+interface SlotHTMLAttributes<T> extends HTMLAttributes<T> {
+    name?: string;
+}
+
+interface ScriptHTMLAttributes<T> extends HTMLAttributes<T> {
+    async?: boolean;
+    charSet?: string;
+    crossOrigin?: string;
+    defer?: boolean;
+    integrity?: string;
+    noModule?: boolean;
+    nonce?: string;
+    src?: string;
+    type?: string;
+}
+
+interface SelectHTMLAttributes<T> extends HTMLAttributes<T> {
+    autoComplete?: string;
+    autoFocus?: boolean;
+    disabled?: boolean;
+    form?: string;
+    multiple?: boolean;
+    name?: string;
+    required?: boolean;
+    size?: number;
+    value?: string | string[] | number;
+    //onChange?: ChangeEventHandler<T>;
+}
+
+interface SourceHTMLAttributes<T> extends HTMLAttributes<T> {
+    media?: string;
+    sizes?: string;
+    src?: string;
+    srcSet?: string;
+    type?: string;
+}
+
+interface StyleHTMLAttributes<T> extends HTMLAttributes<T> {
+    media?: string;
+    nonce?: string;
+    scoped?: boolean;
+    type?: string;
+}
+
+interface TableHTMLAttributes<T> extends HTMLAttributes<T> {
+    cellPadding?: number | string;
+    cellSpacing?: number | string;
+    summary?: string;
+}
+
+interface TextareaHTMLAttributes<T> extends HTMLAttributes<T> {
+    autoComplete?: string;
+    autoFocus?: boolean;
+    cols?: number;
+    dirName?: string;
+    disabled?: boolean;
+    form?: string;
+    maxLength?: number;
+    minLength?: number;
+    name?: string;
+    placeholder?: string;
+    readOnly?: boolean;
+    required?: boolean;
+    rows?: number;
+    value?: string | string[] | number;
+    wrap?: string;
+
+    //onChange?: ChangeEventHandler<T>;
+}
+
+interface TdHTMLAttributes<T> extends HTMLAttributes<T> {
+    align?: "left" | "center" | "right" | "justify" | "char";
+    colSpan?: number;
+    headers?: string;
+    rowSpan?: number;
+    scope?: string;
+    abbr?: string;
+    valign?: "top" | "middle" | "bottom" | "baseline";
+}
+
+interface ThHTMLAttributes<T> extends HTMLAttributes<T> {
+    align?: "left" | "center" | "right" | "justify" | "char";
+    colSpan?: number;
+    headers?: string;
+    rowSpan?: number;
+    scope?: string;
+    abbr?: string;
+}
+
+interface TimeHTMLAttributes<T> extends HTMLAttributes<T> {
+    dateTime?: string;
+}
+
+interface TrackHTMLAttributes<T> extends HTMLAttributes<T> {
+    default?: boolean;
+    kind?: string;
+    label?: string;
+    src?: string;
+    srcLang?: string;
+}
+
+interface VideoHTMLAttributes<T> extends MediaHTMLAttributes<T> {
+    height?: number | string;
+    playsInline?: boolean;
+    poster?: string;
+    width?: number | string;
+    disablePictureInPicture?: boolean;
+}
+
+// TODO 哪些属性需要连字符，哪些不需要？
+interface SVGAttributes<T> extends AriaAttributes, DOMAttributes<T> {
+    // Attributes which also defined in HTMLAttributes
+    // See comment in SVGDOMPropertyConfig.js
+    className?: string;
+    color?: string;
+    height?: number | string;
+    id?: string;
+    lang?: string;
+    max?: number | string;
+    media?: string;
+    method?: string;
+    min?: number | string;
+    name?: string;
+    style?: string | Partial<CSSStyleDeclaration>;
+    target?: string;
+    type?: string;
+    width?: number | string;
+
+    // Other HTML properties supported by SVG elements in browsers
+    role?: string;
+    tabIndex?: number;
+    crossOrigin?: "anonymous" | "use-credentials" | "";
+
+    // SVG Specific attributes
+    accentHeight?: number | string;
+    accumulate?: "none" | "sum";
+    additive?: "replace" | "sum";
+    alignmentBaseline?: "auto" | "baseline" | "before-edge" | "text-before-edge" | "middle" | "central" | "after-edge" |
+        "text-after-edge" | "ideographic" | "alphabetic" | "hanging" | "mathematical" | "inherit";
+    allowReorder?: "no" | "yes";
+    alphabetic?: number | string;
+    amplitude?: number | string;
+    arabicForm?: "initial" | "medial" | "terminal" | "isolated";
+    ascent?: number | string;
+    attributeName?: string;
+    attributeType?: string;
+    autoReverse?: Booleanish;
+    azimuth?: number | string;
+    baseFrequency?: number | string;
+    baselineShift?: number | string;
+    baseProfile?: number | string;
+    bbox?: number | string;
+    begin?: number | string;
+    bias?: number | string;
+    by?: number | string;
+    calcMode?: number | string;
+    capHeight?: number | string;
+    clip?: number | string;
+    clipPath?: string;
+    clipPathUnits?: number | string;
+    clipRule?: number | string;
+    colorInterpolation?: number | string;
+    colorInterpolationFilters?: "auto" | "sRGB" | "linearRGB" | "inherit";
+    colorProfile?: number | string;
+    colorRendering?: number | string;
+    contentScriptType?: number | string;
+    contentStyleType?: number | string;
+    cursor?: number | string;
+    cx?: number | string;
+    cy?: number | string;
+    d?: string;
+    decelerate?: number | string;
+    descent?: number | string;
+    diffuseConstant?: number | string;
+    direction?: number | string;
+    display?: number | string;
+    divisor?: number | string;
+    dominantBaseline?: number | string;
+    dur?: number | string;
+    dx?: number | string;
+    dy?: number | string;
+    edgeMode?: number | string;
+    elevation?: number | string;
+    enableBackground?: number | string;
+    end?: number | string;
+    exponent?: number | string;
+    externalResourcesRequired?: Booleanish;
+    fill?: string;
+    fillOpacity?: number | string;
+    fillRule?: "nonzero" | "evenodd" | "inherit";
+    filter?: string;
+    filterRes?: number | string;
+    filterUnits?: number | string;
+    floodColor?: number | string;
+    floodOpacity?: number | string;
+    focusable?: Booleanish | "auto";
+    fontFamily?: string;
+    fontSize?: number | string;
+    fontSizeAdjust?: number | string;
+    fontStretch?: number | string;
+    fontStyle?: number | string;
+    fontVariant?: number | string;
+    fontWeight?: number | string;
+    format?: number | string;
+    from?: number | string;
+    fx?: number | string;
+    fy?: number | string;
+    g1?: number | string;
+    g2?: number | string;
+    glyphName?: number | string;
+    glyphOrientationHorizontal?: number | string;
+    glyphOrientationVertical?: number | string;
+    glyphRef?: number | string;
+    gradientTransform?: string;
+    gradientUnits?: string;
+    hanging?: number | string;
+    horizAdvX?: number | string;
+    horizOriginX?: number | string;
+    href?: string;
+    ideographic?: number | string;
+    imageRendering?: number | string;
+    in2?: number | string;
+    in?: string;
+    intercept?: number | string;
+    k1?: number | string;
+    k2?: number | string;
+    k3?: number | string;
+    k4?: number | string;
+    k?: number | string;
+    kernelMatrix?: number | string;
+    kernelUnitLength?: number | string;
+    kerning?: number | string;
+    keyPoints?: number | string;
+    keySplines?: number | string;
+    keyTimes?: number | string;
+    lengthAdjust?: number | string;
+    letterSpacing?: number | string;
+    lightingColor?: number | string;
+    limitingConeAngle?: number | string;
+    local?: number | string;
+    markerEnd?: string;
+    markerHeight?: number | string;
+    markerMid?: string;
+    markerStart?: string;
+    markerUnits?: number | string;
+    markerWidth?: number | string;
+    mask?: string;
+    maskContentUnits?: number | string;
+    maskUnits?: number | string;
+    mathematical?: number | string;
+    mode?: number | string;
+    numOctaves?: number | string;
+    offset?: number | string;
+    opacity?: number | string;
+    operator?: number | string;
+    order?: number | string;
+    orient?: number | string;
+    orientation?: number | string;
+    origin?: number | string;
+    overflow?: number | string;
+    overlinePosition?: number | string;
+    overlineThickness?: number | string;
+    paintOrder?: number | string;
+    panose1?: number | string;
+    path?: string;
+    pathLength?: number | string;
+    patternContentUnits?: string;
+    patternTransform?: number | string;
+    patternUnits?: string;
+    pointerEvents?: number | string;
+    points?: string;
+    pointsAtX?: number | string;
+    pointsAtY?: number | string;
+    pointsAtZ?: number | string;
+    preserveAlpha?: Booleanish;
+    preserveAspectRatio?: string;
+    primitiveUnits?: number | string;
+    r?: number | string;
+    radius?: number | string;
+    refX?: number | string;
+    refY?: number | string;
+    renderingIntent?: number | string;
+    repeatCount?: number | string;
+    repeatDur?: number | string;
+    requiredExtensions?: number | string;
+    requiredFeatures?: number | string;
+    restart?: number | string;
+    result?: string;
+    rotate?: number | string;
+    rx?: number | string;
+    ry?: number | string;
+    scale?: number | string;
+    seed?: number | string;
+    shapeRendering?: number | string;
+    slope?: number | string;
+    spacing?: number | string;
+    specularConstant?: number | string;
+    specularExponent?: number | string;
+    speed?: number | string;
+    spreadMethod?: string;
+    startOffset?: number | string;
+    stdDeviation?: number | string;
+    stemh?: number | string;
+    stemv?: number | string;
+    stitchTiles?: number | string;
+    stopColor?: string;
+    stopOpacity?: number | string;
+    strikethroughPosition?: number | string;
+    strikethroughThickness?: number | string;
+    string?: number | string;
+    stroke?: string;
+    'stroke-dasharray'?: string | number;
+    'stroke-dashoffset'?: string | number;
+    'stroke-linecap'?: "butt" | "round" | "square" | "inherit";
+    'stroke-linejoin'?: "miter" | "round" | "bevel" | "inherit";
+    'stroke-miterlimit'?: number | string;
+    'stroke-opacity'?: number | string;
+    'stroke-width'?: number | string;
+    surfaceScale?: number | string;
+    systemLanguage?: number | string;
+    tableValues?: number | string;
+    targetX?: number | string;
+    targetY?: number | string;
+    textAnchor?: string;
+    textDecoration?: number | string;
+    textLength?: number | string;
+    textRendering?: number | string;
+    to?: number | string;
+    transform?: string;
+    u1?: number | string;
+    u2?: number | string;
+    underlinePosition?: number | string;
+    underlineThickness?: number | string;
+    unicode?: number | string;
+    unicodeBidi?: number | string;
+    unicodeRange?: number | string;
+    unitsPerEm?: number | string;
+    vAlphabetic?: number | string;
+    values?: string;
+    vectorEffect?: number | string;
+    version?: string;
+    vertAdvY?: number | string;
+    vertOriginX?: number | string;
+    vertOriginY?: number | string;
+    vHanging?: number | string;
+    vIdeographic?: number | string;
+    viewBox?: string;
+    viewTarget?: number | string;
+    visibility?: number | string;
+    vMathematical?: number | string;
+    widths?: number | string;
+    wordSpacing?: number | string;
+    writingMode?: number | string;
+    x1?: number | string;
+    x2?: number | string;
+    x?: number | string;
+    xChannelSelector?: string;
+    xHeight?: number | string;
+    xlinkActuate?: string;
+    xlinkArcrole?: string;
+    xlinkHref?: string;
+    xlinkRole?: string;
+    xlinkShow?: string;
+    xlinkTitle?: string;
+    xlinkType?: string;
+    xmlBase?: string;
+    xmlLang?: string;
+    xmlns?: string;
+    xmlnsXlink?: string;
+    xmlSpace?: string;
+    y1?: number | string;
+    y2?: number | string;
+    y?: number | string;
+    yChannelSelector?: string;
+    z?: number | string;
+    zoomAndPan?: string;
+}
+
+interface WebViewHTMLAttributes<T> extends HTMLAttributes<T> {
+    allowFullScreen?: boolean;
+    allowpopups?: boolean;
+    autoFocus?: boolean;
+    autosize?: boolean;
+    blinkfeatures?: string;
+    disableblinkfeatures?: string;
+    disableguestresize?: boolean;
+    disablewebsecurity?: boolean;
+    guestinstance?: string;
+    httpreferrer?: string;
+    nodeintegration?: boolean;
+    partition?: string;
+    plugins?: boolean;
+    preload?: string;
+    src?: string;
+    useragent?: string;
+    webpreferences?: string;
+}
+
+/**
+ * @internal You shouldn't need to use this type since you never see these attributes
+ * inside your component or have to validate them.
+ */
+interface Attributes {
+    //key?: Key;
+}
+interface ClassAttributes<T> extends Attributes {
+    ref?: T;
+}
+
+/**
+ * 运行时支持的事件处理器对象形式：{capture, passive, once, f}
+ * @see runtime.js 里 setAttribute 的 ID_EVENTHANDLER 分支
+ */
+type EventOptionsObject<E> = {
+    once?: boolean;
+    capture?: boolean;
+    passive?: boolean;
+    f: E;
+};
+type MaybeEventOptions<E> = E | EventOptionsObject<E>;
+
+/**
+ * 把 EventHandlers<T> 的每个键放宽成 “函数 或 {capture/passive/once, f}”。
+ * 注意显式 ? —— mapped type 不会自动继承可选性（这也是 ModifiedEventHandlers 之前踩的坑）。
+ */
+type EventHandlersWithOptions<T> = {
+    [K in keyof EventHandlers<T>]?: MaybeEventOptions<NonNullable<EventHandlers<T>[K]>>;
+};
+
+type HTMLProps<E extends HTMLAttributes<T>, T> = ClassAttributes<T> & WrapMaybe<E> & EventHandlersWithOptions<T> & ModifiedEventHandlers<T>;
+interface SVGProps<T> extends SVGAttributes<T>, ClassAttributes<T> {}
+
+declare global {
+    namespace JSX {
+        // tslint:disable-next-line:no-empty-interface
+        interface Element extends HTMLElement { }
+        //interface ElementClass extends Component<any> { }
+        interface ElementAttributesProperty { props: {}; }
+        interface ElementChildrenAttribute { children: {}; }
+
+        // tslint:disable-next-line:no-empty-interface
+        interface IntrinsicAttributes extends Attributes { }
+        interface IntrinsicClassAttributes<T> extends ClassAttributes<T> { }
+
+        interface IntrinsicElements {
+            // HTML
+            a: HTMLProps<AnchorHTMLAttributes<HTMLAnchorElement>, HTMLAnchorElement>;
+            abbr: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            address: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            area: HTMLProps<AreaHTMLAttributes<HTMLAreaElement>, HTMLAreaElement>;
+            article: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            aside: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            audio: HTMLProps<AudioHTMLAttributes<HTMLAudioElement>, HTMLAudioElement>;
+            b: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            base: HTMLProps<BaseHTMLAttributes<HTMLBaseElement>, HTMLBaseElement>;
+            bdi: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            bdo: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            big: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            blockquote: HTMLProps<BlockquoteHTMLAttributes<HTMLElement>, HTMLElement>;
+            body: HTMLProps<HTMLAttributes<HTMLBodyElement>, HTMLBodyElement>;
+            br: HTMLProps<HTMLAttributes<HTMLBRElement>, HTMLBRElement>;
+            button: HTMLProps<ButtonHTMLAttributes<HTMLButtonElement>, HTMLButtonElement>;
+            canvas: HTMLProps<CanvasHTMLAttributes<HTMLCanvasElement>, HTMLCanvasElement>;
+            caption: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            cite: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            code: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            col: HTMLProps<ColHTMLAttributes<HTMLTableColElement>, HTMLTableColElement>;
+            colgroup: HTMLProps<ColgroupHTMLAttributes<HTMLTableColElement>, HTMLTableColElement>;
+            data: HTMLProps<DataHTMLAttributes<HTMLDataElement>, HTMLDataElement>;
+            datalist: HTMLProps<HTMLAttributes<HTMLDataListElement>, HTMLDataListElement>;
+            dd: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            del: HTMLProps<DelHTMLAttributes<HTMLElement>, HTMLElement>;
+            details: HTMLProps<DialogHTMLAttributes<HTMLDetailsElement>, HTMLDetailsElement>;
+            dfn: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            dialog: HTMLProps<DialogHTMLAttributes<HTMLDialogElement>, HTMLDialogElement>;
+            div: HTMLProps<HTMLAttributes<HTMLDivElement>, HTMLDivElement>;
+            dl: HTMLProps<HTMLAttributes<HTMLDListElement>, HTMLDListElement>;
+            dt: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            em: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            embed: HTMLProps<EmbedHTMLAttributes<HTMLEmbedElement>, HTMLEmbedElement>;
+            fieldset: HTMLProps<FieldsetHTMLAttributes<HTMLFieldSetElement>, HTMLFieldSetElement>;
+            figcaption: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            figure: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            footer: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            form: HTMLProps<FormHTMLAttributes<HTMLFormElement>, HTMLFormElement>;
+            h1: HTMLProps<HTMLAttributes<HTMLHeadingElement>, HTMLHeadingElement>;
+            h2: HTMLProps<HTMLAttributes<HTMLHeadingElement>, HTMLHeadingElement>;
+            h3: HTMLProps<HTMLAttributes<HTMLHeadingElement>, HTMLHeadingElement>;
+            h4: HTMLProps<HTMLAttributes<HTMLHeadingElement>, HTMLHeadingElement>;
+            h5: HTMLProps<HTMLAttributes<HTMLHeadingElement>, HTMLHeadingElement>;
+            h6: HTMLProps<HTMLAttributes<HTMLHeadingElement>, HTMLHeadingElement>;
+            head: HTMLProps<HTMLAttributes<HTMLHeadElement>, HTMLHeadElement>;
+            header: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            hgroup: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            hr: HTMLProps<HTMLAttributes<HTMLHRElement>, HTMLHRElement>;
+            html: HTMLProps<HtmlHTMLAttributes<HTMLHtmlElement>, HTMLHtmlElement>;
+            i: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            iframe: HTMLProps<IframeHTMLAttributes<HTMLIFrameElement>, HTMLIFrameElement>;
+            img: HTMLProps<ImgHTMLAttributes<HTMLImageElement>, HTMLImageElement>;
+            input: HTMLProps<InputHTMLAttributes<HTMLInputElement>, HTMLInputElement>;
+            ins: HTMLProps<InsHTMLAttributes<HTMLModElement>, HTMLModElement>;
+            kbd: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            keygen: HTMLProps<KeygenHTMLAttributes<HTMLElement>, HTMLElement>;
+            label: HTMLProps<LabelHTMLAttributes<HTMLLabelElement>, HTMLLabelElement>;
+            legend: HTMLProps<HTMLAttributes<HTMLLegendElement>, HTMLLegendElement>;
+            li: HTMLProps<LiHTMLAttributes<HTMLLIElement>, HTMLLIElement>;
+            link: HTMLProps<LinkHTMLAttributes<HTMLLinkElement>, HTMLLinkElement>;
+            main: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            map: HTMLProps<MapHTMLAttributes<HTMLMapElement>, HTMLMapElement>;
+            mark: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            menu: HTMLProps<MenuHTMLAttributes<HTMLElement>, HTMLElement>;
+            menuitem: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            meta: HTMLProps<MetaHTMLAttributes<HTMLMetaElement>, HTMLMetaElement>;
+            meter: HTMLProps<MeterHTMLAttributes<HTMLElement>, HTMLElement>;
+            nav: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            noindex: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            noscript: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            object: HTMLProps<ObjectHTMLAttributes<HTMLObjectElement>, HTMLObjectElement>;
+            ol: HTMLProps<OlHTMLAttributes<HTMLOListElement>, HTMLOListElement>;
+            optgroup: HTMLProps<OptgroupHTMLAttributes<HTMLOptGroupElement>, HTMLOptGroupElement>;
+            option: HTMLProps<OptionHTMLAttributes<HTMLOptionElement>, HTMLOptionElement>;
+            output: HTMLProps<OutputHTMLAttributes<HTMLElement>, HTMLElement>;
+            p: HTMLProps<HTMLAttributes<HTMLParagraphElement>, HTMLParagraphElement>;
+            param: HTMLProps<ParamHTMLAttributes<HTMLParamElement>, HTMLParamElement>;
+            picture: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            pre: HTMLProps<HTMLAttributes<HTMLPreElement>, HTMLPreElement>;
+            progress: HTMLProps<ProgressHTMLAttributes<HTMLProgressElement>, HTMLProgressElement>;
+            q: HTMLProps<QuoteHTMLAttributes<HTMLQuoteElement>, HTMLQuoteElement>;
+            rp: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            rt: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            ruby: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            s: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            samp: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            slot: HTMLProps<SlotHTMLAttributes<HTMLSlotElement>, HTMLSlotElement>;
+            script: HTMLProps<ScriptHTMLAttributes<HTMLScriptElement>, HTMLScriptElement>;
+            section: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            select: HTMLProps<SelectHTMLAttributes<HTMLSelectElement>, HTMLSelectElement>;
+            small: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            source: HTMLProps<SourceHTMLAttributes<HTMLSourceElement>, HTMLSourceElement>;
+            span: HTMLProps<HTMLAttributes<HTMLSpanElement>, HTMLSpanElement>;
+            strong: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            style: HTMLProps<StyleHTMLAttributes<HTMLStyleElement>, HTMLStyleElement>;
+            sub: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            summary: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            sup: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            table: HTMLProps<TableHTMLAttributes<HTMLTableElement>, HTMLTableElement>;
+            template: HTMLProps<HTMLAttributes<HTMLTemplateElement>, HTMLTemplateElement>;
+            tbody: HTMLProps<HTMLAttributes<HTMLTableSectionElement>, HTMLTableSectionElement>;
+            td: HTMLProps<TdHTMLAttributes<HTMLTableDataCellElement>, HTMLTableDataCellElement>;
+            textarea: HTMLProps<TextareaHTMLAttributes<HTMLTextAreaElement>, HTMLTextAreaElement>;
+            tfoot: HTMLProps<HTMLAttributes<HTMLTableSectionElement>, HTMLTableSectionElement>;
+            th: HTMLProps<ThHTMLAttributes<HTMLTableHeaderCellElement>, HTMLTableHeaderCellElement>;
+            thead: HTMLProps<HTMLAttributes<HTMLTableSectionElement>, HTMLTableSectionElement>;
+            time: HTMLProps<TimeHTMLAttributes<HTMLElement>, HTMLElement>;
+            title: HTMLProps<HTMLAttributes<HTMLTitleElement>, HTMLTitleElement>;
+            tr: HTMLProps<HTMLAttributes<HTMLTableRowElement>, HTMLTableRowElement>;
+            track: HTMLProps<TrackHTMLAttributes<HTMLTrackElement>, HTMLTrackElement>;
+            u: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            ul: HTMLProps<HTMLAttributes<HTMLUListElement>, HTMLUListElement>;
+            "var": HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+            video: HTMLProps<VideoHTMLAttributes<HTMLVideoElement>, HTMLVideoElement>;
+            wbr: HTMLProps<HTMLAttributes<HTMLElement>, HTMLElement>;
+
+            // SVG
+            svg: SVGProps<SVGSVGElement>;
+
+            animate: SVGProps<SVGAnimateElement>;
+            animateMotion: SVGProps<SVGElement>;
+            animateTransform: SVGProps<SVGAnimateTransformElement>;
+            circle: SVGProps<SVGCircleElement>;
+            clipPath: SVGProps<SVGClipPathElement>;
+            defs: SVGProps<SVGDefsElement>;
+            desc: SVGProps<SVGDescElement>;
+            ellipse: SVGProps<SVGEllipseElement>;
+            feBlend: SVGProps<SVGFEBlendElement>;
+            feColorMatrix: SVGProps<SVGFEColorMatrixElement>;
+            feComponentTransfer: SVGProps<SVGFEComponentTransferElement>;
+            feComposite: SVGProps<SVGFECompositeElement>;
+            feConvolveMatrix: SVGProps<SVGFEConvolveMatrixElement>;
+            feDiffuseLighting: SVGProps<SVGFEDiffuseLightingElement>;
+            feDisplacementMap: SVGProps<SVGFEDisplacementMapElement>;
+            feDistantLight: SVGProps<SVGFEDistantLightElement>;
+            feDropShadow: SVGProps<SVGFEDropShadowElement>;
+            feFlood: SVGProps<SVGFEFloodElement>;
+            feFuncA: SVGProps<SVGFEFuncAElement>;
+            feFuncB: SVGProps<SVGFEFuncBElement>;
+            feFuncG: SVGProps<SVGFEFuncGElement>;
+            feFuncR: SVGProps<SVGFEFuncRElement>;
+            feGaussianBlur: SVGProps<SVGFEGaussianBlurElement>;
+            feImage: SVGProps<SVGFEImageElement>;
+            feMerge: SVGProps<SVGFEMergeElement>;
+            feMergeNode: SVGProps<SVGFEMergeNodeElement>;
+            feMorphology: SVGProps<SVGFEMorphologyElement>;
+            feOffset: SVGProps<SVGFEOffsetElement>;
+            fePointLight: SVGProps<SVGFEPointLightElement>;
+            feSpecularLighting: SVGProps<SVGFESpecularLightingElement>;
+            feSpotLight: SVGProps<SVGFESpotLightElement>;
+            feTile: SVGProps<SVGFETileElement>;
+            feTurbulence: SVGProps<SVGFETurbulenceElement>;
+            filter: SVGProps<SVGFilterElement>;
+            foreignObject: SVGProps<SVGForeignObjectElement>;
+            g: SVGProps<SVGGElement>;
+            image: SVGProps<SVGImageElement>;
+            line: SVGProps<SVGLineElement>;
+            linearGradient: SVGProps<SVGLinearGradientElement>;
+            marker: SVGProps<SVGMarkerElement>;
+            mask: SVGProps<SVGMaskElement>;
+            metadata: SVGProps<SVGMetadataElement>;
+            mpath: SVGProps<SVGElement>;
+            path: SVGProps<SVGPathElement>;
+            pattern: SVGProps<SVGPatternElement>;
+            polygon: SVGProps<SVGPolygonElement>;
+            polyline: SVGProps<SVGPolylineElement>;
+            radialGradient: SVGProps<SVGRadialGradientElement>;
+            rect: SVGProps<SVGRectElement>;
+            stop: SVGProps<SVGStopElement>;
+            switch: SVGProps<SVGSwitchElement>;
+            symbol: SVGProps<SVGSymbolElement>;
+            text: SVGProps<SVGTextElement>;
+            textPath: SVGProps<SVGTextPathElement>;
+            tspan: SVGProps<SVGTSpanElement>;
+            use: SVGProps<SVGUseElement>;
+            view: SVGProps<SVGViewElement>;
+        }
+    }
+}
+
+export {};

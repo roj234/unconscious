@@ -1,0 +1,13 @@
+{
+  "name": "@roj234/web-audio-engine",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "100% by AI. fixed some other impls' bug",
+  "exports": {
+    ".": {
+      "_types": "./types/index.d.ts",
+      "import": "./offline-audio-context.js",
+      "default": "./offline-audio-context.js"
+    }
+  }
+}

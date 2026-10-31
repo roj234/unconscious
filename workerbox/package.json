@@ -1,0 +1,16 @@
+{
+  "name": "@roj234/workerbox",
+  "description": "Safer and better WebWorker.",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "import": "./index.js"
+    }
+  },
+  "dependencies": {
+    "@roj234/shared": "^1.0.0",
+    "unconscious": "^2.0.0"
+  }
+}
