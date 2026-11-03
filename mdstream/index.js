@@ -353,6 +353,8 @@ function endElement(p, pending_with_char) {
  */
 function parser_write(p, chunk) {
 	for (let char of chunk) {
+		if (char === '\r') continue;
+
 		if (p.token === NEWLINE) {
 			switch (char) {
 				case ' ': p.indent_len += 1; continue

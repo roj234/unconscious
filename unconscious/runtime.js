@@ -253,7 +253,7 @@ const setAttribute = (element, key, value) => {
 		break;
 	}
 
-	if (key in element && typeof element[key] !== "object" && value !== undefined) {
+	if (value !== undefined && key in element && typeof element[key] !== "object") {
 		element[key] = value;
 	} else if (value == null) {
 		element.removeAttribute(key);
@@ -1536,11 +1536,11 @@ export const $foreach = (list, renderItem, keyFunc = AS_IS, {
  */
 export const $forElse = (list, renderItem, emptyElement, keyFunc) => {
 	let forEach;
-	return $computed(oldValue => {
+	return $computedNoTrack(oldValue => {
 		const length = unconscious(list)?.length;
 		if (length && !forEach) forEach = $foreach(list, renderItem, keyFunc);
 		return length ? forEach : emptyElement;
-	});
+	}, [list]);
 };
 
 /**
@@ -1555,7 +1555,7 @@ export const $forElse = (list, renderItem, emptyElement, keyFunc) => {
  */
 export const $forElseAsyncState = (state, renderItem, emptyElement, loadingElement, errorElement) => {
 	let forEach;
-	return $computed(oldValue => {
+	return $computedNoTrack(oldValue => {
 		if (state.loading) return loadingElement;
 
 		let length = unconscious(state)?.length;
@@ -1567,11 +1567,11 @@ export const $forElseAsyncState = (state, renderItem, emptyElement, loadingEleme
 
 		if (length && !forEach) forEach = $foreach(state, renderItem);
 		return length ? forEach : emptyElement;
-	});
+	}, [state]);
 };
 //endregion
 
-export {$vforeach} from "./common/vforeach.js";
+export {$vforeach, $vforElse} from "./common/vforeach.js";
 
 //region 动画管理 $animate
 const $ANIM_CANCEL = debugSymbol("AnimationCancel");
@@ -1847,9 +1847,9 @@ export const $asyncState = (fetcher, value, initialValue) => {
  * @returns {Reactive<Renderable>}
  */
 export const $asyncRenderer = (state, loading, error) => {
-	return $computed(() => {
+	return $computedNoTrack(() => {
 		return state.loading ? myApply(loading) ?? "加载中..." : state.error ? myApply(error, state.error) ?? state.error : unconscious(state);
-	});
+	}, [state]);
 };
 
 //endregion
@@ -1880,9 +1880,9 @@ export const $asyncComponent = (loader, loading, error) => {
 			if (state.error) return myApply(error, state.error) ?? state.error;
 			return createComponent(state.value, props, ...children);
 		};
-		return state.loading ? $computed(() => {
+		return state.loading ? $computedNoTrack(() => {
 			return state.loading ? myApply(loading) ?? "加载中..." : createInstance();
-		}) : createInstance();
+		}, [state]) : createInstance();
 	}
 };
 //endregion
@@ -1942,7 +1942,7 @@ export const For = ({each, fallback}, [renderItem]) => {
 			template = $foreach(each, renderItem);
 
 		return value.length ? template : fallback
-	});
+	}, [each]);
 };
 
 // 感觉没有必要实现 Portal

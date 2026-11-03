@@ -76,7 +76,7 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 					const init = choices[id];
 					const values = Object.values(item.choices);
 					const off = values.indexOf(init);
-					if (off < 0) choices[id] = values[0];
+					if (off < 0) choices[id] = item.default ?? values[0];
 				}
 			break;
 		}
@@ -323,16 +323,27 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 				const trackFill = <div className='range-track-fill' />;
 
 				let isZero;
-				const updateUI = () => {
+				const updateUI = (flag) => {
 					const myMin = slider.valueAsNumber;
-					if (input.value !== String(myMin))
-						input.valueAsNumber = myMin;
+					warning?.remove();
+					if (input.value !== String(myMin)) {
+						const num = parseInt(input.value || '0', 10);
+						if (flag !== 1 || num === myMin) input.valueAsNumber = myMin;
+						else {
+							input.valueAsNumber = num;
+							showWarning(`值超出范围 ${min} - ${max}`);
+						}
+					}
 					isZero = !myMin;
 					trackFill.style.width = `${pct(myMin)}%`;
 				};
 				const syncState = (e) => {
 					let newValue = slider.valueAsNumber;
 					if (e.target.type === 'range' && step !== 1) newValue = Math.round(newValue / step) * step;
+
+					warning?.remove();
+					input.valueAsNumber = newValue;
+
 					emit(id, newValue);
 					state[id] = newValue;
 				};
@@ -340,14 +351,14 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 				const limitMax = e => {
 					const value = e.target.value;
 					slider.value = clamp(Number(isZero && e.inputType === 'insertText' ? value.replace("0", "") : value));
-					updateUI();
+					updateUI(1);
 				};
 
 				const slider = <input type='range' min={min} max={max} step={step>1?1:step} onInput={step !== 1 ? () => {
 					slider.value = Math.round(slider.valueAsNumber / step) * step;
 					updateUI();
 				} : updateUI} onChange={syncState} />;
-				const input = <input className="range-values" type='number' min={min} max={max} step={step} onInput={limitMax} onChange={syncState} />;
+				const input = <input className="range-values" type='number' min={min > 0 ? 0 : min} max={max} step={step} onInput={limitMax} onChange={syncState} />;
 
 				row = <div className='range-wrap'>
 					<div className='range-slider'>

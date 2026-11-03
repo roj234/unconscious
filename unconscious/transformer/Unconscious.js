@@ -21,12 +21,8 @@ function intellijCompat(s) {
 	return s === "className" ? "class" : s;
 }
 
-function escapeAttr(unsafe) {
-	return unsafe.replace(/"/g, "\\\"");
-}
-function escapeText(unsafe) {
-	return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-}
+const escapeAttr = unsafe => unsafe.replace(/"/g, "\\\"");
+const escapeText = unsafe => unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
 const HTML_VOID = new Set("area,base,br,col,embed,hr,img,input,link,meta,source,track,wbr".split(","));
 
@@ -43,10 +39,7 @@ function generateStaticHTML(node) {
 
 		// TODO may this handle decorator or whatever?
 		let attrs = node.openingElement.attributes
-			.filter(attr => {
-				if (!t.isJSXAttribute(attr) || attr.name.name === "ref") return false;
-				return attr.value;
-			})
+			.filter(attr => t.isJSXAttribute(attr) && attr.name.name !== "ref")
 			.map(attr => {
 				let name = attr.name.name;
 				if (t.isJSXNamespacedName(attr.name)) {
@@ -54,7 +47,7 @@ function generateStaticHTML(node) {
 				}
 				name = intellijCompat(name);
 				let val = attr.value;
-				if (val.expression) val = val.expression;
+				if (val?.expression) val = val.expression;
 				let valStr = "";
 				if (val) {
 					if (t.isStringLiteral(val)) {
@@ -79,7 +72,7 @@ function generateStaticHTML(node) {
 	if (t.isJSXExpressionContainer(node))
 		node = node.expression;
 	if (isStaticAttribute(node)) {
-		return escapeText(node.value);
+		return typeof node.value === 'string' ? escapeText(node.value) : String(node.value);
 	}
 
 	throw new Error("Unknown element type");

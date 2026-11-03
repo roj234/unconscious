@@ -1,0 +1,18 @@
+{
+	"name": "@roj234/fetch-proxy",
+	"version": "1.0.0",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./fetch.d.ts",
+			"import": "./fetch.js"
+		},
+		"./agent/socks5": {
+			"types": "./socks5-agent.d.ts",
+			"import": "./socks5-agent.js"
+		}
+	},
+	"dependencies": {
+		"@roj234/shared": "^1.0.0"
+	}
+}

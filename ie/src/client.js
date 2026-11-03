@@ -59,6 +59,8 @@ const BROWSER = 'document' in globalThis;
 
 const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${HMR_PATH}`, HMR_PROTOCOL);
 
+const INIT_HREF = Symbol("LinkUrl");
+
 ws.onopen = () => {
 	connectedTime = Date.now();
 	console.debug(`[ie] connected.`);
@@ -81,7 +83,7 @@ ws.onmessage = async event => {
 			if (!BROWSER) return;
 			for (const update of payload.updates) {
 				for (const link of document.querySelectorAll('link[rel="stylesheet"]')) {
-					const url = new URL(link.href, location.href);
+					const url = link[INIT_HREF] ??= new URL(link.href, location.href);
 					if (url.pathname !== update.path) continue;
 					url.searchParams.set('t', update.timestamp);
 					link.href = url.href;

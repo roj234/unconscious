@@ -164,6 +164,16 @@ export class NestedMap {
 		}
 	}
 
+	forEach(callback, map = this.#tree) {
+		for (const [key, value] of map.entries()) {
+			if (key !== NODE_VALUE) {
+				this.forEach(callback, value);
+			} else {
+				callback(value);
+			}
+		}
+	}
+
 	clear() {
 		this.#tree.clear();
 		this.#simple.clear();

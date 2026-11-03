@@ -1,5 +1,5 @@
 import {VirtualList} from "./VirtualList.js";
-import {$watch, unconscious} from "../runtime.js";
+import {$computedNoTrack, $watch, unconscious} from "../runtime.js";
 
 class VirtualListElement extends HTMLElement {
 	/**
@@ -37,3 +37,20 @@ export function $vforeach(list, renderer, keyFunc, options) {
 	});
 	return vl.dom = new VirtualListElement(vl);
 }
+
+/**
+ * 创建按需更新的虚拟列表，复用现有DOM元素
+ * @template T
+ * @param {Reactive<T[]>} list - 响应式列表
+ * @param {(item: T, index: number) => Renderable} renderItem - 生成列表项元素的函数 (item, index) => Element
+ * @param {Renderable} emptyElement 列表为空时显示的元素
+ * @returns {Readonly<Reactive<JSX.Element>>}
+ */
+export const $vforElse = (list, renderItem, emptyElement, keyFunc, options) => {
+	let forEach;
+	return $computedNoTrack(oldValue => {
+		const length = unconscious(list)?.length;
+		if (length && !forEach) forEach = $vforeach(list, renderItem, keyFunc, options);
+		return length ? forEach : emptyElement;
+	}, [list]);
+};

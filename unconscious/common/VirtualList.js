@@ -39,6 +39,8 @@ export class VirtualList {
 	_offset = 0;
 	_height = 0;
 
+	#map;
+
 	/**
 	 * 返回 scrollTop 所在的第一个可见项目索引。
 	 *
@@ -161,8 +163,9 @@ export class VirtualList {
 		this.renderer = config.renderer;
 		this.gap = config.gap || 0;
 		this.keyFunc = config.keyFunc || (item => item[ITEM_KEY] ?? item);
-		this.reuseHook = config.reuseHook || ((a, b) => a[ITEM_KEY] === b);
+		this.onReuse = config.onReuse;
 		this.overscan = config.overscan || 100;
+		this.#map = config.mapType ?? Map;
 
 		this._dirty = !!(this.items = config.data);
 
@@ -395,35 +398,32 @@ export class VirtualList {
 	}
 
 	_updateDOM(container, startIndex, endIndex, items, viewStart) {
-		const existingItems = new Map;
+		const existing = new this.#map;
 		const removeNode = node => {
 			this.#ro.unobserve(node);
 			node.remove();
 		};
 
 		const nodes = container.childNodes;
-		nodes.forEach(node => existingItems.set(node[ITEM_VAL], node));
+		nodes.forEach(node => existing.set(node[ITEM_KEY], node));
 
 		let anchorNode;
 		const newElements = [];
 		for (let i = startIndex; i < endIndex; i++) {
 			const item = items[i];
 
-			let node = existingItems.get(item);
-			let key;
+			let key = this.keyFunc(item, i);
+			let node = existing.get(key);
 
-			noRender: {
+			reorder: {
 				if (node) {
-					existingItems.delete(item);
-					if (this.reuseHook(node, key = this.keyFunc(item, i), item, i)) {
-						if (node[INDEX] !== i) break noRender;
-						node[INDEX] = i;
-						node[ITEM_KEY] = key;
+					existing.delete(key);
+					if (this.onReuse?.(node, item, i) !== false) {
+						if (node[INDEX] !== i) break reorder;
 						anchorNode = node;
 						continue;
-					} else {
-						removeNode(node);
 					}
+					removeNode(node);
 				}
 
 				try {
@@ -437,7 +437,7 @@ export class VirtualList {
 
 			// 自身未使用
 			node[INDEX] = i;
-			node[ITEM_KEY] = key ?? this.keyFunc(item, i);
+			node[ITEM_KEY] = key;
 
 			if (!anchorNode) container.prepend(node);
 			else anchorNode.after(node);
@@ -448,7 +448,7 @@ export class VirtualList {
 			this.#ro.observe(node);
 		}
 
-		existingItems.forEach(node => {
+		existing.forEach(node => {
 			const val = node[ITEM_VAL];
 			if (!val?.[PINNED] || items[node[INDEX]] !== val) {
 				removeNode(node);

@@ -123,7 +123,16 @@ export function $vforeach<T, K, E extends Renderable>(
     renderItem: (item: T, index: number) => E,
     keyFunc?: (item: T, index: number) => K,
     options?: {
-        reuseHook?: (node: E, newKey: K, item: K, index: number) => boolean;
+        onReuse?: (node: E, item: T, index: number) => void;
+    }
+): AppendObserver;
+export function $vforElse<T, K, E extends Renderable>(
+    list: T[] | Reactive<T[]>,
+    renderItem: (item: T, index: number) => E,
+    keyFunc?: (item: T, index: number) => K,
+    emptyElement?: Renderable,
+    options?: {
+        onReuse?: (node: E, item: T, index: number) => void;
     }
 ): AppendObserver;
 
