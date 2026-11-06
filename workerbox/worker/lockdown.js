@@ -62,6 +62,7 @@ escape
 unescape
 ` + // Streams
 `WritableStream
+ReadableStream
 TransformStream
 TextEncoderStream
 TextEncoder

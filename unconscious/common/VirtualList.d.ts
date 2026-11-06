@@ -32,6 +32,10 @@ export interface VirtualListConfig<T, K> {
     // 生成唯一索引的函数
     keyFunc?: (item: T, index: number) => K;
     onReuse?: (node: HTMLElement, item: T, index: number) => void;
+    /**
+     * 传统模式，要求 value 必须是稳定的，key 决定该项是否需要更新
+     */
+    itemKey?: boolean;
 }
 
 /**

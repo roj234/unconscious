@@ -1,7 +1,9 @@
 {
 	"name": "@roj234/fetch-proxy",
 	"version": "1.0.0",
+	"description": "WHATWG fetch built on node:http(s), plus a SOCKS5 agent.",
 	"type": "module",
+	"license": "BSD-3-Clause",
 	"exports": {
 		".": {
 			"types": "./fetch.d.ts",
@@ -13,6 +15,6 @@
 		}
 	},
 	"dependencies": {
-		"@roj234/shared": "^1.0.0"
+
 	}
 }

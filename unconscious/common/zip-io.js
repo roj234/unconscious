@@ -58,7 +58,10 @@ async function compressData(data) {
 	return new Uint8Array(await response.arrayBuffer());
 }
 
-export function ZipWriter() {
+/**
+ * @param {FileSystemWritableFileStream} [writable]
+ */
+export function ZipWriter(writable) {
 	let offset = 0;
 	let cenSize = 0;
 	const locs = [];
@@ -156,9 +159,16 @@ export function ZipWriter() {
 				view.setUint16(p, nameData.length, true); p += 2;
 				p += 2;          // Extra field length
 
-				locs.push(new Uint8Array(buf, ptr, p - ptr));
-				locs.push(nameData);
-				locs.push(compressedData);
+				const header = new Uint8Array(buf, ptr, p - ptr);
+				if (writable) {
+					await writable.write(header);
+					await writable.write(nameData);
+					await writable.write(compressedData);
+				} else {
+					locs.push(header);
+					locs.push(nameData);
+					locs.push(compressedData);
+				}
 
 				ptr = p;
 			}

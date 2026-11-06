@@ -2,6 +2,7 @@
   "name": "@roj234/ws",
   "version": "1.0.0",
   "type": "module",
+  "license": "BSD-3-Clause",
   "description": "Slightly faster ws alternate",
   "scripts": {
     "test": "node test/smoke.mjs && node test/extra.mjs"

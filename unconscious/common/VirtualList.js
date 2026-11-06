@@ -40,6 +40,7 @@ export class VirtualList {
 	_height = 0;
 
 	#map;
+	#itemAsKey;
 
 	/**
 	 * 返回 scrollTop 所在的第一个可见项目索引。
@@ -163,9 +164,10 @@ export class VirtualList {
 		this.renderer = config.renderer;
 		this.gap = config.gap || 0;
 		this.keyFunc = config.keyFunc || (item => item[ITEM_KEY] ?? item);
-		this.onReuse = config.onReuse;
 		this.overscan = config.overscan || 100;
 		this.#map = config.mapType ?? Map;
+		this.#itemAsKey = config.itemKey;
+		this.onReuse = config.onReuse || (this.#itemAsKey ? (node, item, i, nowKey) => node[ITEM_KEY] === nowKey : null);
 
 		this._dirty = !!(this.items = config.data);
 
@@ -405,7 +407,11 @@ export class VirtualList {
 		};
 
 		const nodes = container.childNodes;
-		nodes.forEach(node => existing.set(node[ITEM_KEY], node));
+
+		const useValue = this.#itemAsKey;
+		const ik = useValue ? ITEM_VAL : ITEM_KEY;
+
+		nodes.forEach(node => existing.set(node[ik], node));
 
 		let anchorNode;
 		const newElements = [];
@@ -413,13 +419,15 @@ export class VirtualList {
 			const item = items[i];
 
 			let key = this.keyFunc(item, i);
-			let node = existing.get(key);
+			let mapKey = useValue ? item : key;
+			let node = existing.get(mapKey);
 
 			reorder: {
 				if (node) {
-					existing.delete(key);
-					if (this.onReuse?.(node, item, i) !== false) {
+					existing.delete(mapKey);
+					if (this.onReuse?.(node, item, i, key) !== false) {
 						if (node[INDEX] !== i) break reorder;
+						node[ITEM_KEY] = key;
 						anchorNode = node;
 						continue;
 					}

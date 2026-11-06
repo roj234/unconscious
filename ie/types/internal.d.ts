@@ -1,9 +1,9 @@
 
 namespace ie {
     type Logger = {
-        info(log: string, ...args: Object): string,
-        warn(log: string, ...args: Object): string,
-        error(log: string, ...args: Object): string,
+        info(log: string, ...args: Object[]): string,
+        warn(log: string, ...args: Object[]): string,
+        error(log: string, ...args: Object[]): string,
         close(): void
         //debug(log: string, ...args: Object): string,
     }

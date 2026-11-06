@@ -1,6 +1,7 @@
 {
 	"name": "@roj234/ansi2html",
 	"version": "1.0.0",
+	"description": "ANSI escape sequence to HTML converter.",
 	"type": "module",
 	"exports": {
 		".": {

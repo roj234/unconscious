@@ -110,10 +110,10 @@ export class TSDB {
   /**
    * 批量重映射 owner。
    * @param remap
-   * @param since 从哪个 owner 开始
+   * @param [since=0] 从哪个 owner 开始
    * @returns 实际被修改的行数。
    */
-  remapOwners(remap: (owner: number) => number, since: number = 0): Promise<number>;
+  remapOwners(remap: (owner: number) => number, since: number): Promise<number>;
 
   /**
    * 将 db.dat 的一段区间作为可读流输出。

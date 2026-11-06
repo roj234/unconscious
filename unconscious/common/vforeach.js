@@ -46,7 +46,7 @@ export function $vforeach(list, renderer, keyFunc, options) {
  * @param {Renderable} emptyElement 列表为空时显示的元素
  * @returns {Readonly<Reactive<JSX.Element>>}
  */
-export const $vforElse = (list, renderItem, emptyElement, keyFunc, options) => {
+export const $vforElse = (list, renderItem, keyFunc, emptyElement, options) => {
 	let forEach;
 	return $computedNoTrack(oldValue => {
 		const length = unconscious(list)?.length;

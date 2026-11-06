@@ -16,7 +16,7 @@ export interface AddOptions {
      * Last modification time as a UNIX timestamp (milliseconds).
      * Defaults to the current time if omitted.
      */
-    timestamp?: number;
+    lastModified?: number;
     /**
      * Whether the file content should be Deflate-compressed.
      * Defaults to `false` (Store).
@@ -61,14 +61,15 @@ export interface ZipWriterInstance {
 
     /**
      * Finalize the archive and return a `Blob` representing the complete ZIP file.
+     * @param [mimeType='application/zip']
      */
-    finish(mimeType = 'application/zip'): Blob;
+    finish(mimeType?: string): Blob;
 }
 
 /**
  * Create a new ZIP writer.
  */
-export function ZipWriter(): ZipWriterInstance;
+export function ZipWriter(writable?: FileSystemWritableFileStream): ZipWriterInstance;
 
 /**
  * Metadata about a file entry inside a ZIP archive.

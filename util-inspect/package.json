@@ -1,8 +1,10 @@
 {
 	"name": "@roj234/util-inspect",
 	"version": "1.0.0",
+	"description": "Inspect values as JSON5-like JavaScript literals.",
 	"type": "module",
 	"author": "Roj234",
+	"license": "BSD-3-Clause",
 	"exports": {
 		".": {
 			"types": "./types/index.d.ts",
@@ -10,6 +12,6 @@
 		}
 	},
 	"dependencies": {
-		"@roj234/lru-cache": "^1.0.0"
+		"@roj234/shared": "^1.0.0"
 	}
 }

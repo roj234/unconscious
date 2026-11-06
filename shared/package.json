@@ -4,7 +4,7 @@
 	"description": "Very very common library just like add()",
 	"type": "module",
 	"author": "Roj234",
-	"license": "CC0",
+	"license": "CC0-1.0",
 	"exports": {
 		".": {
 			"types": "./types/shared.d.ts",
