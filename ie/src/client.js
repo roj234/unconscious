@@ -56,88 +56,92 @@ const hotModules = new Map();
 const listeners = new Map();
 
 const BROWSER = 'document' in globalThis;
-
-const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${HMR_PATH}`, HMR_PROTOCOL);
-
+const SERVICE_WORKER = 'serviceWorker' in globalThis;
 const INIT_HREF = Symbol("LinkUrl");
 
-ws.onopen = () => {
-	connectedTime = Date.now();
-	console.debug(`[ie] connected.`);
-	if (BROWSER) {
-		const s = document.querySelector('[data-error-url]');
-		if (s) fetch(s.dataset.errorUrl);
-	}
-};
-ws.onmessage = async event => {
-	let payload;
-	try {
-		payload = JSON.parse(event.data);
-	} catch {
-		return;
-	}
+let ws;
 
-	switch (payload.type) {
-		case 'full-reload': location.reload(); return;
-		case 'css-update':
-			if (!BROWSER) return;
-			for (const update of payload.updates) {
-				for (const link of document.querySelectorAll('link[rel="stylesheet"]')) {
-					const url = link[INIT_HREF] ??= new URL(link.href, location.href);
-					if (url.pathname !== update.path) continue;
-					url.searchParams.set('t', update.timestamp);
-					link.href = url.href;
+if (!SERVICE_WORKER) {
+	ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${HMR_PATH}`, HMR_PROTOCOL);
+
+	ws.onopen = () => {
+		connectedTime = Date.now();
+		console.debug(`[ie] connected.`);
+		if (BROWSER) {
+			const s = document.querySelector('[data-error-url]');
+			if (s) fetch(s.dataset.errorUrl);
+		}
+	};
+	ws.onmessage = async event => {
+		let payload;
+		try {
+			payload = JSON.parse(event.data);
+		} catch {
+			return;
+		}
+
+		switch (payload.type) {
+			case 'full-reload': location.reload(); return;
+			case 'css-update':
+				if (!BROWSER) return;
+				for (const update of payload.updates) {
+					for (const link of document.querySelectorAll('link[rel="stylesheet"]')) {
+						const url = link[INIT_HREF] ??= new URL(link.href, location.href);
+						if (url.pathname !== update.path) continue;
+						url.searchParams.set('t', update.timestamp);
+						link.href = url.href;
+					}
 				}
-			}
-			closeOverlay();
-			return;
-		case 'update':
-			for (const update of payload.updates) {
-				const boundary = update.acceptedPath || update.path;
+				closeOverlay();
+				return;
+			case 'update':
+				for (const update of payload.updates) {
+					const boundary = update.acceptedPath || update.path;
 
-				const record = hotModules.get(boundary);
-				if (!record?.accepted) { location.reload(); return; }
+					const record = hotModules.get(boundary);
+					if (!record?.accepted) { location.reload(); return; }
 
-				let url = boundary + (boundary.includes('?') ? '&' : '?')+'t='+update.timestamp+"&pv="+connectedTime;
+					let url = boundary + (boundary.includes('?') ? '&' : '?')+'t='+update.timestamp+"&pv="+connectedTime;
 
-				try {
-					const mod = await import(/* @vite-ignore */ url);
+					try {
+						const mod = await import(/* @vite-ignore */ url);
 
-					for (const dispose of record.dispose) dispose();
-					for (const callback of record.callbacks) callback(mod);
-				} catch {
-					// 服务端会回调的
-					return;
+						for (const dispose of record.dispose) dispose();
+						for (const callback of record.callbacks) callback(mod);
+					} catch {
+						// 服务端会回调的
+						return;
+					}
 				}
-			}
-			closeOverlay();
-			return;
-		case 'custom':
-			for (const callback of listeners.get(payload.event) || []) callback(payload.data);
-			return;
-		case 'error':
-			// TODO 转换失败应该由服务端下发
-			showError({
-				module: payload.module,
-				...(payload.err || {message: String(payload.err)})
-			});
-			return;
-	}
-};
-ws.onclose = () => {
-	console.debug(`[ie] server connection lost. Polling for restart...`);
+				closeOverlay();
+				return;
+			case 'custom':
+				for (const callback of listeners.get(payload.event) || []) callback(payload.data);
+				return;
+			case 'error':
+				// TODO 转换失败应该由服务端下发
+				showError({
+					module: payload.module,
+					...(payload.err || {message: String(payload.err)})
+				});
+				return;
+		}
+	};
+	ws.onclose = () => {
+		console.debug(`[ie] server connection lost. Polling for restart...`);
 
-	const url = `${location.protocol}//${location.host}${HMR_PATH}`;
-	const reconnect = () => fetch(url, {
-		signal: AbortSignal.timeout(1000),
-		cache: "no-store"
-	}).then(res => {
-		if (res.status === 200) location.reload();
-	}, () => {}).finally(() => {
-		setTimeout(reconnect, 1000);
-	});
-	reconnect();
-};
+		const url = `${location.protocol}//${location.host}${HMR_PATH}`;
+		const reconnect = () => fetch(url, {
+			signal: AbortSignal.timeout(1000),
+			cache: "no-store"
+		}).then(res => {
+			location.reload();
+		}, () => {
+			setTimeout(reconnect, 1000);
+		});
+		reconnect();
+	};
+}
 
 export function createHotContext(path) {
 	const record = {path, accepted: false, callbacks: [], dispose: [], data: {}};

@@ -56,4 +56,4 @@ export function textDiff(
     a: string[],
     b: string[],
     stripCommon?: boolean
-): DiffOp[];
+): [DiffOp[], number, number];

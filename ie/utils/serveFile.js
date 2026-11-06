@@ -2,11 +2,11 @@ import {pipeline} from "node:stream/promises";
 import {createReadStream} from "node:fs";
 import {stat} from "node:fs/promises";
 
-const NOT_EXIST_STAT = {isDirectory: () => false, isFile: () => false, size: 0};
+const NOT_EXIST_STAT = {isDirectory: () => false, isFile: () => false, size: 0, notExist: true};
 
 /**
  * @param {string} file
- * @return {Promise<Stats>}
+ * @return {Promise<import("node:fs").Stats & { notExist?: boolean }>}
  */
 export const safeStat = file => stat(file).catch((error) => ({ ...NOT_EXIST_STAT, error }));
 

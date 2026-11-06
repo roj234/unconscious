@@ -58,7 +58,10 @@ async function compressData(data) {
 	return new Uint8Array(await response.arrayBuffer());
 }
 
-export function ZipWriter() {
+/**
+ * @param {WritableStreamDefaultWriter} [writer]
+ */
+export function ZipWriter(writer) {
 	let offset = 0;
 	let cenSize = 0;
 	const locs = [];
@@ -132,13 +135,15 @@ export function ZipWriter() {
 				compressedSize = compressedData.length;
 			}
 
-			const { time, date } = getDosTime(new Date(options.lastModified));
+			const { time, date } = getDosTime(new Date(options.lastModified ?? Date.now()));
 
 			if (BUF_SIZE - ptr < 128) {
 				buf = new ArrayBuffer(BUF_SIZE);
 				view = new DataView(buf);
 				ptr = 0;
 			}
+
+			let header;
 
 			// LOC parts
 			{
@@ -156,10 +161,7 @@ export function ZipWriter() {
 				view.setUint16(p, nameData.length, true); p += 2;
 				p += 2;          // Extra field length
 
-				locs.push(new Uint8Array(buf, ptr, p - ptr));
-				locs.push(nameData);
-				locs.push(compressedData);
-
+				header = new Uint8Array(buf, ptr, p - ptr);
 				ptr = p;
 			}
 
@@ -193,6 +195,18 @@ export function ZipWriter() {
 			}
 
 			offset += 30 + nameData.length + compressedSize;
+
+			if (writer) {
+				return (async () => {
+					await writer.write(header);
+					await writer.write(nameData);
+					await writer.write(compressedData);
+				});
+			} else {
+				locs.push(header);
+				locs.push(nameData);
+				locs.push(compressedData);
+			}
 		},
 
 		finish(type = 'application/zip') {
@@ -410,7 +424,7 @@ export async function ZipReader(blob, {verify} = {}) {
 
 			const compression = entry.compression;
 			if (compression === 8) { // Deflate
-				const buf = decompressData(rawData);
+				const buf = await decompressData(rawData);
 				if (verify && crc32(buf) !== entry.crc32) throw new Error("Checksum error: "+name);
 				return buf;
 			} else if (compression === 0) { // Store

@@ -4,7 +4,7 @@
  * @param {string[]} a
  * @param {string[]} b
  * @param {boolean} stripCommon
- * @returns {DiffOp[]}
+ * @returns {[DiffOp[], number, number]}
  */
 export function textDiff(a, b, stripCommon) {
 	const m = a.length, n = b.length;
@@ -46,7 +46,7 @@ export function textDiff(a, b, stripCommon) {
 		ops.push({ type: 'same', oldIndex: oi, newIndex: ni, text: a[oi] });
 	}
 
-	return ops;
+	return [ops, prefix, suffix];
 }
 
 function myers(a, b) {

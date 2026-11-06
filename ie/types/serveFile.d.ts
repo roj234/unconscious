@@ -1,6 +1,6 @@
 
 
-export function safeStat(file: string): Promise<Stats>;
+export function safeStat(file: string): Promise<import("node:fs").Stats>;
 
 export type ServeFileOptions = {
     name?: string,

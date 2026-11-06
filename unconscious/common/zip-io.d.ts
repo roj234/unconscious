@@ -16,7 +16,7 @@ export interface AddOptions {
      * Last modification time as a UNIX timestamp (milliseconds).
      * Defaults to the current time if omitted.
      */
-    timestamp?: number;
+    lastModified?: number;
     /**
      * Whether the file content should be Deflate-compressed.
      * Defaults to `false` (Store).
@@ -29,23 +29,11 @@ export interface AddOptions {
 /**
  * A ZIP writer instance created by `ZipWriter()`.
  */
-export interface ZipWriterInstance {
+interface BaseZipWriterInstance {
     /**
      * Returns the number of files added so far.
      */
     fileCount(): number;
-
-    /**
-     * Add a file to the ZIP archive.
-     * @param name - File path inside the archive.
-     * @param content - File content as an UTF-8 string or raw bytes.
-     * @param options - Optional settings (timestamp, compression).
-     */
-    add(
-        name: string,
-        content: string | Uint8Array,
-        options?: AddOptions
-    ): Promise<void>;
 
     /**
      * Copy a compressed entry to the ZIP archive.
@@ -61,14 +49,52 @@ export interface ZipWriterInstance {
 
     /**
      * Finalize the archive and return a `Blob` representing the complete ZIP file.
+     * @param [mimeType='application/zip']
      */
-    finish(mimeType = 'application/zip'): Blob;
+    finish(mimeType?: string): Blob;
+}
+
+export interface ZipWriterInstance extends BaseZipWriterInstance {
+    /**
+     * Add a file to the ZIP archive.
+     * @param name - File path inside the archive.
+     * @param content - File content as a UTF-8 string or raw bytes.
+     * @param options - Optional settings (timestamp, compression).
+     */
+    add(
+        name: string,
+        content: string | Uint8Array,
+        options?: AddOptions
+    ): Promise<void>;
+}
+
+/**
+ * A ZIP writer instance created by `ZipWriter()`.
+ */
+export interface StreamZipWriterInstance extends BaseZipWriterInstance {
+    /**
+     * Add a file to the ZIP archive.
+     * @param name - File path inside the archive.
+     * @param content - File content as a UTF-8 string or raw bytes.
+     * @param options - Optional settings (timestamp, compression).
+     * @returns a function to actually write file
+     */
+    add(
+        name: string,
+        content: string | Uint8Array,
+        options?: AddOptions
+    ): Promise<() => Promise<void>>;
 }
 
 /**
  * Create a new ZIP writer.
  */
 export function ZipWriter(): ZipWriterInstance;
+
+/**
+ * Create a new stream ZIP writer.
+ */
+export function ZipWriter(writable: WritableStreamDefaultWriter): StreamZipWriterInstance;
 
 /**
  * Metadata about a file entry inside a ZIP archive.

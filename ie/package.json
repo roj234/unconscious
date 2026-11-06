@@ -2,6 +2,7 @@
 	"name": "@roj234/ie",
 	"version": "0.1.0",
 	"type": "module",
+	"license": "BSD-3-Clause",
 	"description": "A bit more than half of vItE",
 	"bin": {
 		"ie": "./cli.js"

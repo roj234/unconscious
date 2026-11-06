@@ -1,5 +1,5 @@
 
-export const VOID_TAGS = Set<string>;
+export const VOID_TAGS: ReadonlySet<string>;
 
 export const
     DOCUMENT        =  1,
