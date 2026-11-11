@@ -1,1 +1,0 @@
-export * from "@roj234/shared/path";

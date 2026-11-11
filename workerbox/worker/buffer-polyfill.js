@@ -1,4 +1,4 @@
-import {base64DecodeToUint8Array, base64Encode} from "unconscious/common/Base64.js";
+import {base64DecodeToUint8Array, base64Encode} from "@roj234/shared/base64";
 import {UTF8_TEXT_DECODER, UTF8_TEXT_ENCODER} from "@roj234/shared";
 
 const _TE = UTF8_TEXT_ENCODER;

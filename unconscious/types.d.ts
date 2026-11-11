@@ -257,23 +257,23 @@ export function $asyncState<T, R>(
 ): ReactivePromise<R>;
 
 /**
- * 异步组件渲染
+ * $asyncState 的简易渲染器，类似语法糖
  * @param state - 组件加载函数
  * @param [loading='加载中...'] - 加载时显示的组件
  * @param [error=String(error)] - 出错时显示的组件
  */
 export function $asyncRenderer(state: ReactivePromise<Renderable>, loading: Renderable | (() => Renderable), error: Renderable/* | function(error: Error): Renderable*/): Reactive<Renderable>;
 /**
- * 异步组件
+ * Promise 的简易渲染器
  * @param loader - 组件加载函数
  * @param [loading="加载中..."] - 加载时显示的组件
  * @param [error=String(error)] - 出错时显示的组件
  */
-export function $asyncComponent(
-    loader: () => Promise<ImportedComponent | Component>,
+export function $async(
+    loader: () => Promise<Renderable>,
     loading?: Renderable | (() => Renderable),
     error?: Renderable | ((error: Error) => Renderable)
-): Component;
+): Renderable;
 
 /**
  * 在调用时执行并自动捕获依赖的$watch

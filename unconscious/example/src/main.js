@@ -4,17 +4,7 @@
 // 毕竟这个框架可以理解为 “Svelte煮的Vue风味的React汤”
 // 此外，每个框架函数我都有写JSDoc
 
-import {
-	$animate,
-	$asyncComponent,
-	$computed,
-	$foreach,
-	$forElse,
-	$state,
-	$store,
-	$update,
-	appendChildren
-} from "unconscious";
+import {$animate, $async, $computed, $foreach, $forElse, $state, $store, $update, appendChildren} from "unconscious";
 
 const title = $state("计数器 ");
 setInterval(() => {
@@ -23,7 +13,7 @@ setInterval(() => {
 
 // 这是一个异步组件，不过同样支持热重载，现在就试试吧
 // 在F12中对比源代码和转换后的代码，可以让你理解$asyncWithCleanup语法糖和$cleanup函数是如何工作的
-const AsyncCounter = $asyncComponent(
+const AsyncCounter = $async(
 	() => new Promise((resolve, failure) => setTimeout(() => {
 		if (Math.random() < 0.5) failure("哎呀。网络错误了！");
 		import('./Counter.jsx').then(n => resolve(n.Counter));

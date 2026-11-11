@@ -1,0 +1,22 @@
+{
+	"name": "@roj234/jszip",
+	"version": "1.0.0",
+	"description": "Faster modern jszip alternate.",
+	"type": "module",
+	"license": "BSD-3-Clause",
+	"exports": {
+		".": {
+			"types": "./JSZip.d.ts",
+			"import": "./JSZip.js",
+			"default": "./JSZip.js"
+		},
+		"./io": {
+			"types": "./zip-io.d.ts",
+			"import": "./zip-io.js",
+			"default": "./zip-io.js"
+		}
+	},
+	"dependencies": {
+		"@roj234/shared": "^1.2.0"
+	}
+}

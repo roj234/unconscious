@@ -227,6 +227,18 @@ export class VirtualList {
 		this._wrapper.scrollTop = offset;
 	}
 
+	scrollIntoView(itemOrIndex, options) {
+		if (typeof itemOrIndex !== 'number') itemOrIndex = this.items.indexOf(itemOrIndex);
+		let targetScrollTop = 0;
+		for (let i = 0; i < itemOrIndex; i++) {
+			targetScrollTop += this._h(i);
+		}
+		this._wrapper.scrollTo({
+			top: targetScrollTop,
+			...options
+		})
+	}
+
 	/**
 	 * 更新数组某项并(立即)更新虚拟列表，如果这项正在渲染
 	 * @param {number} i 数组索引

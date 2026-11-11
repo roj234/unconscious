@@ -123,8 +123,7 @@
     background: var(--chip-bg);
     border: 1px solid transparent;
     color: var(--text);
-    height: 34px;
-    padding: 0 12px;
+    padding: 6px 12px;
     border-radius: 8px;
     font-size: 14px;
 

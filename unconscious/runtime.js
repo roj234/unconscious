@@ -1015,6 +1015,7 @@ if (import.meta.hot) {
 	hook(Element, "after");
 	hook(Element, "before");
 	hook(Element, "replaceWith");
+	hook(Element, "replaceChildren");
 
 	/**
 	 * @typedef {Object} StateRepo
@@ -1853,37 +1854,22 @@ export const $asyncRenderer = (state, loading, error) => {
 };
 
 //endregion
-//region 异步组件 $asyncComponent
+//region 异步组件 $async
 /**
- * 异步组件
- * @typedef {Object} ImportedComponent
- * @property {Component} default
- */
-
-/**
- * 异步组件加载
- * @param {function(): Promise<ImportedComponent | Component>} loader - 组件加载函数
+ * Promise帮助
+ * @param {function(): Promise<Renderable>} loader - 组件加载函数
  * @param {Renderable | function(): Renderable} [loading='加载中...'] - 加载时显示的组件
- * @param {Renderable | function(error: Error): Renderable} [error=String(error)] - 出错时显示的组件
- * @returns {Component}
+ * @param {Renderable | function(error: Error): Renderable} [onError=String(error)] - 出错时显示的组件
+ * @returns {Renderable}
  */
-export const $asyncComponent = (loader, loading, error) => {
-	const state = $asyncState(
-		async () => {
-			const module = await loader();
-			return module.default || module;
-		}
-	);
+export const $async = (loader, loading, onError) => {
+	const state = $state(myApply(loading) ?? "加载中...");
 
-	return (props, children) => {
-		const createInstance = () => {
-			if (state.error) return myApply(error, state.error) ?? state.error;
-			return createComponent(state.value, props, ...children);
-		};
-		return state.loading ? $computedNoTrack(() => {
-			return state.loading ? myApply(loading) ?? "加载中..." : createInstance();
-		}, [state]) : createInstance();
-	}
+	loader().then(
+		mod => state.value = mod,
+		error => state.value = myApply(onError, error) ?? error
+	);
+	return state;
 };
 //endregion
 

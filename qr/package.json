@@ -1,0 +1,21 @@
+{
+	"name": "@roj234/qr",
+	"version": "1.0.0",
+	"description": "Faster modern QRCode generator.",
+	"type": "module",
+	"license": "BSD-3-Clause",
+	"exports": {
+		".": {
+			"types": "./types/qr.d.ts",
+			"import": "./qr.js"
+		},
+		"./png": {
+			"types": "./types/qr-png.d.ts",
+			"import": "./qr-png.js"
+		}
+	},
+	"dependencies": {
+		"@roj234/shared": "^1.0.0",
+		"@roj234/jszip": "^1.0.0"
+	}
+}

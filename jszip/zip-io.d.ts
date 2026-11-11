@@ -18,12 +18,18 @@ export interface AddOptions {
      */
     lastModified?: number;
     /**
-     * Whether the file content should be Deflate-compressed.
-     * Defaults to `false` (Store).
-     * Use `8` or `true` for Deflate.
-     * Use `92` for Brotli (Node.js Only)
+     * Compression method for the file content.
+     *
+     * - `0` / `false` / omitted → Store
+     * - `8` / `true` → Deflate
+     * - `92` → Brotli (Node.js only)
+     *
+     * Note: if the compressed data is not smaller than the raw data,
+     * the entry silently falls back to Store (`0`).
+     *
+     * @default 0 (Store)
      */
-    compress?: boolean | number;
+    compression?: number | boolean;
 }
 
 /**
@@ -34,18 +40,6 @@ interface BaseZipWriterInstance {
      * Returns the number of files added so far.
      */
     fileCount(): number;
-
-    /**
-     * Copy a compressed entry to the ZIP archive.
-     * @param name
-     * @param reader
-     * @param entry
-     */
-    add(
-        name: string,
-        reader: ZipReaderInstance,
-        entry: ZipEntry
-    ): Promise<void>;
 
     /**
      * Finalize the archive and return a `Blob` representing the complete ZIP file.
@@ -66,10 +60,22 @@ export interface ZipWriterInstance extends BaseZipWriterInstance {
         content: string | Uint8Array,
         options?: AddOptions
     ): Promise<void>;
+
+    /**
+     * Copy an already-compressed entry from another archive into this one.
+     * @param name - File path inside the new archive.
+     * @param reader - Reader that owns `entry`.
+     * @param entry - Entry from `reader.entries()`.
+     */
+    add(
+        name: string,
+        reader: ZipReaderInstance,
+        entry: ZipEntry
+    ): Promise<void>;
 }
 
 /**
- * A ZIP writer instance created by `ZipWriter()`.
+ * A ZIP writer instance created by `ZipWriter(?writable)`.
  */
 export interface StreamZipWriterInstance extends BaseZipWriterInstance {
     /**
@@ -83,6 +89,16 @@ export interface StreamZipWriterInstance extends BaseZipWriterInstance {
         name: string,
         content: string | Uint8Array,
         options?: AddOptions
+    ): Promise<() => Promise<void>>;
+
+    /**
+     * Copy an already-compressed entry from another archive into this one.
+     * @returns a function to actually write the file
+     */
+    add(
+        name: string,
+        reader: ZipReaderInstance,
+        entry: ZipEntry
     ): Promise<() => Promise<void>>;
 }
 
@@ -101,7 +117,7 @@ export function ZipWriter(writable: WritableStreamDefaultWriter): StreamZipWrite
  */
 export interface ZipEntry {
     /**
-     * Compression method: 0 = Store, 8 = Deflate.
+     * Compression method: 0 = Store, 8 = Deflate, 92 = Brotli (Node.js only).
      */
     compression: number;
     /**
@@ -156,15 +172,27 @@ export interface ZipReaderInstance {
 }
 
 /**
+ * Options for `ZipReader()`.
+ */
+export interface ZipReaderOptions {
+    /**
+     * Verify the CRC32 of every entry when it is decompressed.
+     * @default false
+     */
+    verify?: boolean;
+}
+
+/**
  * Open a ZIP archive for reading.
  *
  * In a browser, pass a `Blob` object.
  * In Node.js, pass a `Buffer`.
  *
- * 注意：若传入的ZIP数据不符合规范（Unsorted_CD），那么行为是未定义的。
+ * 注意：若传入的ZIP数据不符合规范（Unsorted_CD），会导致性能损失，并可能有bug。
  *
  * @returns A promise that resolves to a reader instance.
  */
 export function ZipReader(
-    blob: Blob | Buffer
+    blob: Blob | Buffer,
+    options?: ZipReaderOptions
 ): Promise<ZipReaderInstance>;

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import {readdir, readFile, stat} from 'node:fs/promises';
-import {ZipWriter} from "unconscious/common/zip-io.js";
+import {ZipWriter} from "@roj234/jszip/io";
 import {packageResolve} from "../utils/packageResolve.js";
 
 /**

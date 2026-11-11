@@ -102,41 +102,38 @@ export class NestedMap {
 	 * @param {boolean} includeDescents
 	 */
 	delete(keys, includeDescents) {
-		let ok = 0;
 		let key = keys;
-		checkArray:
-		if (Array.isArray(keys)) {
-			key = keys[0];
-			if (null == key) return;
-			if (keys.length === 1 && !includeDescents) break checkArray;
+		if (!Array.isArray(keys) || (keys.length === 1 && (key = keys[0], true)))
+			return this.#simple.delete(key);
 
-			const stack = []; // 用于后续清理空节点
-			let current = this.#tree;
+		let ok = false;
 
-			for (const key of keys) {
-				stack.push([ current, key ]);
-				current = current.get(key);
-				if (!current) break checkArray;
-			}
+		const stack = []; // 用于后续清理空节点
+		let current = this.#tree;
 
-			if (includeDescents) {
-				ok = current.size > 0;
-				current.clear();
-			} else {
-				if (!current.delete(NODE_VALUE)) break checkArray;
-				//this.#size--;
-			}
-
-			// 递归向上删除不再需要的 Map 节点（瘦身）
-			for (let i = stack.length - 1; i >= 0; i--) {
-				const [ parent, key ] = stack[i];
-				const node = parent.get(key);
-				if (node.size > 0) break;
-				parent.delete(key);
-			}
+		for (const key of keys) {
+			stack.push([ current, key ]);
+			current = current.get(key);
+			if (!current) return ok;
 		}
 
-		return ok | this.#simple.delete(key);
+		if (includeDescents) {
+			ok = current.size > 0;
+			current.clear();
+		} else {
+			if (!current.delete(NODE_VALUE)) return ok;
+			//this.#size--;
+		}
+
+		// 递归向上删除不再需要的 Map 节点（瘦身）
+		for (let i = stack.length - 1; i >= 0; i--) {
+			const [ parent, key ] = stack[i];
+			const node = parent.get(key);
+			if (node.size > 0) break;
+			parent.delete(key);
+		}
+
+		return ok;
 	}
 
 	/*get size() {

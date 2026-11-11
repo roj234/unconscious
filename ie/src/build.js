@@ -120,6 +120,7 @@ export async function build(options = {}) {
 		charset: 'utf8',
 		define: {
 			...config.define,
+			'import.meta.hot': 'false',
 			'import.meta.env.DEV': String(config.mode === 'development'),
 			'import.meta.env.PROD': String(config.mode !== 'development'),
 			'import.meta.env.MODE': JSON.stringify(config.mode),

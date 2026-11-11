@@ -1,7 +1,7 @@
 {
   "name": "@roj234/workerbox",
   "description": "Safer and better WebWorker.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "license": "BSD-3-Clause",
   "exports": {
@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@roj234/shared": "^1.0.0",
-    "unconscious": "^2.0.0"
+    "@roj234/esm-parser": "^1.0.0",
+    "@roj234/util-inspect": "^1.0.0",
+    "@roj234/util-parseargs": "^1.0.0"
   }
 }

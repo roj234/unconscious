@@ -1,6 +1,6 @@
 {
 	"name": "@roj234/shared",
-	"version": "1.0.0",
+	"version": "1.2.0",
 	"description": "Very very common library just like add()",
 	"type": "module",
 	"author": "Roj234",
@@ -21,6 +21,10 @@
 		"./path": {
 			"types": "./types/path.d.ts",
 			"import": "./path.js"
+		},
+		"./base64": {
+			"types": "./types/base64.d.ts",
+			"import": "./base64.js"
 		}
 	}
 }

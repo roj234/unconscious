@@ -3,6 +3,7 @@ import fsp from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import * as esbuild from 'esbuild';
+import {applyEdits, isIdentifierName, parseModule} from '@roj234/esm-parser';
 import {fileURLToPath} from 'node:url';
 import {createPluginContainer, resolveConfig, toPosix} from './config.js';
 import {createResolver} from './resolve.js';
@@ -17,6 +18,7 @@ import {safeStat, serveFile} from "../utils/serveFile.js";
 import {getContentType} from "../utils/mimeTypes.js";
 import {watch} from 'chokidar';
 import picomatch from "picomatch";
+import {normalizeLineTerminator} from "@roj234/shared/strings";
 
 // 这两个值的定义必须和 client.js 相同
 const HMR_PROTOCOL = 'hmr';
@@ -140,114 +142,58 @@ function moduleUrl(id, root) {
 	return encodeURI(url);
 }
 
-// TODO 这个东西换成我 worker 用的那个转换器 已经发现这个存在误判了
-/** 扫描模块里的 import 说明符（跳过注释/字符串/模板字面量） */
-export function* findSpecifiers(code) {
-	const n = code.length;
-	let i = 0;
-	let prevSig = ''; // 上一个有意义的字符，用于区分除号和正则
-	const stack = []; // 'template' | 插值（记录大括号深度）
+/**
+ * @param {string} name
+ * @returns {string}
+ */
+const quoteIdent = name => isIdentifierName(name) ? name : JSON.stringify(name);
 
-	const inCode = () => stack.length === 0 || stack[stack.length - 1] !== 'template';
+/** `{a, b as c}` */
+const printSpecifiers = specs => '{' + specs.map(({name, alias}) =>
+	name === alias ? quoteIdent(name) : `${quoteIdent(name)} as ${quoteIdent(alias)}`).join(', ') + '}';
 
-	while (i < n) {
-		const c = code[i];
+/** ` with {type: 'json'}` / ` assert {…}`，没有就是空串 */
+const printAttribute = ({keyword, entries} = {}) => keyword === undefined ? ''
+	: ` ${keyword} {${Object.entries(entries).map(([key, value]) => `${quoteIdent(key)}: ${JSON.stringify(value)}`).join(', ')}}`;
 
-		// ── 模板字面量的普通文本 ──
-		if (!inCode()) {
-			if (c === '\\') {
-				i += 2;
-				continue;
-			}
-			if (c === '`') {
-				stack.pop();
-				prevSig = '`';
-				i++;
-				continue;
-			}
-			if (c === '$' && code[i + 1] === '{') {
-				stack.push({braces: 1});
-				i += 2;
-				continue;
-			}
-			i++;
-			continue;
-		}
+/**
+ * 把一条 import / export 语句重新拼出来，
+ * @param {ModuleNode} node
+ * @param {string} [source] 新说明符，默认沿用节点里原来的
+ * @returns {ReplaceSegment|null}
+ */
+function rewriteSource(node, source = node.source) {
+	const tail = JSON.stringify(source);
 
-		if (c === '/' && code[i + 1] === '/') {
-			const e = code.indexOf('\n', i + 2);
-			i = e < 0 ? n : e + 1;
-			continue;
-		}
-		if (c === '/' && code[i + 1] === '*') {
-			const e = code.indexOf('*/', i + 2);
-			i = e < 0 ? n : e + 2;
-			continue;
-		}
-		if (c === '/' && (prevSig === '' || /[([{,;:=!&|?+\-*%^~<>]/.test(prevSig))) {
-			// 正则字面量：里面的引号/反引号不算数
-			i++;
-			let inClass = false;
-			while (i < n) {
-				const ch = code[i];
-				if (ch === '\\') {
-					i += 2;
-					continue;
-				}
-				if (ch === '\n') break;
-				if (ch === '[') inClass = true;
-				else if (ch === ']') inClass = false;
-				else if (ch === '/' && !inClass) {
-					i++;
-					break;
-				}
-				i++;
-			}
-			prevSig = '/';
-			continue;
-		}
-		if (c === '`') {
-			stack.push('template');
-			i++;
-			continue;
-		}
-		if (stack.length && (c === '{' || c === '}')) {
-			const top = stack[stack.length - 1];
-			if (top !== 'template') {
-				top.braces += c === '{' ? 1 : -1;
-				if (top.braces === 0) stack.pop();
-				i++;
-				continue;
-			}
-		}
-		if (c === '"' || c === "'") {
-			const start = i;
-			let j = i + 1;
-			while (j < n && code[j] !== c) j += code[j] === '\\' ? 2 : 1;
-			const value = code.slice(start + 1, j);
-			let k = start - 1;
-			while (k >= 0 && /\s/.test(code[k])) k--;
-			const wordEnd = k;
-			while (k >= 0 && /[A-Za-z_$]/.test(code[k])) k--;
-			const word = code.slice(k + 1, wordEnd + 1);
-			let isSpec = word === 'from' || word === 'import'/* || word === 'require'*/;
-			if (!word) {
-				let p = wordEnd;
-				while (p >= 0 && /[\s(]/.test(code[p])) p--;
-				const e = p;
-				while (p >= 0 && /[A-Za-z_$]/.test(code[p])) p--;
-				const kw = code.slice(p + 1, e + 1);
-				isSpec = kw === 'import' || kw === 'require';
-			}
-			// 扫描错位时通常会把换行吞进"说明符"里，直接放过
-			if (isSpec && !/[\r\n]/.test(value) && value.length < 512) yield {start: start + 1, end: j, value};
-			prevSig = c;
-			i = j + 1;
-			continue;
-		}
-		if (!/\s/.test(c)) prevSig = c;
-		i++;
+	if (node.type === 'importDynamic') {
+		return {start: node.start, end: node.sourceEnd, text: `import(${tail}`};
 	}
+
+	const attribute = printAttribute(node.attribute);
+
+	if (node.type === 'import') {
+		let bindings = node.default;
+		if (node.namespace !== undefined) {
+			const ns = `* as ${quoteIdent(node.namespace)}`;
+			bindings = bindings === undefined ? ns : `${bindings}, ${ns}`;
+		} else if (node.specifiers !== undefined) {
+			const specs = printSpecifiers(node.specifiers);
+			bindings = bindings === undefined ? specs : `${bindings}, ${specs}`;
+		}
+		const head = bindings === undefined ? '' : bindings + ' from ';
+		return {start: node.start, end: node.end, text: `import ${head}${tail}${attribute};`};
+	}
+
+	if (node.type !== 'export' || node.source === undefined) return null;
+
+	const exported = node.namespace !== undefined ? `* as ${quoteIdent(node.namespace)}`
+		: node.specifiers !== undefined ? printSpecifiers(node.specifiers)
+			: '*';
+	return {
+		start: node.start,
+		end: node.statementEnd ?? node.end,
+		text: `export ${exported} from ${tail}${attribute};`,
+	};
 }
 
 export async function createServer(options = {}) {
@@ -338,19 +284,23 @@ export async function createServer(options = {}) {
 		return parts.join(' ') + '\n';
 	}
 
+	/** 把模块里的 import / export / import() 说明符换成浏览器能取的 URL，顺手补模块图 */
 	function rewriteImports(code, fileId, params) {
 		const mod = getModule(fileId);
 		const pageOpenTime = parseInt(params.pv);
+		const where = U.toPosix(path.relative(root, fileId));
 
 		const deps = [];
-		let out = '';
-		let last = 0;
-		for (const spec of findSpecifiers(code)) {
-			const raw = spec.value;
-			if (!raw || raw.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(raw)) continue;
+		const edits = [];
+
+		code = normalizeLineTerminator(code);
+		for (const node of parseModule(code)) {
+			const raw = node.source;
+			if (!raw || /^[a-z][a-z0-9+.-]*:/i.test(raw)) continue;
+
 			const resolved = resolver.resolveId(raw, fileId);
 			if (!resolved) {
-				log.warn(`无法解析 "${raw}" (来自 ${U.toPosix(path.relative(root, fileId))})`);
+				log.warn(`无法解析 "${raw}" (来自 ${where})`);
 				continue;
 			}
 			if (resolved.external) continue;
@@ -367,15 +317,20 @@ export async function createServer(options = {}) {
 			if (mtimeMs > pageOpenTime) url = U.withQuery(url, 't', mtimeMs);
 
 			if (url !== raw) {
-				out += code.slice(last, spec.start) + url;
-				last = spec.end;
+				const edit = rewriteSource(node, url);
+				if (edit) edits.push(edit);
+				else log.warn(`改不了 "${raw}" 的说明符 (来自 ${where})`);
 			}
-			if (!deps.some(d => d.id === resolved.id)) deps.push(getModule(resolved.id));
+
+			const dep = getModule(resolved.id);
+			if (!deps.includes(dep)) deps.push(dep);
 		}
+
 		for (const dep of mod.importedModules) if (!deps.includes(dep)) dep.importers.delete(mod);
 		for (const dep of deps) dep.importers.add(mod);
 		mod.importedModules = new Set(deps);
-		return out + code.slice(last);
+
+		return applyEdits(code, edits);
 	}
 
 	async function transformJs(file, fileId, query, params) {
@@ -413,7 +368,19 @@ export async function createServer(options = {}) {
 	function cssModule(file) {
 		const url = moduleUrl(file, root);
 		const href = url + (url.includes('?') ? '&' : '?') + 'direct';
-		return `const href = ${JSON.stringify(href)};\nconst link = document.createElement('link');\nlink.rel = 'stylesheet';\nlink.href = href;\ndocument.head.appendChild(link);`;
+		return `const href = ${JSON.stringify(href)};
+
+let r;
+const p = new Promise(resolve => r = resolve);
+
+const link = document.createElement('link');
+link.rel = 'stylesheet';
+link.href = href;
+link.onload = r;
+document.head.appendChild(link);
+
+await p;
+`;
 	}
 
 	async function transformModule(file, query, params) {

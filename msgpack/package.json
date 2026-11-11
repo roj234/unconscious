@@ -1,0 +1,17 @@
+{
+	"name": "@roj234/msgpack",
+	"version": "2.0.0",
+	"description": "Msgpack encoder/decoder with schema functionality.",
+	"type": "module",
+	"license": "BSD-3-Clause",
+	"exports": {
+		".": {
+			"types": "./msgpack.d.ts",
+			"import": "./msgpack.js",
+			"default": "./msgpack.js"
+		}
+	},
+	"dependencies": {
+		"@roj234/shared": "^1.0.0"
+	}
+}

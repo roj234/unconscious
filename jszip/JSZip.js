@@ -1,8 +1,8 @@
 // jszip shim using zip-io APIs
 
 import {ZipReader, ZipWriter} from './zip-io.js';
-import {UTF8_TEXT_DECODER, UTF8_TEXT_ENCODER} from '../shared.js';
-import {base64DecodeToUint8Array} from "./Base64.js";
+import {UTF8_TEXT_DECODER, UTF8_TEXT_ENCODER} from '@roj234/shared';
+import {base64DecodeToUint8Array} from "@roj234/shared/base64";
 
 /**
  *
@@ -24,6 +24,7 @@ const typeConvert = async (type, buf) => {
 	throw new Error('Unsupported type '+type);
 };
 
+/** @type {JSZip.JSZipObject} */
 class ZipObject {
 	/**
 	 * @param {string} name

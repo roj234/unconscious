@@ -1,4 +1,4 @@
-import {immutableObjectMap} from "@roj234/shared/objects";
+import {escapeHtmlAttr, escapeHtmlText} from "@roj234/shared/strings";
 import {ANSI_SEQ} from "./seq.js";
 
 
@@ -31,14 +31,6 @@ const palette256 = (() => {
 	}
 	return p;
 })();
-
-const map = immutableObjectMap({
-	'&': '&amp;',
-	'<': '&lt;',
-	'>': '&gt;',
-	'"': '&quot;'
-});
-const escapeHtml = s => s.replace(/[&<>"]/gm, (str) => map[str]);
 
 // Strip trailing punctuation that almost certainly isn't part of the URL.
 // Handles balanced brackets so URLs like wiki/C_(lang)) keep their `)`.
@@ -78,13 +70,13 @@ const renderLinks = text => {
 			last = start + full.length;
 			continue;
 		}
-		if (start > last) out += escapeHtml(text.slice(last, start));
-		out += `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`;
+		if (start > last) out += escapeHtmlText(text.slice(last, start));
+		out += `<a href="${escapeHtmlAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtmlText(url)}</a>`;
 		last = start + url.length;
 		// Trailing punctuation between `last` and the end of `full` will be
 		// emitted as text on the next iteration (or the final slice below).
 	}
-	if (last < text.length) out += escapeHtml(text.slice(last));
+	if (last < text.length) out += escapeHtmlText(text.slice(last));
 	return out;
 };
 

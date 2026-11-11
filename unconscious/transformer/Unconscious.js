@@ -1,12 +1,13 @@
 "use strict";
 
-import {normalizePath} from "../common/path-utils.js";
+import {normalizePath} from "@roj234/shared/path";
 
 import t from "@babel/types";
 import {generate as babelGenerate} from '@babel/generator';
 import babelModuleImports from "@babel/helper-module-imports";
 import babelAnnotateAsPure from "@babel/helper-annotate-as-pure";
 import {ID_CLASSLIST, ID_EVENTHANDLER, ID_NAMESPACE, ID_STYLELIST} from "../constant.js";
+import {escapeHtmlAttr, escapeHtmlText} from "@roj234/shared/strings";
 
 const getContext = (pass, name) => pass.get('unconscious/babel-jsx/'+name);
 const setContext = (pass, name, v) => pass.set('unconscious/babel-jsx/'+name, v);
@@ -21,14 +22,11 @@ function intellijCompat(s) {
 	return s === "className" ? "class" : s;
 }
 
-const escapeAttr = unsafe => unsafe.replace(/"/g, "\\\"");
-const escapeText = unsafe => unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-
 const HTML_VOID = new Set("area,base,br,col,embed,hr,img,input,link,meta,source,track,wbr".split(","));
 
 function generateStaticHTML(node) {
 	if (t.isJSXText(node)) {
-		return escapeText(node.value.trim().replaceAll(/^\s+/gm, "").replaceAll(/\s+$/gm, ""));
+		return escapeHtmlText(node.value.trim().replaceAll(/^\s+/gm, "").replaceAll(/\s+$/gm, ""));
 	}
 	if (t.isJSXElement(node)) {
 		let tagName = node.openingElement.name.name;
@@ -58,7 +56,7 @@ function generateStaticHTML(node) {
 						console.log("Unsupported literal converting HTML", val);
 					}
 				}
-				return valStr ? `${name}="${escapeAttr(valStr)}"` : name;
+				return valStr ? `${name}="${escapeHtmlAttr(valStr)}"` : name;
 			})
 			.join(" ");
 
@@ -72,7 +70,7 @@ function generateStaticHTML(node) {
 	if (t.isJSXExpressionContainer(node))
 		node = node.expression;
 	if (isStaticAttribute(node)) {
-		return typeof node.value === 'string' ? escapeText(node.value) : String(node.value);
+		return typeof node.value === 'string' ? escapeHtmlText(node.value) : String(node.value);
 	}
 
 	throw new Error("Unknown element type");

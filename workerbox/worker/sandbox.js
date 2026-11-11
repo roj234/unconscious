@@ -1,5 +1,5 @@
 import {lockdown} from "./lockdown.js";
-import {normalizePath} from "unconscious/common/path-utils.js";
+import {normalizePath} from "@roj234/shared/path";
 import {emulateConsole} from "./emulated-console.js";
 import {emulateFsPromises} from "./emulated-fsPromises.js";
 import {emulatedPath} from "./emulated-path.js";
@@ -11,7 +11,7 @@ import {
 	base64Encode,
 	createBase64Decoder,
 	createBase64Encoder
-} from "unconscious/common/Base64.js";
+} from "@roj234/shared/base64";
 import {inspect} from "@roj234/util-inspect";
 import {immutableObjectMap} from "@roj234/shared/objects";
 
@@ -410,7 +410,7 @@ const global = {
 		if (type) cacheKey+="::"+type;
 		let cache = moduleCache.get(cacheKey);
 		if (!cache) {
-			cache = RPC('load', [absolutePath, type, isSystemModule]).then((code) => {
+			cache = RPC('load', [absolutePath, owner, isSystemModule, type]).then((code) => {
 				if (type === 'text') return { default: code };
 				if (type === 'json') return { default: JSON.parse(code) };
 				return loadModule(absolutePath, code);

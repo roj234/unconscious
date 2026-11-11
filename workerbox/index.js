@@ -1,674 +1,180 @@
-/**
- * safe-worker
- * Safe ESM WebWorker sandbox in 10 KiB (minified).
- */
 import SandboxWorker from './worker/sandbox.js?worker';
-import {locate} from "@roj234/shared/strings";
+import {applyEdits, ESMParseError, isIdentifierName, parseModule} from '@roj234/esm-parser';
+import {normalizeLineTerminator} from "@roj234/shared/strings";
 
+//region Module transformer
+const quote = JSON.stringify;
+const quoteIdent = name => isIdentifierName(name) ? name : quote(name);
+/** `a` → `.a`，`weird-name` → `["weird-name"]` */
+const prop = name => isIdentifierName(name) ? '.' + name : '[' + quote(name) + ']';
 /**
- * @typedef {Object} ModuleResolver
- * @property {string} exports
- * @property {(output: string[], tokens: string[]) => void} [runtimeImportFunc]
- * @property {(output: string[], tokens: string[]) => void} [importMeta]
- * @property {(name?: string) => string} nextTmp
- * @property {(name: string, options?: { type: string }) => string} resolveModule
- */
-
-export class ParseError extends Error {
-	constructor(msg, mod) {
-		super(mod ? msg + ' (in "' + mod + '")' : msg);
-		this.name = 'ParseError';
-	}
-}
-
-//region Tokenizer & Transformer
-// Character classifiers
-const
-	SPACE = new Set(' \t\r\n'),
-	IDENT_START = /[#_$\p{ID_Start}]/u,
-	IDENT_PART = /[$\p{ID_Continue}]/u,
-	DIGIT = /\d/,
-	OPERATORS = /=>|===|!==|\+\+|--|\.\.\.|&&=?|\|\|=?|\?\?=?|\?\.?|(?:<<|>>>?|\*\*|[-+*/%><!=|&^])=?/y;
-
-// Regex context: characters/tokens after which '/' starts a regex literal
-// This is not fully compliant, but enough for now.
-const RE_CTX = /[(\[{=!&|,;:?~+\-*%<>^]$/;
-const RE_KW = /^(return|typeof|void|delete|throw|instanceof|new|case|yield|await|in|of|do|else)$/;
-
-// Statement parser classifiers
-const STRING = /^(['"]).*\1$/;
-const LITERAL = /^[_$\p{ID_Start}][$\p{ID_Continue}]*$/u;
-const quote = s => JSON.stringify(s);
-const unquote = s => JSON.parse(`"${s.slice(1, -1)}"`);
-
-/**
- * Single-pass module transformer.
- *
- * Walks source directly, copies everything verbatim except top-level
- * import/export statements which are parsed and transformed inline.
- *
- * 哇，解析JS
- * - 妈的，我没想到我还有第二次做它的一天
- * @param {string} code
- * @param {ModuleResolver} ctx
- * @returns {string[]}
- */
-function parseModule(code, ctx) {
-	const tokens = [];
-	let pos = 0;
-	const len = code.length;
-
-	let depth = 0;
-	/** @type {null|RegExp} */
-	let inStmt;
-
-	let prevTokenIndex = 0, prevIndex = 0;
-
-	if (code.startsWith("#!")) {
-		prevIndex = pos = code.indexOf('\n');
-		if (pos < 0) return tokens;
-	}
-
-	const parseDescents = (re, initDepth = 0) => {
-		const outLen = tokens.length;
-		const prevInStmt = inStmt;
-		const prevDepth = depth;
-		inStmt = re;
-		depth = initDepth;
-		parse();
-		depth = prevDepth;
-		inStmt = prevInStmt;
-		return outLen;
-	};
-
-	const beforeMutate = (start) => {
-		if (inStmt) return;
-		tokens.length = prevTokenIndex;
-		const str = code.slice(prevIndex, start);
-		if (str) tokens.push(str);
-	};
-
-	const afterMutate = () => {
-		if (inStmt) return;
-		prevTokenIndex = tokens.length;
-		prevIndex = pos;
-	};
-
-	const IMPORT_OR_EXPORT_STATEMENT = {
-		test(ch) {
-			return (ch === '\n' && /[}'"]$/.test(tokens.at(-1))) || ch === ';';
-		}
-	};
-
-	const parse = () => {
-		while (pos < len) {
-			const ch = code[pos];
-
-			// ---- Whitespace ----
-			if (SPACE.has(ch)) {
-				if (ch === '\n') {
-					if (!depth && inStmt?.test(ch)) break;
-					tokens.push('\n');
-				}
-				pos++;
-				continue;
-			}
-
-			// ---- Comment ----
-			if (ch === '/') {
-				if (code[pos + 1] === '/') {
-					pos = code.indexOf('\n', pos+1)+1;
-					if (pos < 1) {
-						pos = len;
-						break;
-					}
-					continue;
-				}
-
-				if (code[pos + 1] === '*') {
-					pos = code.indexOf('*/', pos+1)+2;
-					if (pos < 2) {
-						pos = len;
-						break;
-					}
-					continue;
-				}
-			}
-
-			// ---- String literal ----
-			if (ch === '\'' || ch === '"') {
-				const start = pos++;
-				while (pos < len) {
-					const c1 = code[pos++];
-					if (c1 === ch) break;
-					if (c1 === '\\') pos ++;
-				}
-
-				tokens.push(code.slice(start, pos));
-				continue;
-			}
-
-			// ---- Template literal ----
-			if (ch === '`') {
-				const start = pos++;
-				while (pos < len) {
-					const c1 = code[pos++];
-					if (c1 === '`') break;
-					if (c1 === '\\') pos ++;
-
-					else if (c1 === '$' && code[pos] === '{') {
-						pos ++;
-						tokens.length = parseDescents(/}/, 1);
-					}
-				}
-
-				tokens.push(code.slice(start, pos));
-				continue;
-			}
-
-			// ---- Number literal ----
-			if (DIGIT.test(ch) || (ch === '.' && DIGIT.test(code[pos + 1]))) {
-				const start = pos;
-
-				while (/[0-9_.]/.test(code[pos])) pos++;
-
-				let c1 = code[pos];
-				if (/[xob]/i.test(c1)) {
-					pos++;
-					while (/[0-9a-fA-F]/.test(code[pos])) pos++;
-				} else if (c1 === 'e' || c1 === 'E') {
-					c1 = code[++pos];
-					if (c1 === '+' || c1 === '-') pos++;
-					while (/[0-9.]/.test(code[pos])) pos++;
-				}
-				if (code[pos] === 'n') pos++;
-
-				tokens.push(code.slice(start, pos));
-				continue;
-			}
-
-			// ---- RegExp literal or division ----
-			if (ch === '/') {
-				const prevTrim = tokens.at(-1)?.trimEnd();
-				const isRegex = !prevTrim || RE_CTX.test(prevTrim) || RE_KW.test(prevTrim);
-				const start = pos++;
-
-				if (!isRegex) {
-					// Division: / or /=
-					if (code[pos] === '=') pos++;
-				} else {
-					// RegExp literal
-					let inClass = false;
-					while (pos < len) {
-						const c1 = code[pos++];
-						if (c1 === '\\') { pos ++; }
-						if (!inClass) {
-							if (c1 === '/') break;
-							if (c1 === '[') inClass = true;
-						} else if (c1 === ']') {
-							inClass = false;
-						}
-					}
-					while (pos < len && IDENT_PART.test(code[pos])) pos++; // flags
-				}
-
-				tokens.push(code.slice(start, pos));
-				continue;
-			}
-
-			// ---- Identifier / keyword ----
-			if (IDENT_START.test(ch)) {
-				const start = pos++;
-				while (pos < len && IDENT_PART.test(code[pos])) pos++;
-				const identifier = code.slice(start, pos);
-
-				const ERR = () => {throw new ParseError('Only top-level import/export allowed (or not end with semicolon)');};
-
-				if (tokens.at(-1) !== '.')
-
-				if (identifier === 'import') {
-					while (pos < len && SPACE.has(code[pos])) pos++;
-
-					beforeMutate(start);
-
-					// import.meta
-					if (code[pos] === '.') {
-						const importMeta = ctx.importMeta;
-						pos++;
-						const outLen = parseDescents({ test() {return true;} });
-						const statement = tokens.splice(outLen).filter(s => s !== '\n');
-						if (importMeta && statement[0] === 'meta') importMeta(tokens, statement);
-						else tokens.push('undefined.', ...statement);
-						afterMutate();
-						continue;
-					}
-					if (code[pos] === '(') {
-						const outLen = parseDescents(/\)/);
-						const statement = tokens.splice(outLen).filter(s => s !== '\n');
-						try {
-							parseDynamicImport(statement, tokens, ctx);
-						} catch (e) {
-							throw new ParseError(e.message+'\n'+locate(code, pos));
-						}
-						afterMutate();
-						continue;
-					}
-
-					// Actually we SUPPORT but not ALLOW it...
-					if (depth || inStmt) {
-						if (code[pos] === '{' || IDENT_START.test(code[pos]))
-							ERR();
-						tokens.push('undefined');
-					} else {
-						const outLen = parseDescents(IMPORT_OR_EXPORT_STATEMENT);
-						const statement = tokens.splice(outLen).filter(s => s !== '\n');
-						try {
-							parseImport(statement, tokens, ctx);
-						} catch (e) {
-							throw new ParseError(e.message+'\n'+locate(code, pos));
-						}
-					}
-					afterMutate();
-					continue;
-				} else
-
-				if (identifier === 'export') {
-					while (pos < len && SPACE.has(code[pos])) pos++;
-
-					beforeMutate(start);
-
-					if (depth || inStmt) {
-						if (code[pos] === '{' || IDENT_START.test(code[pos]))
-							ERR();
-						tokens.push('undefined');
-					}
-
-					const next = code[pos];
-
-					let outLen;
-
-					if (next === '{' || next === 'default' || next === '*') {
-						outLen = parseDescents(IMPORT_OR_EXPORT_STATEMENT);
-					} else {
-						//const cont = /const|let|var/.test(next);
-						outLen = parseDescents({
-							test(ch) {
-								return (ch === '\n' && tokens.at(-1) !== ',') || ch === ';';
-							}
-						});
-					}
-
-					const statement = tokens.splice(outLen).filter(s => s !== '\n');
-					try {
-						parseExport(statement, tokens, ctx);
-					} catch (e) {
-						throw new ParseError(e.message+'\n'+locate(code, pos));
-					}
-					afterMutate();
-					continue;
-				}
-
-				tokens.push(identifier);
-				continue;
-			}
-
-			// ---- Punctuation / operators ----
-			OPERATORS.lastIndex = pos;
-			const arr = code.match(OPERATORS);
-			if (arr) {
-				pos += arr[0].length;
-				tokens.push(arr[0]);
-				continue;
-			} else {
-				if (ch === '@') throw new Error("Invalid or unexpected token\n"+locate(code, pos));
-			}
-
-			pos++;
-			tokens.push(ch);
-
-			// Single character — track depth
-			if (ch === '{' || ch === '(' || ch === '[') depth++;
-			else if (ch === '}' || ch === ')' || ch === ']') {
-				if (!depth && inStmt?.test(ch)) break;
-
-				if (--depth < 0) throw new Error("Brace mismatch\n"+locate(code, pos));
-			}
-
-			if (!depth && inStmt?.test(ch)) break;
-		}
-	};
-
-	parse();
-
-	beforeMutate(pos);
-	return tokens;
-}
-
-/**
- * Token to string.
- * No ASI needed as we keep LF
- * @param {string[]} tokens
+ * @param {Array<{name: string, alias: string}>} specs
  * @returns {string}
  */
-const prettifier = (tokens) => tokens.join(' ');
+const namedDestruct = specs => `{ ${specs.map(({name, alias}) => name === alias ? quoteIdent(name) : `${quoteIdent(name)}: ${alias}`).join(', ')} }`;
 
 /**
- * @param {string[]} tokens
- * @param {string[]} output
- * @param {ModuleResolver} ctx
- */
-const parseDynamicImport = (tokens, output, ctx) => {
-	const func = ctx.runtimeImportFunc;
-	if (!func) throw new ParseError('import() is not supported');
-	func(output, tokens);
-};
-
-/**
- * @param {string[]} tokens
- * @param {string[]} output
- * @param {ModuleResolver} ctx
- */
-const parseImport = (tokens, output, ctx) => {
-	let i = 0;
-	const EXCEPT = (chr) => {
-		const token = tokens[i];
-		if (token !== chr && !chr?.test?.(token)) throw new ParseError('Expected '+quote(chr)+" but got "+quote(token)+" at "+i);
-		i++;
-		return token;
-	};
-	const emit = (str) => output.push(str);
-
-	let namespace, namedImport, defaultImport, moduleName;
-
-	const parse = () => {
-		if (tokens[i] === '*') {
-			i++;
-			EXCEPT("as");
-			namespace = EXCEPT(LITERAL);
-		} else if (tokens[i] === '{') {
-			i++;
-			[i, namedImport] = parseSpecifiers(tokens, i);
-		} else {
-			if (defaultImport != null) throw new ParseError('Expected * or { after ,');
-
-			const srcElement = tokens[i++];
-			// import 'a';
-			if (STRING.test(srcElement)) { moduleName = unquote(srcElement); return; }
-
-			// import a,
-			defaultImport = srcElement;
-
-			if (tokens[i] === ',') { i++; return parse(); }
-		}
-
-		EXCEPT("from");
-		moduleName = unquote(EXCEPT(STRING));
-	};
-	parse();
-
-	if (tokens[i] === 'assert' || tokens[i] === 'with') {
-		i++;
-		EXCEPT("{");
-		EXCEPT("type");
-		EXCEPT(":");
-
-		const type = unquote(EXCEPT(STRING));
-		//if (type !== 'text') throw new ParseError("Only text assertion is supported now");
-
-		{
-			if (namespace || namedImport) throw new ParseError('cannot use namespace or named import with type assertion');
-
-			const text = ctx.resolveModule(moduleName, {type});
-			if (text == null) throw new ParseError('Module "'+moduleName+'" has no assertion content');
-
-			if (defaultImport) emit(`const ${defaultImport} = ${text};`);
-			else emit(`/* text import: ${moduleName} */`);
-		}
-
-		EXCEPT("}");
-	} else {
-		const module = ctx.resolveModule(moduleName);
-
-		if (namespace || defaultImport || namedImport) {
-			const tmp = namespace || ctx.nextTmp();
-
-			emit(`const ${tmp} = ${module};`);
-
-			const imports = [ ...namedImport || [] ];
-
-			if (defaultImport) {
-				imports.push(['default', defaultImport]);
-				emit(`let ${defaultImport} = ${tmp}.default;`);
-			}
-			if (namedImport) {
-				emit(`let ${namedDestruct(namedImport)} = ${tmp};`);
-			}
-
-			if (imports.length > 0) {
-				let str = '';
-				for (const [name, alias] of imports) {
-					str += `${alias} = ${tmp}.${name};\n`;
-				}
-
-				emit(`__onload(${JSON.stringify(moduleName)}, () => {${str}});`);
-			}
-		} else {
-			emit(module+';');
-		}
-	}
-
-	if (tokens[i] === ';') i++;
-	EXCEPT(undefined);
-};
-
-/**
- * @param {string[]} tokens
- * @param {string[]} output
- * @param {ModuleResolver} ctx
- */
-const parseExport = (tokens, output, ctx) => {
-	let i = 0;
-	const EXCEPT = (chr) => {
-		const token = tokens[i];
-		if (token !== chr && !chr?.test(token)) throw new ParseError('Expected '+quote(chr)+" but got "+quote(token)+" at "+i);
-		i++;
-		return token;
-	};
-	const emit = (str) => output.push(str);
-	const emitExpression = (i) => {
-		output.push(...tokens.slice(i));
-		if (!output.at(-1).endsWith(';')) output.push(';')
-	}
-
-	let namespace;
-	const field = ctx.exports;
-
-	if (tokens[i] === 'default') {
-		// export default ...
-		i++;
-
-		let name = tokens[i];
-		const start = i;
-		if (name === 'async') name = tokens[++i];
-		if (name === 'function' || name === 'class') {
-			name = tokens[++i];
-			if (name === '*') name = tokens[++i];
-			if (LITERAL.test(name)) {
-				emitExpression(start);
-				emit(`${field}.default = ${name};`);
-				return;
-			}
-		}
-
-		emit(`${field}.default = `);
-		emitExpression(start);
-
-		return;
-	} else if (tokens[i] === '*') {
-		// export * [as ns] from 'mod'
-
-		i++;
-		if (tokens[i] === 'as') {
-			i++;
-			namespace = EXCEPT(LITERAL);
-		}
-
-		EXCEPT("from");
-		const module = ctx.resolveModule(unquote(EXCEPT(STRING)));
-
-		if (namespace) {
-			emit(`${field}.${namespace} = ${module};`);
-		} else {
-			const tmp = ctx.nextTmp();
-			emit(`const ${tmp} = ${module};`);
-			emit(`for(const k in ${tmp}){if(k!=="default")${field}[k]=${tmp}[k];}`);
-		}
-	} else if (tokens[i] === '{') {
-		// export {a, b} [from 'mod']
-		let specifiers, prefix = '';
-
-		i++;
-		[i, specifiers] = parseSpecifiers(tokens, i);
-
-		if (tokens[i] === 'from') {
-			i++;
-
-			const module = ctx.resolveModule(unquote(EXCEPT(STRING)));
-
-			const tmp = ctx.nextTmp();
-			emit(`const ${tmp} = ${module};`);
-			prefix = tmp+'.';
-		}
-
-		for (const [name, alias] of specifiers) {
-			emit(`${field}.${alias} = ${prefix}${name};`);
-		}
-	} else if (/async|function|class|const|let|var/.test(tokens[i])) {
-		emitExpression(i);
-
-		let token = tokens[i];
-		if (/const|let|var/.test(token)) {
-			for (const name of parseVariableDecl(tokens, i+1)) {
-				if (token !== 'const') {
-					emit(`Object.defineProperty(${field}, ${JSON.stringify(name)}, { get: () => ${name} });`);
-				} else {
-					emit(`${field}.${name} = ${name};`);
-				}
-			}
-		} else {
-			let j = i+1;
-			if (token === 'async') j++;
-			if (tokens[j] === '*') j++;
-
-			const name = tokens[j];
-			emit(`${field}.${name} = ${name};`);
-		}
-
-		return;
-	} else {
-		throw new ParseError("Unsupported export format: "+quote(tokens.join(" ")));
-	}
-
-	if (tokens[i] === ';') i++;
-	EXCEPT(undefined);
-};
-
-/**
- * @param {string[]} tokens
- * @param {number} i
- * @returns {string[]}
- */
-const parseVariableDecl = (tokens, i) => {
-	const names = [];
-	let name;
-	let depth = 0;
-	for (; i < tokens.length; i++) {
-		const token = tokens[i];
-		if (name == null) names.push(name = token);
-		else if (token === '{' || token === '[' || token === '(') {depth++;}
-		else if (token === '}' || token === ']' || token === ')') {depth--;}
-		else if (token === ',' && depth === 0) name = null;
-	}
-	return names;
-};
-
-/**
- * @param {string[]} src
- * @param {number} i
- * @returns {[number,string[]]}
- */
-const parseSpecifiers = (src, i) => {
-	const result = [];
-	const len = src.length;
-
-	if (src[i] !== '}') {
-		while (i < len) {
-			const name = src[i++];
-			let alias = name;
-			if (src[i] === 'as') {
-				i++;
-				alias = src[i++];
-				if (!alias) throw new ParseError('Expected identifier after "as"');
-			}
-
-			result.push([name, alias]);
-
-			if (src[i] !== ',') break;
-			i++;
-			if (src[i] === '}') break;
-		}
-		if (src[i] !== '}') throw new ParseError('Expected } but found '+src[i]);
-		i++;
-	}
-
-	return [i, result];
-};
-/**
- * @param {Array<[string, string]>} specifiers
- * @returns {string}
- */
-const namedDestruct = specifiers => `{ ${specifiers.map(([name, alias]) => name === alias ? name : `${name}: ${alias}`).join(', ')} }`;
-//endregion
-
-/**
+ * 把一份 ES 模块源码变成沙箱里能跑的 async 函数体。
  *
- * @param {string} path
- * @param {string} code
- * @param {boolean} prettifyCode
+ * 注意：解构声明（`export const {a} = obj`）静态拿不到名字，不会生成导出。
+ *
+ * @param {string} path 模块名，会注入成 `__moduleId`
+ * @param {string} code 原始源码
  * @returns {string}
  */
-function bundleModule(path, code, prettifyCode = true) {
+function bundleModule(path, code) {
 	let temp = 0;
-	let exportUsed, metaUsed = '';
-	const tokens = parseModule(code, {
-		get exports() {
-			exportUsed = 1;
-			return "exports";
-		},
-		importMeta(output, tokens) {
-			tokens.shift();
-			output.push("__meta", ...tokens);
-			metaUsed = 'const __meta = {url:"file:///"+__moduleId};\n';
-		},
-		runtimeImportFunc(output, tokens) {
-			output.push('(', '_imp', '(', '__moduleId', ',', ...tokens.slice(1), ')');
-		},
-		nextTmp() {
-			return "__tmp_"+temp++;
-		},
-		resolveModule(name, {type} = {}) {
-			if (type) {
-				return `(await _imp(__moduleId, ${JSON.stringify(name)}, { with: { type: ${JSON.stringify(type)} }})).default`;
-			} else {
-				return `await _imp(__moduleId, ${JSON.stringify(name)})`;
+	/** 生成不撞名的临时变量 */
+	const nextTmp = () => '__tmp_' + temp++;
+
+	/** 待应用的编辑，区间一律左闭右开 */
+	const edits = [];
+	/** import.meta 用到的头部声明，只有真用到了才加 */
+	let metaUsed = '';
+
+	// #! 放进函数体里是非法的，直接扔掉
+	if (code.startsWith('#!')) {
+		const hashbangEnd = code.indexOf('\n');
+		edits.push({start: 0, end: hashbangEnd < 0 ? code.length : hashbangEnd, replacement: ''});
+	}
+
+	/**
+	 * 导入表达式的文本。
+	 * @param {string} name 模块说明符
+	 * @param {string} [type] import attributes 里的 type，此时取 default
+	 * @returns {string}
+	 */
+	const resolveModule = (name, type) => {
+		const attrs = type === undefined ? '' : `, { with: { type: ${quote(type)} } }`;
+		const call = `await _imp(__moduleId, ${quote(name)}${attrs})`;
+		return type === undefined ? call : `(${call}).default`;
+	};
+
+	/**
+	 * @param {import('@roj234/esm-parser').ImportNode} node
+	 * @returns {string}
+	 */
+	const transformImport = node => {
+		const type = node.attribute?.entries.type;
+
+		if (type !== undefined) {
+			// with { type: 'text' | 'json' }：加载器直接返回内容，只有默认导入有意义
+			if (node.namespace || node.specifiers)
+				throw new ESMParseError('类型导入不支持命名导入或命名空间导入', code, node.start);
+
+			const module = resolveModule(node.source, type);
+			return node.default ? `const ${node.default} = ${module};` : module + ';';
+		}
+
+		const module = resolveModule(node.source);
+		if (!node.namespace && !node.default && !node.specifiers) return module + ';'; // import 'x'
+
+		const tmp = node.namespace ?? nextTmp();
+		const live = [];
+		let out = `const ${tmp} = ${module};`;
+
+		if (node.default) {
+			out += `let ${node.default} = ${tmp}.default;`;
+			live.push(`${node.default} = ${tmp}.default;`);
+		}
+		if (node.specifiers) {
+			out += `let ${namedDestruct(node.specifiers)} = ${tmp};`;
+			for (const {name, alias} of node.specifiers) live.push(`${alias} = ${tmp}${prop(name)};`);
+		}
+
+		// 模块初始化完再回填一次，免得循环引用拿到 undefined
+		if (live.length) out += `__onload(${quote(node.source)}, () => {${live.join('')}});`;
+		return out;
+	};
+
+	/**
+	 * export 语句：返回前缀区间的替换文本，语句尾巴上要补的导出另外插进去。
+	 * @param {import('@roj234/esm-parser').ExportNode} node
+	 * @returns {string}
+	 */
+	const transformExport = node => {
+		/** 在整条语句之后插入 */
+		const append = text => edits.push({start: node.statementEnd, end: node.statementEnd, text: text});
+
+		// export * [as ns] from 'x' / export {a as b} from 'x'
+		if (node.source !== undefined) {
+			const module = resolveModule(node.source);
+
+			if (node.namespace !== undefined) return `exports${prop(node.namespace)} = ${module};`;
+
+			const tmp = nextTmp();
+			let out = `const ${tmp} = ${module};`;
+			for (const {name, alias} of node.specifiers ?? []) out += `exports${prop(alias)} = ${tmp}${prop(name)};`;
+			// export * from 'x'：全转出去，但不转 default
+			if (!node.specifiers) out += `for(const k in ${tmp}){if(k!=="default")exports[k]=${tmp}[k];}`;
+			return out;
+		}
+
+		// export {a, b as c}
+		if (node.specifiers) {
+			let out = '';
+			for (const {name, alias} of node.specifiers) out += `exports${prop(alias)} = ${name};`;
+			return out;
+		}
+
+		// export default …
+		if (node.default) {
+			const name = node.names[0];
+			// export default function f() {} / class C {}：声明留着，语句后面补一句
+			if (name) {
+				append(`\nexports.default = ${name};`);
+				return '';
 			}
-		},
-	});
-	let out = prettifier(tokens);
+			// export default 42 / function () {}：直接把值赋过去
+			return 'exports.default = ';
+		}
+
+		const decl = node.declaration;
+
+		if (node.uncertain) throw new ESMParseError('不支持的语法', code, node.start);
+
+		if (decl === 'var' || decl === 'let' || decl === 'const') {
+			append('\n' + node.names.map(name => decl === 'const'
+				? `exports${prop(name)} = ${name};`
+				// let / var 是活的，用 getter 读
+				: `Object.defineProperty(exports, ${quote(name)}, {get: () => ${name}});`
+			).join(''));
+			return '';
+		}
+
+		// export function / class / async function
+		const name = node.names[0];
+		if (name) append(`\nexports${prop(name)} = ${name};`);
+		return '';
+	};
+
+	code = normalizeLineTerminator(code);
+	for (const node of parseModule(code)) {
+		switch (node.type) {
+			case 'import':
+				edits.push({start: node.start, end: node.end, text: transformImport(node)});
+			break;
+			case 'export':
+				edits.push({start: node.start, end: node.end, text: transformExport(node)});
+			break;
+			case 'importMeta':
+				metaUsed = 'const __meta = {url: "file:///" + __moduleId};\n';
+				edits.push({start: node.start, end: node.end, text: '__meta'});
+			break;
+			case 'importDynamic':
+				edits.push({start: node.start, end: code.indexOf('(', node.start + 6)+1, text: '_imp(__moduleId, '});
+			break;
+		}
+	}
+
+	let out = applyEdits(code, edits);
+
 	if (path?.endsWith(".cjs")) out = `const module = {exports};`+out+"\n;Object.assign(exports,module.exports)";
 
-	return `const __moduleId=${JSON.stringify(path||'inlineModule')};\n`+metaUsed+out;
+	console.log(out);
+	return `const __moduleId=${quote(path || 'inlineModule')};\n`+metaUsed+out;
 }
+//endregion
 
 /**
  * 创建沙盒和RPC组件
@@ -751,7 +257,7 @@ export function createWorker(rpcHandler, logHandler, name) {
 /**
  *
  * @param {Object} handlers - 外部可实时更新不需要重启沙盒的 handlers
- * @param {function(string, boolean): string|Promise<string>} handlers.load - 模块文件加载器
+ * @param {function(string, string, boolean): string|Promise<string>} handlers.load - 模块文件加载器
  * @param {function(string, any[], Transferable[]): any|Promise<any>} [handlers.rpc] - 文件系统 RPC 提供者
  * @param {function(string): void} handlers.log - 控制台打印处理程序
  * @param {string[]} permissions - 脚本权限
@@ -772,9 +278,9 @@ export function createSandbox(
 
 	const [RPC, destroy] = createWorker(async (method, data, transfer) => {
 		if (method === 'load') {
-			const [name, type, isSystemModule] = data;
-			const code = await handlers.load(name, isSystemModule);
-			return type ? code : bundleModule(name, code, !isSystemModule);
+			const [name, caller, isSystemModule, type] = data;
+			const code = await handlers.load(name, caller, isSystemModule);
+			return type ? code : bundleModule(name, code);
 		} else if (method === 'exec') {
 			const [mod, func, args] = data;
 			const fn = hostModules.get(mod)?.[func];

@@ -15,7 +15,7 @@
 
 "use strict";
 
-import {AS_IS, UTF8_TEXT_DECODER, UTF8_TEXT_ENCODER} from "../shared.js";
+import {AS_IS, UTF8_TEXT_DECODER, UTF8_TEXT_ENCODER} from "@roj234/shared";
 import {betterObject} from "@roj234/shared/objects";
 
 /**

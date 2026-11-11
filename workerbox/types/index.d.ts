@@ -1,23 +1,4 @@
 
-/**
- * workerbox — Safe ESM WebWorker sandbox
- *
- * Zero-dependency, ~21 KiB minified.
- * Self-contained ESM tokenizer + transformer, Worker-based isolation,
- * prototype-chain lockdown, and bidirectional RPC.
- */
-
-// ── Exports ──────────────────────────────────────────────────────────────
-
-/**
- * Thrown when a module cannot be parsed (e.g. nested import/export,
- * unsupported syntax in import/export position).
- */
-export class ParseError extends Error {
-    readonly name: 'ParseError';
-    constructor(msg: string, mod?: string);
-}
-
 // ── Low-level Worker ─────────────────────────────────────────────────────
 
 /**
@@ -61,10 +42,11 @@ export interface SandboxHandlers {
      * (path starting with `.` or `/`).
      *
      * @param moduleName - The raw specifier from the import statement.
+     * @param loaderModule - The importer name
      * @param isSystemModule - ORIGINAL path is not starting with `.` or `/`
      * @returns The module's source code as a string.
      */
-    load(moduleName: string, isSystemModule: boolean): string | Promise<string>;
+    load(moduleName: string, loaderModule: string, isSystemModule: boolean): string | Promise<string>;
 
     /**
      * RPC endpoint for the emulated `fs` module and any custom RPC calls.

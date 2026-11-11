@@ -2,10 +2,11 @@
 export const betterObject = /*#__PURE__*/ Object.create(null);
 for (const n of ["toString", "valueOf"]) {
 	Object.defineProperty(betterObject, n, {
-		value: Object.prototype[n]
+		value: Object.prototype[n],
+		writable: true,
+		configurable: true
 	});
 }
-Object.freeze(betterObject);
 
 /**
  * @template T

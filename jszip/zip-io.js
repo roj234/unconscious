@@ -1,5 +1,5 @@
 // duck type 真是太赞了！
-import {debugSymbol, UTF8_TEXT_DECODER, UTF8_TEXT_ENCODER} from "../shared.js";
+import {debugSymbol, UTF8_TEXT_DECODER, UTF8_TEXT_ENCODER} from "@roj234/shared";
 
 const ZIP_READER_SYMBOL = debugSymbol("ZipReaderId");
 

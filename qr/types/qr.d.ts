@@ -3,9 +3,19 @@
  */
 export type QRECLevel = 'L' | 'M' | 'Q' | 'H';
 
-/**
- * `generateQRCode` 的选项
- */
+export type QRSegment = {
+    // type
+    t: number[];
+    // data
+    d: Uint8Array;
+    // length
+    l: number;
+    // pad
+    p: number;
+}
+
+export type QRInputType = string | Uint8Array | QRSegment[];
+
 export interface QRCodeOptions {
     /**
      * 纠错等级
@@ -13,15 +23,23 @@ export interface QRCodeOptions {
      */
     level?: QRECLevel;
     /**
-     * QR 版本 (1..40)。
+     * 强制 QR 版本 (1..40)。
      * 省略时自动选择能装下数据的最小版本。
      */
     version?: number;
+
+    /** 允许使用的最小版本 */
+    minVersion?: number;
+    /** 允许使用的最大版本 */
+    maxVersion?: number;
+
+     /** 强制使用掩码 (0-7) */
+    mask?: number;
+
+     /** 禁用自动提升纠错等级，重构URL等功能 */
+    dumb?: boolean;
 }
 
-/**
- * `generateQRCode` 的返回结果
- */
 export interface QRCodeResult {
     /**
      * QR 码的边长（模块数），等于 `version * 4 + 17`
@@ -32,36 +50,6 @@ export interface QRCodeResult {
      * 值为 `1` 表示深色模块，`0` 表示浅色模块。
      */
     modules: Int8Array;
-}
-
-/**
- * `renderQRCodeToCanvas` 的选项
- */
-export interface QRCodeRenderOptions extends QRCodeOptions {
-    /**
-     * 用于绘制的 Canvas 元素，省略时自动创建一个新的 `<canvas>`
-     */
-    canvas?: HTMLCanvasElement;
-    /**
-     * 静区（空白边框）的模块数
-     * @default 1
-     */
-    border?: number;
-    /**
-     * Canvas 的 CSS 显示尺寸（像素），同时作用于宽和高
-     * @default `size * 8`
-     */
-    width?: number;
-    /**
-     * 背景色
-     * @default "white"
-     */
-    background?: string;
-    /**
-     * 前景色（模块颜色）
-     * @default "black"
-     */
-    color?: string;
 }
 
 /**
@@ -92,6 +80,33 @@ export function generateQRCode(
 
 export default generateQRCode;
 
+export interface QRCodeCanvasOptions extends QRCodeOptions {
+    /**
+     * 用于绘制的 Canvas 元素，省略时自动创建一个新的 `<canvas>`
+     */
+    canvas?: HTMLCanvasElement;
+    /**
+     * 静区（空白边框）的模块数
+     * @default 1
+     */
+    border?: number;
+    /**
+     * Canvas 的 CSS 显示尺寸（像素），同时作用于宽和高
+     * @default `size * 8`
+     */
+    width?: number;
+    /**
+     * 背景色
+     * @default "white"
+     */
+    background?: string;
+    /**
+     * 前景色（模块颜色）
+     * @default "black"
+     */
+    color?: string;
+}
+
 /**
  * 将 QR 码绘制到 Canvas 上并返回该 Canvas。
  *
@@ -106,6 +121,27 @@ export default generateQRCode;
  * ```
  */
 export function renderQRCodeToCanvas(
-    data: string | Uint8Array,
-    options?: QRCodeRenderOptions
+    data: QRInputType,
+    options?: QRCodeCanvasOptions
 ): HTMLCanvasElement;
+
+export interface QRCodeAsciiOptions extends QRCodeOptions {
+    /**
+     * 静区（空白边框）的模块数
+     * @default 1
+     */
+    border?: number,
+    /**
+     * 背景色
+     * @default "white"
+     */
+    background?: 'white' | string,
+}
+
+/**
+ * Render a QR code as ASCII art (terminal).
+ */
+export function renderQRCodeToASCII(
+    data: QRInputType,
+    options?: QRCodeAsciiOptions
+): string;

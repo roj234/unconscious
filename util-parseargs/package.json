@@ -1,0 +1,17 @@
+{
+  "name": "@roj234/util-parseargs",
+  "version": "1.0.0",
+  "description": "Parse arguments and print help.",
+  "type": "module",
+  "author": "Roj234",
+  "license": "BSD-3-Clause",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "import": "./index.js"
+    }
+  },
+  "dependencies": {
+
+  }
+}

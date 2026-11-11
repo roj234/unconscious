@@ -1,0 +1,17 @@
+{
+  "name": "@roj234/esm-parser",
+  "description": "Mostly reliable ESM import/export parser with affordable performance... 但代价是什么呢古尔丹？",
+  "version": "1.0.0",
+  "type": "module",
+  "license": "BSD-3-Clause",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "import": "./index.js"
+    }
+  },
+  "dependencies": {
+    "@roj234/shared": "^1.1.0",
+    "@roj234/stream-json": "^1.0.0"
+  }
+}

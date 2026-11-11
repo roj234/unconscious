@@ -1,8 +1,10 @@
-// qr.js — Fastest JavaScript QRCode pattern generator. < 5999 bytes minified, ~2800 bytes gzipped.
+// qr.js — Faster JavaScript QRCode pattern generator. < 5999 bytes minified, ~2800 bytes gzipped.
 // - Minified with BYTE_ONLY flag and Canvas backend only (ideal for browser). other backends are tree-shared.
 // - For Smart mode (no BYTE_ONLY), ~7.5 KiB minified.
 // - Require ~2.2KiB RAM for constants.
 // - Not caching RS/Geometry, not as fast as those cached.
+
+import {UTF8_TEXT_ENCODER} from "@roj234/shared";
 
 const BYTE_ONLY = false;
 
@@ -11,7 +13,6 @@ const BYTE_ONLY = false;
 // ---------------------------------------------------------------------------
 // Reed-Solomon over GF(256), primitive polynomial 0x11d (x^8+x^4+x^3+x^2+1)
 // ---------------------------------------------------------------------------
-import {UTF8_TEXT_ENCODER} from "../shared.js";
 
 // branchless gfMul
 const EXP = new Uint8Array(512 + 511);
@@ -169,16 +170,8 @@ const getLengthBits = (mode, version) => mode[Math.floor((version + 7) / 17) + 1
 const ALNUM_IDX = /*#__PURE__*/ new Map(Array.prototype.map.call("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:", (k, v) => [k.charCodeAt(0), v]));
 
 /**
- * @typedef {Object} Segment
- * @property {number[]} t type
- * @property {Uint8Array} d data
- * @property {number} l length
- * @property {number} p pad
- */
-
-/**
  * @param {string} text
- * @return {Segment}
+ * @return {QRSegment}
  */
 const makeByteSegment = text => {
 	const buf = UTF8_TEXT_ENCODER.encode(text);
@@ -193,7 +186,7 @@ const makeByteSegment = text => {
 /**
  * @param {number[]} type
  * @param {string} text
- * @return {Segment}
+ * @return {QRSegment}
  */
 const makeSegment = (type, text) => {
 	const length = text.length;
@@ -235,7 +228,7 @@ const makeSegment = (type, text) => {
 /**
  * @param {string} text
  * @param {{ dumb?: boolean }} options
- * @return {Uint8Array|Segment[]}
+ * @return {Uint8Array|QRSegment[]}
  */
 const splitSegments = (text, options) => {
 	if (text.startsWith("http") && !options.dumb) {
@@ -281,7 +274,7 @@ const splitSegments = (text, options) => {
 
 /**
  * 编码QR流
- * @param {Uint8Array | Segment[]} data
+ * @param {Uint8Array | QRSegment[]} data
  * @param {number} version
  * @param {number} dataLength
  * @return {Uint8Array}
@@ -588,7 +581,7 @@ const getDataCapacity = (version, level) => {
 /**
  *
  * @param {number} version
- * @param {Uint8Array | Segment[]} data
+ * @param {Uint8Array | QRSegment[]} data
  * @return {number}
  */
 const getRawLength = (version, data) => {
@@ -607,9 +600,9 @@ const getRawLength = (version, data) => {
 
 /**
  *
- * @param {Uint8Array | string | Segment[]} data
- * @param {{ level?: 'L' | 'M' | 'Q' | 'H', version?: number, minVersion?: number, maxVersion?: number, mask?: number, dumb?: boolean }} options
- * @return {{size: number, modules: Int8Array}}
+ * @param {QRInputType} data
+ * @param {QRCodeOptions} options
+ * @return {QRCodeResult}
  */
 export const generateQRCode = (data, options = {}) => {
 	if (typeof data === 'string') data = !BYTE_ONLY ? splitSegments(data, options) : UTF8_TEXT_ENCODER.encode(data);
@@ -668,16 +661,8 @@ export default generateQRCode;
 
 /**
  *
- * @param {string | Uint8Array} data
- * @param {{
- *     canvas?: HTMLCanvasElement,
- *     level?: 'L' | 'M' | 'Q' | 'H',
- *     version?: number,
- *     border?: number,
- *     width?: number,
- *     background?: string,
- *     color?: string,
- * }} options
+ * @param {QRInputType} data
+ * @param {QRCodeCanvasOptions} options
  * @return {HTMLCanvasElement}
  */
 export const renderQRCodeToCanvas = (data, options = {}) => {
@@ -713,14 +698,8 @@ export const renderQRCodeToCanvas = (data, options = {}) => {
 /**
  * Render a QR code as ASCII art.
  *
- * @param {string | Uint8Array} data
- * @param {{
- *     level?: 'L' | 'M' | 'Q' | 'H',
- *     version?: number,
- *     mask?: number,
- *     border?: number,
- *     background?: 'white' | string,
- * }} options
+ * @param {QRInputType} data
+ * @param {QRCodeAsciiOptions} options
  * @returns {string}
  */
 export const renderQRCodeToASCII = (data, options = {}) => {
@@ -744,82 +723,3 @@ export const renderQRCodeToASCII = (data, options = {}) => {
 	}
 	return out;
 };
-/*
-import {crc32} from "./zip-io.js";
-
-const concatBytes = (a, b) => {
-	const out = new Uint8Array(a.length + b.length);
-	out.set(a, 0);
-	out.set(b, a.length);
-	return out;
-};
-
-const pngChunk = (type, data) => {
-	const t = UTF8_TEXT_ENCODER.encode(type);
-	const out = new Uint8Array(12 + data.length);
-	const v = new DataView(out.buffer);
-	v.setUint32(0, data.length);
-	out.set(t, 4);
-	out.set(data, 8);
-	v.setUint32(8 + data.length, crc32(concatBytes(t, data)));
-	return out;
-};
-
-/**
- * Render a monochrome (1-bit grayscale) PNG of a QR code as a Blob.
- *
- * @param {string | Uint8Array} data
- * @param {{
- *     level?: 'L' | 'M' | 'Q' | 'H',
- *     version?: number,
- *     mask?: number,
- *     border?: number,
- *     scale?: number,
- * }} options
- * @returns {Promise<Blob>}
- * /
-export const renderQRCodeToPngBlob = async (data, options = {}) => {
-	const { modules, size } = generateQRCode(data, options);
-	const border = options.border ?? 1;
-	const scale = options.scale ?? 1; // repeat each module `scale` times in both axes
-	const width = (size + border * 2) * scale;
-	const height = width;
-
-	// 1-bit grayscale scanlines, filter type 0 (None). dark→0(black), light→1(white)
-	const stride = (width + 7) >> 3;
-	const raw = new Uint8Array((stride + 1) * height);
-	let p = 0;
-	for (let y = 0; y < height; y++) {
-		raw[p++] = 0;
-		let byte = 0, bits = 0;
-		const my = Math.floor(y / scale) - border;
-		for (let x = 0; x < width; x++) {
-			const mx = Math.floor(x / scale) - border;
-			const dark = mx >= 0 && my >= 0 && mx < size && my < size && modules[my * size + mx] !== 0;
-			byte = (byte << 1) | (dark ? 0 : 1);
-			if (++bits === 8) { raw[p++] = byte; byte = 0; bits = 0; }
-		}
-		if (bits > 0) raw[p++] = byte << (8 - bits);
-	}
-
-	const cs = new CompressionStream('deflate');
-	const compressed = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(cs)).arrayBuffer());
-
-	const ihdr = new Uint8Array(13);
-	const dv = new DataView(ihdr.buffer);
-	dv.setUint32(0, width);
-	dv.setUint32(4, height);
-	ihdr[8] = 1;  // bit depth
-	ihdr[9] = 0;  // color type: grayscale
-	ihdr[10] = 0; // compression method
-	ihdr[11] = 0; // filter method
-	ihdr[12] = 0; // interlace
-
-	const sig = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
-
-	return new Blob(
-		[sig, pngChunk('IHDR', ihdr), pngChunk('IDAT', compressed), pngChunk('IEND', new Uint8Array(0))],
-		{ type: 'image/png' }
-	);
-};
-*/

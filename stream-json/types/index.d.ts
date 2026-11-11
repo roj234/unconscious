@@ -1,5 +1,3 @@
-// stream-json-parser.d.ts
-
 export type JsonPath = (string | number)[];
 
 /**
