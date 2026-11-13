@@ -5,6 +5,7 @@
  */
 import picomatch from 'picomatch';
 import {normalizePath as myNormalize} from "@roj234/shared/path";
+import {createMatcher} from "@roj234/shared/strings";
 
 export const defineConfig = config => config;
 export const loadEnv = () => ({});
@@ -48,31 +49,6 @@ export function createFilter(include, exclude, options = {}) {
 			if (target.startsWith(root)) target = target.slice(root.length + 1);
 		}
 		return includeMatcher(target) && !excludeMatcher(target);
-	};
-}
-
-/**
- * @param {(string | RegExp)[]} items
- * @return {(function(string): (boolean))}
- */
-export function createMatcher(items) {
-	const groups = Object.create(null);
-	const literals = new Set(); // exact 模式下字面串走 Set，比正则快
-
-	for (const item of items) {
-		if (typeof item === 'string') {
-			literals.add(item);
-			continue;
-		}
-		(groups[item.flags.replace(/[gy]/g, '')] ??= []).push(item.source);
-	}
-
-	const regexes = Object.entries(groups).map(([flags, srcs]) => new RegExp(`(?:${srcs.join('|')})`, flags));
-
-	return function match(s) {
-		if (literals.has(s)) return true;
-		for (let i = 0; i < regexes.length; i++) if (regexes[i].test(s)) return true;
-		return false;
 	};
 }
 

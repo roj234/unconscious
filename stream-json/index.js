@@ -393,7 +393,7 @@ export function createJsonParser(onValue, {emitDelta, json5, jsonl, yaml, unesca
 					if (ch !== buf[index]) {
 						if (!yaml) FAIL(JSON.stringify(buf)+"(index "+index+")", ch, i - length);
 						state = YAML_VALUE;
-						buf += ch;
+						buf = buf.slice(0, index)+ch;
 						break;
 					}
 
@@ -425,7 +425,7 @@ export function createJsonParser(onValue, {emitDelta, json5, jsonl, yaml, unesca
 				case STATE_STR_ESC: {
 					state = STATE_STR;
 					switch (ch) {
-						default: json5 ? buf += ch : FAIL('ESCAPE', '\\'+ch, i - length); break;
+						default: buf += ch; break;
 						//case '"': buf += '"'; break;
 						//case '\\': buf += '\\'; break;
 						//case '/': buf += '/'; break;

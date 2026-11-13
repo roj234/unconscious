@@ -86,11 +86,12 @@
 :has(> .tooltip) {
     position: relative;
 }
-:not(:hover) .tooltip, :disabled > .tooltip {
+:not(:hover):not(:focus-within) .tooltip, :disabled > .tooltip {
     display: none;
 }
 .tooltip {
     position: absolute;
+    cursor: initial;
     &.down {
         bottom: 0;
         transform: translate(-50%,calc(100% + 4px));

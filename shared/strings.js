@@ -52,9 +52,37 @@ const reHtml = /[&<>"]/g;
 const reText = /[&<]/g;
 const reAttr = /[&"]/g;
 const reLT = /\r\n?|[\u2028\u2029]/g;
+const reRe = /[.^$+{}[\]|()]/g;
 const mapper = (str) => map[str];
 
 export const escapeHtml = s => s.replace(reHtml, mapper);
 export const escapeHtmlText = s => s.replace(reText, mapper);
 export const escapeHtmlAttr = s => s.replaceAll('"', '\\"');//.replace(reAttr, mapper);
 export const normalizeLineTerminator = s => s.replace(reLT, '\n');
+export const escapeRegexp = s => s.replace(reRe, '\\$&');
+
+/**
+ * @param {(string | RegExp)[]} items
+ * @return {(function(string): (boolean))}
+ */
+export function createMatcher(items/*, exact = true*/) {
+	const groups = Object.create(null);
+	const literals = new Set(); // exact 模式下字面串走 Set，比正则快
+
+	for (const item of items) {
+		if (typeof item === 'string') {
+			literals.add(item);
+			//else (groups[""] ??= []).push(escapeRegexp(item));
+			continue;
+		}
+		(groups[item.flags.replace(/[gy]/g, '')] ??= []).push(item.source);
+	}
+
+	const regexes = Object.entries(groups).map(([flags, srcs]) => new RegExp(`(?:${srcs.join('|')})`, flags));
+
+	return function match(s) {
+		if (literals.has(s)) return true;
+		for (let i = 0; i < regexes.length; i++) if (regexes[i].test(s)) return true;
+		return false;
+	};
+}

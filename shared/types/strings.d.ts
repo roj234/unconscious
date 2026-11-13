@@ -13,3 +13,6 @@ export function escapeHtmlAttr(string: string): string;
  * @param str
  */
 export function normalizeLineTerminator(str: string): string;
+
+export function escapeRegexp(string: string): string;
+export function createMatcher(patterns: (string | RegExp)[]): (s: string) => boolean;

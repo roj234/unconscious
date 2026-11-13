@@ -1,6 +1,6 @@
 import postcss from "postcss";
 import picomatch from "picomatch";
-import {createMatcher} from "../src/index.js";
+import {createMatcher} from "@roj234/shared/strings";
 
 const WORD = /[A-Za-z0-9:/_-]+(?<!:)/g;
 

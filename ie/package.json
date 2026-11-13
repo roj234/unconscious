@@ -16,7 +16,7 @@
 		"postinstall": "node ./scripts/prune-rollup.mjs"
 	},
 	"dependencies": {
-		"@roj234/shared": "^1.1.0",
+		"@roj234/shared": "^1.3.0",
 		"@roj234/esm-parser": "^1.0.0",
 		"@roj234/ws": "^1.0.0",
 		"@roj234/jszip": "^1.0.0",

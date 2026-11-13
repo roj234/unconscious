@@ -14,6 +14,7 @@ import {
 } from "@roj234/shared/base64";
 import {inspect} from "@roj234/util-inspect";
 import {immutableObjectMap} from "@roj234/shared/objects";
+import {setSecrets, setupNetworkGuard} from "./net-guard.js";
 
 // ===== Helper functions =====
 
@@ -146,10 +147,7 @@ const init = ([permissions, hm, prefix]) => {
 	}
 	if (permissions.includes('wasm')) global.WebAssembly = WebAssembly;
 	if (permissions.includes('net')) {
-		const secureFetchPattern = new RegExp(`\\$env:([A-Za-z_][A-Za-z0-9_]*)(?::([A-Za-z0-9_]+))?\\$`);
-
 		const _caches = caches;
-		const _fetch = fetch;
 		Object.assign(global, {
 			caches: immutableObjectMap({
 				open: name => _caches.open(prefix + name),
@@ -158,37 +156,8 @@ const init = ([permissions, hm, prefix]) => {
 				keys: async () => (await _caches.keys()).map(removePrefix).filter(Boolean),
 				match: (request, options) => _caches.match(request, options),
 			}),
-			fetch: (input, init) => {
-				const tmp = { ...init, referrerPolicy: 'same-origin' };
-
-				let headers = tmp.headers;
-				if (headers) {
-					for (const [k, v] of Object.entries(headers)) {
-						const out = v.replace(secureFetchPattern, (_, match, transform) => {
-							const def = secrets[match];
-							if (!def) throw new DOMException("未定义密钥 "+match+" 当前可用："+inspect(Object.keys(secrets)), "SecureFetchError");
-							if (!def.domain?.test(input)) throw new DOMException("密钥 "+match+" 不允许在该URL上使用", "SecureFetchError");
-
-							let value = def.value;
-							if (transform) value = Buffer.from(value).toString(transform);
-
-							return value;
-						});
-
-						if (out !== v && headers === init.headers) {
-							headers = tmp.headers = structuredClone(headers);
-						}
-
-						headers[k] = out;
-					}
-				}
-
-				return _fetch(input, tmp);
-			},
-			XMLHttpRequest,
-			WebSocket,
-			EventSource
 		});
+		setupNetworkGuard(global);
 	}
 	if (permissions.includes('db')) {
 		const _indexedDB = indexedDB;
@@ -271,21 +240,6 @@ const load = async ([path, code]) => Object.keys(await loadModule(path, code));
 const reset = () => moduleCache.clear();
 
 /**
- * @type {Record<string, { value: string, domain: RegExp }>}
- */
-let secrets = {};
-/**
- * 更新凭据
- */
-const setSecrets = (arg) => {
-	for (const [key, value] of Object.entries(arg)) {
-		const dom = typeof value.domain;
-		if (dom === 'string') value.domain = new RegExp(value.domain, 'i');
-	}
-	secrets = arg;
-}
-
-/**
  * 执行模块函数
  * @param {string} path  - 模块名称
  * @param {string} func  - 导出名称
@@ -346,7 +300,7 @@ const createHostModule = name => {
 	const handler = {
 		get(stub, func, proxy) {
 			if (func === 'then') return proxy === resolved ? undefined : (resolve) => resolve(resolved);
-			return stub[func] || (stub[func] = (...args) => RPC('exec', [name, func, args]));
+			return stub[func] ??= (...args) => RPC('exec', [name, func, args]);
 		},
 		set: NO
 	};

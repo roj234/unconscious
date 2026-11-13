@@ -838,8 +838,8 @@ const KEYOF_LIST = /* #__PURE__ */ debugSymbol("KeyOfList");
 export const $derived = (obj, key) => {
 	if (import.meta.env.DEV && !isReactive(obj)) throw new TypeError("obj is not reactive");
 
-	let caches = obj[$SELF][KEYOF_LIST];
-	if (caches == null) caches = obj[$SELF][KEYOF_LIST] = Object.create(null);
+	const handleSELF = obj[$SELF];
+	let caches = handleSELF[KEYOF_LIST] ??= Object.create(null);
 
 	let instance = caches[key];
 	if (instance) return instance;
@@ -848,6 +848,8 @@ export const $derived = (obj, key) => {
 	const proxy = new Proxy(holder, import.meta.env.DEV ? DevComputeProxy : ShallowProxy);
 
 	$watch(obj, () => {
+		if (handleSELF.loading) return;
+
 		const oldValue = holder.value;
 		const newValue = obj[key];
 		if (oldValue === newValue) return;

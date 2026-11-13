@@ -168,10 +168,7 @@ function bundleModule(path, code) {
 	}
 
 	let out = applyEdits(code, edits);
-
 	if (path?.endsWith(".cjs")) out = `const module = {exports};`+out+"\n;Object.assign(exports,module.exports)";
-
-	console.log(out);
 	return `const __moduleId=${quote(path || 'inlineModule')};\n`+metaUsed+out;
 }
 //endregion
