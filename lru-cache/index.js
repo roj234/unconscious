@@ -305,4 +305,4 @@ export class LRUCache extends Map {
 		return this.entries();
 	}
 }
-Object.defineProperty(LRUCache, Symbol.toStringTag, { value: "LRUCache" });
+Object.defineProperty(LRUCache.prototype, Symbol.toStringTag, { value: "LRUCache" });

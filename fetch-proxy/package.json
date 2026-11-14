@@ -1,6 +1,6 @@
 {
 	"name": "@roj234/fetch-proxy",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "WHATWG fetch built on node:http(s), plus a SOCKS5 agent.",
 	"type": "module",
 	"license": "BSD-3-Clause",
@@ -13,6 +13,9 @@
 			"types": "./socks5-agent.d.ts",
 			"import": "./socks5-agent.js"
 		}
+	},
+	"scripts": {
+		"test": "node --test \"test/*.test.js\""
 	},
 	"dependencies": {
 

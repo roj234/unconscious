@@ -166,12 +166,12 @@ const styleString = state => {
 	const deco = [];
 	if (state[underline]) deco.push('underline');
 	if (state[strike]) deco.push('line-through');
-	if (state[blink]) deco.push('blink');
 	if (deco.length) parts.push('text-decoration:'+deco.join(' '));
 	let fg_ = state[fg], bg_ = state[bg];
 	if (state[inverse]) { const t = fg_; fg_ = bg_; bg_ = t; }
-	if (fg_) parts.push('color:' + fg_);
-	if (bg_) parts.push('background-color:' + bg_);
+	if (fg_) parts.push('color:'+fg_);
+	if (bg_) parts.push('background-color:'+bg_);
+	if (state[blink]) parts.push('animation:blink 1.1s infinite step-start');
 	if (state[hidden]) parts.push('visibility:hidden');
 	return parts.join(';');
 };
@@ -185,18 +185,28 @@ export function ansiToHtml(s) {
 
 	let out = '';
 	let pending = '';
-	let spanOpen = false;
+	let spanOpen = -1;
 
 	const openTag = () => {
 		const st = styleString(state);
-		if (st) { out += `<span style="${st}">`; spanOpen = true; }
+		if (st) {
+			spanOpen = out.length;
+			out += `<span style="${st}">`;
+		}
 	};
 	const closeTag = () => {
-		if (pending) {
-			out += renderLinks(pending);
-			pending = '';
+		out += renderLinks(pending);
+
+		if (spanOpen >= 0) {
+			if (!pending) {
+				out = out.slice(0, spanOpen);
+			} else {
+				out += '</span>';
+			}
+			spanOpen = -1;
 		}
-		if (spanOpen) { out += '</span>'; spanOpen = false; }
+
+		pending = '';
 	};
 
 	let i = 0;

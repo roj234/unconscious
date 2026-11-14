@@ -1,6 +1,6 @@
 {
 	"name": "@roj234/ansi2html",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "ANSI escape sequence to HTML converter.",
 	"type": "module",
 	"exports": {
@@ -15,5 +15,8 @@
 	},
 	"dependencies": {
 		"@roj234/shared": "^1.1.0"
+	},
+	"scripts": {
+		"test": "node --test \"test/*.test.js\""
 	}
 }

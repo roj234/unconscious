@@ -8,6 +8,9 @@
     ".": {
       "types": "./types/index.d.ts",
       "import": "./index.js"
+    },
+    "./console": {
+      "default": "./worker/emulated-console.js"
     }
   },
   "dependencies": {

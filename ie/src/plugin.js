@@ -11,6 +11,7 @@ export const defineConfig = config => config;
 export const loadEnv = () => ({});
 export const resolveConfig = async c => c;
 export const mergeConfig = (a, b) => ({...a, ...b});
+export const version = 'v7.0.0';
 
 export const normalizePath = p => myNormalize(p).join('/');
 

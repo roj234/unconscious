@@ -58,7 +58,7 @@ export interface ParserOptions {
     /** 允许的 HTML 标签列表，或已构建好的前缀树 Map */
     allowedTags?: string[] | TrieTree;
     /** 不解析 markdown 标记的 HTML 标签，已经包含style和script，可以增加更多 */
-    textTags?: Set<string>;
+    rawText?: Set<string>;
     /** 性能优化，如果数据不要求立即emit */
     stream?: boolean;
 }

@@ -1,7 +1,7 @@
 {
   "name": "@roj234/stream-json",
   "description": "Stream JSON/JSON5/JSONL/JSON-YAML parser with prototype-safe, BigInt, and backtick support. Recommended to use @roj234/util-inspect as stringifier.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "license": "BSD-3-Clause",
   "exports": {
@@ -13,5 +13,8 @@
   },
   "dependencies": {
     "@roj234/shared": "^1.0.0"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
   }
 }

@@ -3,7 +3,7 @@
  */
 
 const VOID_TAGS = /*#__PURE__*/ new Set(["area","base","br","col","embed","hr","img","input","link","meta","source","track","wbr"]);
-const TEXT_TAGS = /*#__PURE__*/ new Set(["style","script","textarea"]);
+const RAWTEXT = /*#__PURE__*/ new Set(["style","script","textarea"]);
 
 // ── Node type constants ──────────────────────────────────────────
 export const ELEMENT = 'element';
@@ -82,14 +82,14 @@ function decodeText(text) {
  * @param {boolean} [options.decodeEntities=true]
  * @param {boolean} [options.html=false]
  * @param {Set<string>} [options.voidTags]
- * @param {Set<string>} [options.textTags]
+ * @param {Set<string>} [options.rawText]
  * @returns {{ write: Function, end: Function }}
  */
 export function createXmlParser(handlers, options = {}) {
 	const decode = options.decodeEntities !== false;
 	const isHTML = options.html;
 	const voidTags = isHTML ? VOID_TAGS : options.voidTags;
-	const textTags = isHTML ? TEXT_TAGS : options.textTags;
+	const rawText = isHTML ? RAWTEXT : options.rawText;
 
 	let pos = 0;
 
@@ -180,7 +180,7 @@ export function createXmlParser(handlers, options = {}) {
 			// ── TEXT ──────────────────────────────────────────
 			case $TEXT:
 				const closeTagName = tagStack.at(-1);
-				const b = textTags?.has(closeTagName);
+				const b = rawText?.has(closeTagName);
 				if (!b && char === '<') {
 					state = $LT;
 				} else {

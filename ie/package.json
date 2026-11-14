@@ -16,16 +16,15 @@
 		"postinstall": "node ./scripts/prune-rollup.mjs"
 	},
 	"dependencies": {
-		"@roj234/shared": "^1.3.0",
 		"@roj234/esm-parser": "^1.0.0",
-		"@roj234/ws": "^1.0.0",
 		"@roj234/jszip": "^1.0.0",
 		"@roj234/lru-cache": "^1.0.0",
-
+		"@roj234/shared": "^1.3.0",
+		"@roj234/ws": "^1.0.0",
 		"chokidar": "^4.0.3",
-		"esbuild": "^0.27.4",
-		"rollup": "^4.59.0",
+		"esbuild": "^0.28.2",
 		"picomatch": "^4.0.4",
-		"postcss": "^8.5.8"
+		"postcss": "^8.5.8",
+		"rollup": "^4.59.0"
 	}
 }

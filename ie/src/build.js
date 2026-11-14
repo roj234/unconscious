@@ -12,6 +12,7 @@ import * as U from './utils.js';
 import {colors} from "../utils/consoleColor.js";
 import {safeStat} from "../utils/serveFile.js";
 import {getContentType} from "../utils/mimeTypes.js";
+import fs from "node:fs";
 
 const CSS_DIR = 'assets';
 
@@ -287,6 +288,23 @@ export async function build(options = {}) {
 	const {output} = await bundle.generate(outputOptions);
 	await bundle.close();
 
+	if (options.ie_debugBundleSize) {
+		const join = {};
+		output.forEach(chunk => {
+			join[chunk.fileName] = {
+				includes: chunk.moduleIds?.map(s => {
+					let size = 'unknown';
+					try {
+						size = fs.statSync(s).size;
+					} catch {}
+					return path.relative(root, s)+` [${size}]`
+				}),
+				references: chunk.imports,
+			}
+		});
+		console.log(join);
+	}
+
 	// ────────── 后处理 ──────────
 	const files = new Map();
 	const chunkByName = new Map();
@@ -500,7 +518,8 @@ export async function build(options = {}) {
 
 	const bundleObject = Object.fromEntries(files);
 	for (const plugin of config.plugins) {
-		if (!plugin.generateBundle) continue;
+		let generateBundle = plugin.generateBundle;
+		if (!generateBundle) continue;
 
 		const hookThis = {
 			info: m => log.info(`[plugin ${plugin.name}] ${m}`),
@@ -514,7 +533,12 @@ export async function build(options = {}) {
 			getFileName: name => name,
 		};
 
-		await plugin.generateBundle.call({...hookThis, ...plugin}, outputOptions, bundleObject, false);
+		if (typeof generateBundle === 'object') {
+			if (generateBundle.order !== 'post') continue;
+			generateBundle = generateBundle.handler;
+		}
+
+		await generateBundle.call({...hookThis, ...plugin}, outputOptions, bundleObject, false);
 	}
 
 	await Promise.all(tasks);

@@ -1,7 +1,7 @@
 import {immutableObjectMap} from "./objects.js";
 
 const wideRe = /[\u1100-\u115F\u2329-\u232A\u2E80-\u303E\u3041-\u33FF\u3400-\u4DBF\u4E00-\u9FFF\uA000-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6]/;
-const getStringWidth = (s) => { let w = 0; for (const ch of s) w += wideRe.test(ch) ? 2 : 1; return w; };
+const getStringWidth = (s) => { let w = 0; for (const ch of s) w += ch === '\t' ? 4 : wideRe.test(ch) ? 2 : 1; return w; };
 const digitCount = (n) => String(n).length;
 
 /**
@@ -52,12 +52,12 @@ const reHtml = /[&<>"]/g;
 const reText = /[&<]/g;
 const reAttr = /[&"]/g;
 const reLT = /\r\n?|[\u2028\u2029]/g;
-const reRe = /[.^$+{}[\]|()]/g;
+const reRe = /[.*+?^${}()|[\]\\]/g;
 const mapper = (str) => map[str];
 
 export const escapeHtml = s => s.replace(reHtml, mapper);
 export const escapeHtmlText = s => s.replace(reText, mapper);
-export const escapeHtmlAttr = s => s.replaceAll('"', '\\"');//.replace(reAttr, mapper);
+export const escapeHtmlAttr = s => s.replace(reAttr, mapper);
 export const normalizeLineTerminator = s => s.replace(reLT, '\n');
 export const escapeRegexp = s => s.replace(reRe, '\\$&');
 

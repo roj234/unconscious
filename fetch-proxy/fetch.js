@@ -5,21 +5,6 @@ import {Readable} from "node:stream";
 const NULL_BODY_STATUS = new Set([101, 103, 204, 205, 304]);
 const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
 
-/**
- * Encode the request body into a Buffer.
- * Returns { buffer, contentType } or null.
- */
-const encodeBody = body => {
-	if (Buffer.isBuffer(body)) return [ body, 'application/octet-stream' ];
-
-	if (body instanceof Uint8Array) return [ Buffer.from(body), 'application/octet-stream' ];
-
-	return [
-		Buffer.from(String(body), 'utf-8'),
-		body instanceof URLSearchParams ? 'application/x-www-form-urlencoded;charset=UTF-8' : 'text/plain;charset=UTF-8'
-	];
-};
-
 /** Duck-type check: Node.js Readable stream (has .pipe) */
 const isNodeStream = body => typeof body?.pipe === 'function';
 
@@ -39,26 +24,42 @@ function makeRequest(url, { method, headers: headersInit, body, signal, agent, .
 			for (const [k, v] of Object.entries(headersInit)) headers[k.toLowerCase()] = v;
 		}
 	}
-	if (!headers['host']) headers['host'] = url.host;
+	headers['host'] ??= url.host;
 
 	let bodyBuffer, bodyStream;
 	if (body != null) {
-		if (body instanceof ReadableStream) {
-			body = Readable.fromWeb(body);
-		}
+		if (body instanceof ReadableStream) body = Readable.fromWeb(body);
 		if (isNodeStream(body)) {
 			bodyStream = body;
 		} else {
-			const [buffer, contentType] = encodeBody(body);
-			bodyBuffer = buffer;
-			if (!headers['content-type']) headers['content-type'] = contentType;
-			headers['content-length'] = String(bodyBuffer.byteLength);
+			if (body instanceof Uint8Array) body = Buffer.from(body);
+			if (Buffer.isBuffer(body)) bodyBuffer = body;
+			else {
+				const flag2 = body instanceof URLSearchParams;
+				if (typeof body === 'string' || flag2) {
+					bodyBuffer = Buffer.from(String(body), 'utf-8');
+					headers['content-type'] ??= body instanceof URLSearchParams ? 'application/x-www-form-urlencoded;charset=UTF-8' : 'text/plain;charset=UTF-8';
+				}
+			}
+
+			if (bodyBuffer) {
+				headers['content-length'] = String(bodyBuffer.length);
+			} else {
+				const response = new Response(body);
+				bodyStream = Readable.fromWeb(response.body);
+				if (body instanceof Blob)
+					headers['content-length'] = String(body.size);
+			}
 		}
 	}
 
+	const hostname = url.hostname.startsWith('[') && url.hostname.endsWith(']')
+		? url.hostname.slice(1, -1)
+		: url.hostname;
+
 	const options = {
 		method,
-		hostname: url.hostname,
+		hostname,
 		port: url.port || (url.protocol === 'https:' ? 443 : 80),
 		path: url.pathname + url.search,
 		headers,
@@ -70,14 +71,14 @@ function makeRequest(url, { method, headers: headersInit, body, signal, agent, .
 
 	return new Promise((resolve, reject) => {
 		const req = transport.request(options, (res) => {
-			const stream = NULL_BODY_STATUS.has(res.statusCode) ? null : new ReadableStream({
-				start(controller) {
-					res.on('data', (chunk) => controller.enqueue(new Uint8Array(chunk)));
-					res.on('end', () => controller.close());
-					res.on('error', (err) => controller.error(err));
-				},
-				cancel: () => res.destroy(),
-			});
+			const statusCode = res.statusCode;
+			if (statusCode < 200) {
+				req.destroy();
+				const status = res.statusMessage ? `${statusCode} ${res.statusMessage}` : statusCode;
+				return reject(new TypeError(`fetch failed: unexpected upgrade response ${status}`));
+			}
+
+			const stream = NULL_BODY_STATUS.has(statusCode) ? null : Readable.toWeb(res);
 
 			const resHeaders = new Headers();
 			for (const [k, v] of Object.entries(res.headers)) {
@@ -89,7 +90,7 @@ function makeRequest(url, { method, headers: headersInit, body, signal, agent, .
 			}
 
 			const response = new Response(stream, {
-				status: res.statusCode,
+				status: statusCode,
 				statusText: res.statusMessage,
 				headers: resHeaders,
 			});
@@ -115,6 +116,11 @@ function makeRequest(url, { method, headers: headersInit, body, signal, agent, .
 		});
 
 		req.on('error', reject);
+		req.on('upgrade', (res, socket) => {
+			socket.destroy();
+			const status = res.statusMessage ? `${res.statusCode} ${res.statusMessage}` : res.statusCode;
+			reject(new TypeError(`fetch failed: unexpected upgrade response ${status}`));
+		});
 
 		if (bodyStream) {
 			bodyStream.pipe(req);
@@ -139,11 +145,11 @@ function makeRequest(url, { method, headers: headersInit, body, signal, agent, .
  * @returns {Promise<Response>}
  */
 async function _fetch(input, {
-	method = 'GET',
+	method,
 	headers,
 	body,
 	signal,
-	redirect = 'follow',
+	redirect,
 	maxRedirects = 20, // unofficial
 	...rest
 } = {}) {
@@ -168,7 +174,7 @@ async function _fetch(input, {
 		throw new TypeError(`Unsupported protocol: ${url.protocol}`);
 
 	const init = {
-		method: method.toUpperCase(),
+		method: (method ?? 'GET').toUpperCase(),
 		headers,
 		body,
 		signal,
@@ -177,7 +183,7 @@ async function _fetch(input, {
 
 	let response = await makeRequest(url, init);
 
-	if (redirect === 'follow') {
+	if (redirect == null || redirect === 'follow') {
 		let redirectCount = 0;
 		const _maxRedirects = parseInt(maxRedirects);
 
@@ -194,6 +200,10 @@ async function _fetch(input, {
 			if (response.status !== 307 && response.status !== 308) {
 				init.method = 'GET';
 				delete init.body;
+			}
+
+			if (init.body instanceof ReadableStream || isNodeStream(init.body)) {
+				throw new DOMException('重定向失败：流无法重放', 'NotSupportedError');
 			}
 
 			await response.body?.cancel();

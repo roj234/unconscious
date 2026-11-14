@@ -60,7 +60,7 @@ export interface XmlParserOptions {
   decodeEntities?: boolean;
   html?: boolean;
   voidTags?: Set<string>;
-  textTags?: Set<string>;
+  rawText?: Set<string>;
 }
 
 export interface XmlParser {

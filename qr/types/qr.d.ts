@@ -135,7 +135,7 @@ export interface QRCodeAsciiOptions extends QRCodeOptions {
      * 背景色
      * @default "white"
      */
-    background?: 'white' | string,
+    background?: 'white' | 'black',
 }
 
 /**

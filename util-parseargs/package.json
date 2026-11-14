@@ -13,5 +13,8 @@
   },
   "dependencies": {
 
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
   }
 }

@@ -20,5 +20,11 @@ export class LRUCache<K, V> extends Map<K, V> {
 
     get capacity(): number;
 
+    /**
+     *
+     * @param key
+     * @param value
+     * @param ttlMs 注意：省略该参数为不设置TTL，意味着只要value变了就必须传新的TTL否则旧的TTL会被清空
+     */
     set(key: K, value: V, ttlMs?: number): LRUCache<K, V>;
 }

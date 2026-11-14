@@ -925,7 +925,6 @@ if (import.meta.env.DEV) {
 			} catch (e) {
 				if (e !== LAZY_DISPOSE_FALLBACK) {
 					console.error("事件派发失败", e, listener);
-					alert("事件派发失败");
 				}
 			}
 		}
@@ -1574,7 +1573,7 @@ export const $forElseAsyncState = (state, renderItem, emptyElement, loadingEleme
 };
 //endregion
 
-export {$vforeach, $vforElse} from "./common/vforeach.js";
+export const $vforeach = null, $vforElse = null;
 
 //region 动画管理 $animate
 const $ANIM_CANCEL = debugSymbol("AnimationCancel");

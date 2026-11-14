@@ -150,7 +150,7 @@ export interface ZipReaderInstance {
      * Retrieve an entry’s content and decode it as UTF-8 text.
      * @returns The string content, or `undefined` if the entry does not exist.
      */
-    getText(name: string): Promise<string | undefined>;
+    getText(name: string | ZipEntry): Promise<string | undefined>;
 
     /**
      * Get the raw (still compressed) data for an entry.
@@ -163,7 +163,7 @@ export interface ZipReaderInstance {
      * Get the fully decompressed content of an entry.
      * @returns `Uint8Array` (browser) / `Buffer` (Node.js), or `null` if not found.
      */
-    get(name: string): Promise<Uint8Array | Buffer | null>;
+    get(name: string | ZipEntry): Promise<Uint8Array | Buffer | null>;
 
     /**
      * Return a `Map` of all entries (keyed by filename).

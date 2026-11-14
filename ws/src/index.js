@@ -1208,7 +1208,12 @@ export function WebSocket(url, options = {}) {
 
 	const ws = new WS2();
 
-	const {protocols = [], perMessageDeflate = false} = options;
+	let protocols, perMessageDeflate = false;
+	if (Array.isArray(options)) protocols = options;
+	else {
+		protocols = options.protocols ?? [];
+		perMessageDeflate = options.perMessageDeflate;
+	}
 
 	const onError = (err) => {
 		socket?.destroy();
@@ -1238,7 +1243,16 @@ export function WebSocket(url, options = {}) {
 		];
 
 		if (protocols.length > 0) requestLines.push('Sec-WebSocket-Protocol: ' + protocols.join(', '));
-		if (perMessageDeflate) requestLines.push('Sec-WebSocket-Extensions: permessage-deflate');
+		if (perMessageDeflate) {
+			let s = 'permessage-deflate';
+			if (typeof perMessageDeflate === 'object') {
+				if (perMessageDeflate.clientMaxWindowBits)
+					s+=';client_max_window_bits='+perMessageDeflate.clientMaxWindowBits;
+				if (perMessageDeflate.serverMaxWindowBits)
+					s+=';server_max_window_bits='+perMessageDeflate.serverMaxWindowBits;
+			}
+			requestLines.push('Sec-WebSocket-Extensions: '+s);
+		}
 
 		socket.write(requestLines.join('\r\n') + '\r\n\r\n');
 

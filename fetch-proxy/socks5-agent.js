@@ -1,25 +1,3 @@
-// SOCKS5 Proxy Agent for Node.js native fetch / http / https
-// Pure Node.js — no external dependencies.
-//
-// Usage with fetch (factory — protocol auto-detect, URL parsed):
-//   import { createSocks5Agent } from './socks5-agent.js';
-//   const getAgent = createSocks5Agent(
-//     'socks5://127.0.0.1:1080',
-//     { keepAlive: true },
-//   );
-//   // or with auth:  createSocks5Agent('socks5://user:pass@host:port', agentOptions)
-//   await fetch('https://example.com', { agent: getAgent });
-//
-// Usage with fetch (manual):
-//   import { Socks5HttpAgent, Socks5HttpsAgent } from './socks5-agent.js';
-//   await fetch('https://example.com', {
-//     agent: new Socks5HttpsAgent({ proxyHost: '127.0.0.1' })
-//   });
-//
-// Usage with http/https modules:
-//   import https from 'node:https';
-//   https.request({ hostname: 'example.com', agent: new Socks5HttpsAgent({...}) });
-
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
@@ -261,8 +239,8 @@ export function createSocks5Agent(proxyUrl, agentOptions) {
 
 	const proxyHost = parsed.hostname;
 	const proxyPort = Number(parsed.port) || 1080;
-	const username = parsed.username || null;
-	const password = parsed.password || null;
+	const username = decodeURIComponent(parsed.username) || null;
+	const password = decodeURIComponent(parsed.password) || null;
 
 	let httpAgent;
 	let httpsAgent;
@@ -367,14 +345,19 @@ class Socks5HttpsAgent extends https.Agent {
 
 			// SOCKS5 tunnel established — now wrap with TLS
 			const tlsSocket = tls.connect({
+				...options,
 				socket: proxySocket,
-				servername: options.servername ?? options.host,
 			});
 
-			tlsSocket.once('secureConnect', () => callback(null, tlsSocket));
-			tlsSocket.once('error', (e) => {
+			const onError = (e) => {
 				tlsSocket.destroy();
 				callback(e);
+			};
+
+			tlsSocket.once('error', onError);
+			tlsSocket.once('secureConnect', () => {
+				tlsSocket.off('error', onError);
+				callback(null, tlsSocket);
 			});
 		});
 

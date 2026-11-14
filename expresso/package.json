@@ -1,0 +1,19 @@
+{
+  "name": "@roj234/expresso",
+  "version": "2.0.0",
+  "description": "Convenient radix-tree based router supports Vue-router format.",
+  "type": "module",
+  "license": "BSD-3-Clause",
+  "exports": {
+    ".": {
+      "types": "./router.d.ts",
+      "import": "./router.js"
+    }
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "@roj234/shared": "^1.0.0"
+  }
+}

@@ -1,14 +1,25 @@
-
 type ParseArgsType = 'string' | 'boolean';
 
-type ParseArgsOptions = Record<string, ParseArgsType | {
+type ParseArgsOption = {
     short?: string,
-    default?: any,
+    default?: boolean | string | boolean[] | string[],
     description?: string,
-    type: ParseArgsType,
+    /** 省略时为 'boolean' */
+    type?: ParseArgsType,
     multiple?: boolean,
-}>
+}
 
-export function parseArgs(unnamed: { args?: string[], options: ParseArgsOptions }): {positionals: string[], values: Record<string, boolean | string | string[]>}
+type ParseArgsOptions = Record<string, ParseArgsType | ParseArgsOption>
 
-export function formatHelp(options: ParseArgsOptions, unnamed: { usage?: string, description?: string }): string;
+type ParseArgsResult = {
+    positionals: string[],
+    values: Record<string, boolean | string | boolean[] | string[]>,
+}
+
+export class ParseArgsError extends Error {
+    constructor(message: string);
+}
+
+export function parseArgs(unnamed?: { args?: string[], options?: ParseArgsOptions }): ParseArgsResult
+
+export function formatHelp(options?: ParseArgsOptions, unnamed?: { usage?: string, description?: string }): string;

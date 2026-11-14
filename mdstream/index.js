@@ -11,6 +11,7 @@ https://github.com/roj234/streaming-markdown
 */
 
 export const VOID_TAGS = /*#__PURE__*/ new Set(["area","base","br","col","embed","hr","img","input","link","meta","source","track","wbr"]);
+const RAWTEXT = /*#__PURE__*/ new Set(["style","script","textarea"]);
 
 /**
  *
@@ -382,7 +383,7 @@ function parser_write(p, chunk) {
 			if (char !== '<') {
 				// 禁用某些标签中的 markdown 解析
 				const tagId = p.tag_id;
-				if (p.options.textTags?.has(tagId) || tagId === "style" || tagId === "script") {
+				if ((p.options.rawText ?? RAWTEXT).has(tagId)) {
 					p.text += p.pending;
 					p.pending = '';
 				}

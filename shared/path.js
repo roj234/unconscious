@@ -4,44 +4,42 @@
  */
 const isWindowsPartition = segment => /^[A-Za-z]:/.test(segment);
 
-const SANITIZER = /[\u2000-\u200f\u2028-\u202f\u205f-\u206f\ufeff]/g;
+const PATH_INVALID = /[\u2000-\u200f\u2028-\u202f\u205f-\u206f\ufeff\x00-\x1F\x7F|<>"*]/g;
 
 /**
  * Path normalization function that handles untrusted user input.
- * Normalizes the path by resolving "." and "..", and unifying separators.
+ * Normalizes the path by resolving "." and "..".
  * @param {string | string[]} path
  * @returns {string[]}
  */
 export function normalizePath(path) {
 	if (Array.isArray(path)) return path;
 	if (typeof path !== 'string') throw new Error("Path must be string");
-	// Reject characters with code < 32
-	if (/[\x00-\x1F\x7F|<>"*]/.test(path)) throw new Error("Illegal character in path");
-	const paths = path.replaceAll('\\', '/').replaceAll(/\/\/+/g, '/').split('/');
+	if (PATH_INVALID.test(path)) throw new Error("Illegal character in path");
+	const parts = path.split(/[/\\]+/);
 
-	for (let j = 0; j < paths.length; ) {
-		let seg = paths[j];
+	for (let j = 0; j < parts.length; ) {
+		let seg = parts[j];
 		if (seg === '.') {
-			paths.splice(j, 1);
+			parts.splice(j, 1);
 		} else if (seg === '..') {
-			paths.splice(j, 1);
-			if (j > 0 && !isWindowsPartition(paths[j - 1])) {
-				paths.splice(--j, 1);
+			parts.splice(j, 1);
+			if (j > 0) {
+				if (j === 1 && isWindowsPartition(parts[0])) continue;
+				parts.splice(--j, 1);
 			} else {
-				throw new Error("Forbidden: Path traversal ("+JSON.stringify(path)+")");
+				//return [];
 			}
 		} else {
 			j++;
 		}
 	}
 
-	while (paths.at(-1) === '') paths.pop();
+	while (parts.at(-1) === '') parts.pop();
 	// Remove leading empty segment (which represents an absolute path root)
-	if (paths.length > 0 && paths[0] === '') {
-		paths.shift();
-	}
+	if (parts.length > 0 && parts[0] === '') parts.shift();
 
-	return paths;
+	return parts;
 }
 
 /**
@@ -49,7 +47,7 @@ export function normalizePath(path) {
  * Returns `null` if the paths cannot be relativized (e.g., different Windows drives).
  * @param {string} base1
  * @param {string} child1
- * @returns {string}
+ * @returns {string | null}
  */
 export function relativizePath(base1, child1) {
 	let base = normalizePath(base1);
@@ -67,7 +65,7 @@ export function relativizePath(base1, child1) {
 	}
 
 	// If the first differing component is a Windows drive letter, impossible to relativize
-	if (i === 0 && childCount > 0 && isWindowsPartition(child[i])) {
+	if (i === 0 && childCount > 0 && (isWindowsPartition(child[i]) || isWindowsPartition(base[i]))) {
 		return null;
 	}
 

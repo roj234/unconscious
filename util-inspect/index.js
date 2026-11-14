@@ -30,18 +30,19 @@ const isJSON5Key = key => IDENTIFIER_RE.test(key) || NUMERIC_KEY_RE.test(key);
 const prepare = value => typeof value?.toJSON === "function" ? value.toJSON() : value;
 
 /** 键名序列化：合法则裸写，否则用双引号 */
-const stringifyKey = key => isJSON5Key(key) ? key : stringifyString(key);
+const stringifyKey = key => isJSON5Key(key) ? key : stringifyString(key, true);
 
-const REGEXP_BACKTICK = /[\x00-\x08\x0B-\x1E\\`\u2028\u2029\u3000\u00a0\uFEFF\u200B]|\${/g;
-const REGEXP_QUOTE = /[\x00-\x1E\\\u2028\u2029\u3000\u00a0\uFEFF\u200B"]/g;
+const REGEXP_BACKTICK = /[\x00-\x08\x0B-\x1F\\`\u2028\u2029\u3000\u00a0\uFEFF\u200B]|\${/g;
+const REGEXP_QUOTE = /[\x00-\x1F\\\u2028\u2029\u3000\u00a0\uFEFF\u200B"]/g;
 
 /**
  *
  * @param {string} s
+ * @param {boolean} [noBacktick]
  * @return {string}
  */
-const stringifyString = s => {
-	const useBacktick = s.includes("\n");
+const stringifyString = (s, noBacktick) => {
+	const useBacktick = !noBacktick && s.includes("\n");
 	const escaped = s.replace(useBacktick ? REGEXP_BACKTICK : REGEXP_QUOTE, (match) => {
 		const code = match.charCodeAt(0);
 		return "\\"+(ESCAPES[code] ?? (code < 0x20 ? "x"+code.toString(16).padStart(2, "0") : "u"+code.toString(16).padStart(4, "0")));
@@ -80,7 +81,8 @@ export function inspect(value, replacer, indent = 2) {
 function serialize(value, depth, space, seen, replacer) {
 	switch (typeof value) {
 		case "string":return stringifyString(value);
-		case "symbol":case "number":case "boolean":return String(value);
+		case "symbol":return `Symbol(${stringifyKey(value.description)})`;
+		case "number":case "boolean":return String(value);
 		case "bigint":return String(value)+"n";
 		case "object":
 			if (value === null) return "null";
@@ -100,27 +102,54 @@ function serialize(value, depth, space, seen, replacer) {
 			let typeName = value[Symbol.toStringTag];
 			if (typeof typeName !== "string") {
 				const prototype = value.__proto__;
-				if (!prototype) {
-					if (replacer === INSPECT_ALL)
-						typeName = "[Object: null prototype]";
-				} else {
-					typeName = prototype.constructor.name;
-				}
+				typeName = prototype ? prototype.constructor.name : "[Object: null prototype]";
 			}
 
 			if (typeName && typeName !== 'Object') {
 				if (typeName === 'RegExp') return String(value);
-				if (value.buffer instanceof ArrayBuffer && typeof value.length === 'number') {
-					return inspectTypedArray(value);
-				}
-				if (value instanceof ArrayBuffer) {
-					value = {
-						'[Uint8Contents]': inspectTypedArray({ buffer: value }),
-						'[ByteLength]': value.byteLength
+				try {
+					if (typeName === 'WeakRef') {
+						const ref = value.deref();
+						return typeName+" {"+(ref ? serializeObject(ref, depth, space, seen, replacer) : '<cleared>')+"}";
 					}
-				}
+					if (typeName === 'Map') {
+						let result = typeName+`(${value.size}) [`;
+						if (value.size === 0) return result+']';
 
-				return typeName+" "+serializeObject(value, depth, space, seen, replacer);
+						const currentIndent = space.repeat(depth);
+						const childIndent = space.repeat(++depth);
+
+						let delimiter = '\n';
+
+						for (const [key, val] of value) {
+							result += delimiter;
+							result += childIndent + (serialize(key, depth, space, seen, replacer)) + " => " + serialize(val, depth, space, seen, replacer);
+							delimiter = ",\n";
+						}
+
+						return result + "\n" + currentIndent + "]";
+					}
+					if (typeName === 'Set') return typeName+`(${value.size}) `+serializeArray([...value], depth, space, seen, replacer);
+					if (value.buffer instanceof ArrayBuffer) {
+						if (typeof value.length === 'number') {
+							return inspectTypedArray(value);
+						}
+						if (value instanceof DataView) {
+							const currentIndent = space.repeat(depth);
+							const childIndent = space.repeat(1+depth);
+							return `${typeName} {\n${childIndent}buffer: ${inspectTypedArray(new Uint8Array(value.buffer))}\n${childIndent}byteOffset: ${value.byteOffset}\n${childIndent}byteLength: ${value.byteLength}\n${currentIndent}}`;
+						}
+					}
+					if (value instanceof ArrayBuffer) {
+						const currentIndent = space.repeat(depth);
+						const childIndent = space.repeat(1+depth);
+						return `${typeName} {\n${childIndent}[Uint8Contents]: ${inspectTypedArray(new Uint8Array(value))}\n${childIndent}[ByteLength]: ${value.byteLength}\n${currentIndent}}`;
+					}
+				} catch {}
+
+				if (replacer === INSPECT_ALL) {
+					return typeName+" "+serializeObject(value, depth, space, seen, replacer);
+				}
 			}
 
 			return serializeObject(value, depth, space, seen, replacer);
@@ -145,8 +174,18 @@ function serializeArray(arr, depth, space, seen, replacer) {
 
 	let result;
 
-	if (items.every(v => INLINE_ARRAY_TYPE[typeof v])) {
-		result = "[ "+items.join(", ")+" ]";
+	if (items.every(v => v == null || INLINE_ARRAY_TYPE[typeof v])) {
+		result = "[ ";
+
+		if (items.length) {
+			for (let i = 0;;) {
+				result += serialize(items[i], depth, space, seen, replacer);
+				if (++i === items.length) break;
+				result += ', ';
+			}
+		}
+
+		result += " ]";
 	} else {
 		const currentIndent = space.repeat(depth);
 		result = "[\n";
@@ -173,8 +212,9 @@ function serializeArray(arr, depth, space, seen, replacer) {
  * @return {string}
  */
 function serializeObject(obj, depth, space, seen, replacer) {
-	const entries = Object.entries(obj);
-	if (!entries.length) return "{}";
+	let names = Object.getOwnPropertyNames(obj);
+	if (replacer === INSPECT_ALL) names.push(...Object.getOwnPropertySymbols(obj));
+	if (!names.length) return "{}";
 
 	const currentIndent = space.repeat(depth);
 	const childIndent = space.repeat(++depth);
@@ -182,14 +222,17 @@ function serializeObject(obj, depth, space, seen, replacer) {
 	let result = '{\n';
 	let delimiter = '';
 
-	for (const [key, value] of entries) {
+	for (const key of names) {
+		const value = obj[key];
 		const prepared = prepare(replacer(key, value));
 		if (prepared === undefined && replacer !== INSPECT_ALL) continue;
 
 		result += delimiter;
-		result += childIndent + stringifyKey(key) + ": " + serialize(prepared, depth, space, seen, replacer);
+		result += childIndent + (typeof key === 'symbol' ? `Symbol(${stringifyKey(key.description)})` : stringifyKey(key)) + ": " + serialize(prepared, depth, space, seen, replacer);
 		delimiter = ",\n";
 	}
+
+	if (!delimiter) return "{}";
 
 	return result + "\n" + currentIndent + "}";
 }
@@ -214,7 +257,7 @@ export function inspectTypedArray(bytes, max = 50) {
 		return `<${typeName} ${front} ... ${more} more bytes ... ${back}>`;
 	} else {
 		const toStr = arr => arr.join(", ");
-		if (length <= max) return `${typeName}(${length}) [ ${toStr(bytes)} ]`;
+		if (length <= max) return `${typeName}(${length}) `+(length ? `[ ${toStr(bytes)} ]` : '[]');
 
 		const front = toStr(bytes.subarray(0, max));
 		const more = length - max;

@@ -1,14 +1,17 @@
-import {debugSymbol} from "unconscious";
 
-export const NODE_VALUE = debugSymbol('NodeValue');
+export const EMPTY = Symbol('NestedMap.empty');
 
+// 固定字段列表方便优化
 /**
- * NestedMap - 支持数组作为复合键的 Map
+ *
+ * @return {{c: null | Map, v: symbol | any}}
+ * @constructor
  */
+const Empty = () => ({ v: EMPTY, c: null });
+
 export class NestedMap {
-	#tree = new Map();
-	#simple = new Map();
-	//#size = 0;
+	#root = Empty();
+	#size = 0;
 
 	constructor(entries) {
 		if (entries) for (const [keys, value] of entries) {
@@ -16,164 +19,143 @@ export class NestedMap {
 		}
 	}
 
-	/**
-	 * 设置值
-	 * @param {any|any[]} keys
-	 * @param {any} value
-	 */
+	get size() {return this.#size;}
+
 	set(keys, value) {
+		let node = this.#root;
+
 		if (Array.isArray(keys)) {
-			if (keys.length > 1) {
-				let current = this.#tree;
-				for (const key of keys) {
-					let next = current.get(key);
-					if (!next) {
-						current.set(key, next = new Map());
-					}
-					current = next;
-				}
-
-				//if (!current.has(NODE_VALUE)) this.#size++;
-				current.set(NODE_VALUE, value);
-				return this;
+			for (let i = 0, len = keys.length; i < len; i++) {
+				const c = node.c ??= new Map();
+				const k = keys[i];
+				const next = c.get(k);
+				if (!next) c.set(k, node = Empty());
+				else node = next;
 			}
-
-			keys = keys[0];
+		} else {
+			const c = node.c ??= new Map();
+			const next = c.get(keys);
+			if (!next) c.set(keys, node = Empty());
+			else node = next;
 		}
-		this.#simple.set(keys, value);
+
+		if (node.v === EMPTY) this.#size++;
+		node.v = value;
 		return this;
 	}
 
-	/**
-	 * 获取值
-	 * @param {any|any[]} keys
-	 */
 	get(keys) {
-		if (Array.isArray(keys)) {
-			if (keys.length > 1) {
-				let current = this.#tree;
-				for (const key of keys) {
-					current = current.get(key);
-					if (!current) return;
-				}
-				return current.get(NODE_VALUE);
-			}
+		const v = this.getChildren(keys)?.v;
+		return v === EMPTY ? undefined : v;
+	}
 
-			keys = keys[0];
-		}
-
-		return this.#simple.get(keys);
+	has(keys) {
+		const node = this.getChildren(keys);
+		return node && node.v !== EMPTY;
 	}
 
 	getChildren(keys) {
-		let current = this.#tree;
-		for (let i = 0; i < keys.length; i++) {
-			current = current.get(keys[i]);
-			if (!current) return;
-		}
-		return current;
-	}
+		let node = this.#root;
 
-	/**
-	 * 判断是否存在
-	 * @param {any|any[]} keys
-	 */
-	has(keys) {
 		if (Array.isArray(keys)) {
-			if (keys.length > 1) {
-				let current = this.#tree;
-				for (const key of keys) {
-					current = current.get(key);
-					if (!current) return false;
-				}
-				return current.has(NODE_VALUE);
+			for (let i = 0, len = keys.length; i < len; i++) {
+				node = node.c?.get(keys[i]);
+				if (!node) return;
 			}
-
-			keys = keys[0];
+		} else {
+			node = node.c?.get(keys);
 		}
 
-		return this.#simple.has(keys);
-
+		return node;
 	}
 
-	/**
-	 * 删除键值对
-	 * @param {any|any[]} keys
-	 * @param {boolean} includeDescents
-	 */
 	delete(keys, includeDescents) {
-		let key = keys;
-		if (!Array.isArray(keys) || (keys.length === 1 && (key = keys[0], true)))
-			return this.#simple.delete(key);
+		const stack = [];
+		let node = this.#root;
 
-		let ok = false;
-
-		const stack = []; // 用于后续清理空节点
-		let current = this.#tree;
-
-		for (const key of keys) {
-			stack.push([ current, key ]);
-			current = current.get(key);
-			if (!current) return ok;
+		if (Array.isArray(keys)) {
+			for (let i = 0, len = keys.length; i < len; i++) {
+				const key = keys[i];
+				const child = node.c?.get(key);
+				if (!child) return false;
+				stack.push(node, key);
+				node = child;
+			}
+		} else {
+			const child = node.c?.get(keys);
+			if (!child) return false;
+			stack.push(node, keys);
+			node = child;
 		}
 
 		if (includeDescents) {
-			ok = current.size > 0;
-			current.clear();
+			const descents = this.#countDescents(node);
+			if (node.v === EMPTY && !descents) return false;
+			this.#size -= descents;
+			node.v = EMPTY;
+			node.c = null;
+
+			// 自底向上回收空节点；某层非空则祖先一定非空
+			for (let i = stack.length - 2; i >= 0; i -= 2) {
+				const parent = stack[i];
+				const key = stack[i + 1];
+				parent.c.delete(key);
+
+				if (parent.c.size || parent.v !== EMPTY) break;
+			}
 		} else {
-			if (!current.delete(NODE_VALUE)) return ok;
-			//this.#size--;
+			if (node.v === EMPTY) return false;
+			this.#size--;
+			node.v = EMPTY;
 		}
 
-		// 递归向上删除不再需要的 Map 节点（瘦身）
-		for (let i = stack.length - 1; i >= 0; i--) {
-			const [ parent, key ] = stack[i];
-			const node = parent.get(key);
-			if (node.size > 0) break;
-			parent.delete(key);
-		}
-
-		return ok;
+		return true;
 	}
 
-	/*get size() {
-		return this.#size + this.#simple.size;
-	}*/
+	#countDescents(root) {
+		let n = 0;
+		const stack = [ root ];
+		while (stack.length) {
+			const node = stack.pop();
+			if (node.v !== EMPTY) n++;
+			if (node.c !== null) for (const child of node.c.values()) stack.push(child);
+		}
+		return n;
+	}
 
 	/**
 	 * 迭代器实现 (DFS)
 	 */
 	*[Symbol.iterator]() {
-		yield* this.#simple[Symbol.iterator]();
-		yield* this.#traverse(this.#tree, []);
-	}
+		const root = this.#root;
+		if (root.c === null) return;
 
-	*#traverse(map, path, includeDir) {
-		for (const [key, nextMap] of map.entries()) {
-			if (key !== NODE_VALUE) {
-				if (includeDir) yield [path];
-				path.push(key);
-				yield* this.#traverse(nextMap, path, includeDir);
-				path.pop();
-			} else {
-				yield [path, map.get(NODE_VALUE)];
+		const path = [];
+		const stack = [ root.c.entries() ];
+
+		while (stack.length) {
+			const step = stack.at(-1).next();
+			if (step.done) {
+				stack.pop();
+				if (path.length) path.pop();
+				continue;
 			}
+			const [ key, { c, v } ] = step.value;
+
+			path.push(key);
+
+			if (v !== EMPTY) yield [ [...path], v ];
+			if (c !== null) stack.push(c.entries());
+			else path.pop();
 		}
 	}
 
-	forEach(callback, map = this.#tree) {
-		for (const [key, value] of map.entries()) {
-			if (key !== NODE_VALUE) {
-				this.forEach(callback, value);
-			} else {
-				callback(value);
-			}
-		}
+	forEach(callback, thisArg) {
+		for (const [ keys, value ] of this) callback.call(thisArg, value, keys, this);
 	}
 
 	clear() {
-		this.#tree.clear();
-		this.#simple.clear();
-		//this.#size = 0;
+		this.#root = Empty();
+		this.#size = 0;
 	}
 }

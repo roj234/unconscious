@@ -594,9 +594,13 @@ class MsgpackEncoder {
 
 	/** @param {bigint} val */
 	#encodeBigint(val) {
-		this.#buf[this.#off++] = 0xD3;
-		this.#view.setBigInt64(this.#off, val);
-		this.#off += 8;
+		if (val >= -(2n ** 63n) && val < 2n ** 64n) {
+			this.#buf[this.#off++] = val < 0 ? 0xD3 : 0xCF;
+			this.#view.setBigUint64(this.#off, val);
+			this.#off += 8;
+		} else {
+			throw new RangeError(`BigInt(${val}) 超过 int64 范围`);
+		}
 	}
 
 	/** @param {number} length */

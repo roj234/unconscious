@@ -16,6 +16,8 @@ export interface VirtualListConfig<T, K> {
     data?: T[];
     // 每项高度的估计值
     itemHeight: number;
+    // 水平滚动（实验性）
+    horizontal?: boolean;
     // 每项之间的gap/margin
     gap?: number | ((el: HTMLElement) => number);
     /**

@@ -1,6 +1,7 @@
 import {debugSymbol} from "../shared.js";
 
 import "./VirtualList.css";
+import {ONCE_EVENT} from "@roj234/shared";
 
 /**
  * 项目渲染出元素的索引
@@ -41,6 +42,9 @@ export class VirtualList {
 
 	#map;
 	#itemAsKey;
+	#scrolling = 0;
+
+	#horizontal;
 
 	/**
 	 * 返回 scrollTop 所在的第一个可见项目索引。
@@ -51,7 +55,7 @@ export class VirtualList {
 	 *
 	 * 注意：不能直接使用 _start，因为 _start 可能包含 overscan 区域。
 	 */
-	_getScrollAnchorIndex(scrollTop) {
+	#getScrollAnchorIndex(scrollTop) {
 		let i;
 		let top;
 
@@ -81,57 +85,62 @@ export class VirtualList {
 
 	/**
 	 * @type {ResizeObserverCallback}
-	 * @param {{target: HTMLElement}[]} entries
-	 * @private
 	 */
-	_onResize = (entries, preservedViewTop) => {
+	#onResize = (entries, preservedScrollOffset) => {
 		const wrapper = this._wrapper;
 		if (!wrapper) return;
 
-		const viewTop = typeof preservedViewTop === "number" ? preservedViewTop : wrapper.scrollTop;
+		const horizontal = this.#horizontal;
+		const scrollOffset = typeof preservedScrollOffset === "number" ? preservedScrollOffset : wrapper[horizontal ? 'scrollLeft' : 'scrollTop'];
 
 		let scrollAnchorIndex = -1;
-		let heightChanged = 0;
-		let aboveAnchorHeightChanged = 0;
+		let sizeChanged = 0;
+		let aboveAnchorSizeChanged = 0;
 
-		for (let {target, borderBoxSize} of entries) {
+		for (let i = 0; i < entries.length; i++) {
+			let {target, borderBoxSize} = entries[i];
+
 			const itemIndex = target[INDEX];
 			const item = this.items[itemIndex];
 			// might be removed
 			if (!item) continue;
 
-			const targetRect = borderBoxSize ? borderBoxSize[0].blockSize : target.getBoundingClientRect().height;
+			if (Array.isArray(borderBoxSize)) borderBoxSize = borderBoxSize[0];
+			const targetRect = borderBoxSize ? borderBoxSize[horizontal ? 'inlineSize' : 'blockSize'] : target.getBoundingClientRect()[horizontal ? 'width' : 'height'];
 			if (targetRect === 0) continue;
 
 			const gap = this.gap;
-			const measuredHeight = targetRect + (typeof gap === "function" ? gap.call(this, target) : gap);
+			const measuredSize = targetRect + (typeof gap === "function" ? gap.call(this, target) : gap);
 
-			let expectedHeight = item[ITEM_HEIGHT] ?? this.itemHeight;
-			if (null == expectedHeight) {
-				this.itemHeight = measuredHeight;
+			let expectedSize = item[ITEM_HEIGHT] ?? this.itemHeight;
+			if (null == expectedSize) {
+				this.itemHeight = measuredSize;
 				this._start = this._offset = this._height = 0;
 			}
 
-			if (Math.abs(measuredHeight - expectedHeight) > 0.5) {
+			if (Math.abs(measuredSize - expectedSize) > 0.5) {
 				// 必须在写入新高度之前确定锚点，保证它基于本次批量变化前的布局。
-				if (scrollAnchorIndex < 0) scrollAnchorIndex = this._getScrollAnchorIndex(viewTop);
+				if (scrollAnchorIndex < 0) scrollAnchorIndex = this.#getScrollAnchorIndex(scrollOffset);
 
-				const delta = measuredHeight - expectedHeight;
-				item[ITEM_HEIGHT] = measuredHeight;
-				heightChanged += delta;
+				const delta = measuredSize - expectedSize;
+				item[ITEM_HEIGHT] = measuredSize;
+				sizeChanged += delta;
 
-				if (itemIndex < scrollAnchorIndex) aboveAnchorHeightChanged += delta;
+				if (itemIndex < scrollAnchorIndex) aboveAnchorSizeChanged += delta;
 			}
 		}
 
-		if (!heightChanged) return;
+		if (!sizeChanged) return;
 
 		if (this._height)
-			this._height = Math.max(0, this._height + heightChanged);
+			this._height = Math.max(0, this._height + sizeChanged);
+
+		if (this.#scrolling) return;
 
 		// 把第一个可见项钉回原来的屏幕位置
-		const newTop = Math.max(0, viewTop + aboveAnchorHeightChanged);
-		if (Math.abs(wrapper.scrollTop - newTop) > 0.5) wrapper.scrollTop = newTop;
+		const newOffset = Math.max(0, scrollOffset + aboveAnchorSizeChanged);
+		const property = horizontal ? 'scrollLeft' : 'scrollTop';
+		if (Math.abs(wrapper[property] - newOffset) > 0.5) wrapper[property] = newOffset;
 
 		if (!this._dirty) {
 			let recalculated = 0;
@@ -144,7 +153,7 @@ export class VirtualList {
 		}
 	}
 
-	#ro = new ResizeObserver(this._onResize);
+	#ro = new ResizeObserver(this.#onResize);
 	#io = new IntersectionObserver(entries => {
 		if ((this._visible = entries.at(-1).isIntersecting) && this._dirty !== false) {
 			this._height = 0;
@@ -168,6 +177,7 @@ export class VirtualList {
 		this.#map = config.mapType ?? Map;
 		this.#itemAsKey = config.itemKey;
 		this.onReuse = config.onReuse || (this.#itemAsKey ? (node, item, i, nowKey) => node[ITEM_KEY] === nowKey : null);
+		this.#horizontal = config.horizontal;
 
 		this._dirty = !!(this.items = config.data);
 
@@ -224,19 +234,28 @@ export class VirtualList {
 	}
 
 	scrollTo(offset) {
-		this._wrapper.scrollTop = offset;
+		this._wrapper[this.#horizontal ? 'scrollLeft' : 'scrollTop'] = offset;
 	}
 
 	scrollIntoView(itemOrIndex, options) {
 		if (typeof itemOrIndex !== 'number') itemOrIndex = this.items.indexOf(itemOrIndex);
-		let targetScrollTop = 0;
+		let targetOffset = 0;
 		for (let i = 0; i < itemOrIndex; i++) {
-			targetScrollTop += this._h(i);
+			targetOffset += this._h(i);
 		}
-		this._wrapper.scrollTo({
-			top: targetScrollTop,
-			...options
-		})
+		const horizontal = this.#horizontal;
+		if (targetOffset === this._wrapper[horizontal ? 'scrollLeft' : 'scrollTop']) return;
+
+		const opt = {...options};
+		opt[horizontal ? 'left' : 'top'] = targetOffset;
+		this._wrapper.scrollTo(opt);
+
+		if (options?.behavior === 'smooth') {
+			this.#scrolling ++;
+			this._wrapper.addEventListener('scrollend', ev => {
+				this.#scrolling --;
+			}, ONCE_EVENT);
+		}
 	}
 
 	/**
@@ -331,11 +350,12 @@ export class VirtualList {
 			_start: i,
 			_offset: offset,
 			_height: totalHeight,
-			_wrapper: {
-				scrollTop: viewStart,
-				offsetHeight: viewHeight
-			}
+			_wrapper
 		} = this;
+
+		const horizontal = this.#horizontal;
+		let viewStart = _wrapper[horizontal ? 'scrollLeft' : 'scrollTop'];
+		let viewHeight = _wrapper[horizontal ? 'offsetWidth' : 'offsetHeight'];
 
 		if (scrolling) {
 			viewStart = Math.max(0, totalHeight - viewHeight);
@@ -398,14 +418,16 @@ export class VirtualList {
 
 		// 未渲染的元素的高度由padding-top和padding-bottom代替，保证滚动条位置正确
 		// 这里如果把设置padding的操作放在渲染元素之后，部分浏览器滚动到最后一个元素时会有问题
-		container.style = `padding-top:${startHeight}px;padding-bottom:${(totalHeight - offset)}px`;
+		container.style = horizontal
+			? `padding-left:${startHeight}px;padding-right:${(totalHeight - offset)}px`
+			: `padding-top:${startHeight}px;padding-bottom:${(totalHeight - offset)}px`;
 
 		this._updateDOM(container, startIndex, i, items, viewStart);
 
 		if (scrolling) {
-			viewStart = this._wrapper.scrollHeight - viewHeight;
-			if (viewStart === 0) requestAnimationFrame(() => this.render());
-			this._wrapper.scrollTop = viewStart;
+			viewStart = _wrapper[horizontal ? 'scrollWidth' : 'scrollHeight'] - viewHeight;
+			if (viewStart === 0) requestAnimationFrame(this.render);
+			_wrapper[horizontal ? 'scrollLeft' : 'scrollTop'] = viewStart;
 		}
 
 		this._dirty = false;
@@ -478,6 +500,6 @@ export class VirtualList {
 		this._start = startIndex;
 		this._end = endIndex;
 
-		return viewStart != null && newElements.length && this._onResize(newElements, viewStart);
+		return viewStart != null && newElements.length && this.#onResize(newElements, viewStart);
 	}
 }

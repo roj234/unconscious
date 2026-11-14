@@ -102,7 +102,7 @@ for (let level = 0; level < 4; level++) {
 		const tab = version + level * 40;
 
 		blocks += RS_BLOCKS_ACC.charCodeAt(tab) - CHR_BASE;
-		ecLength += (RS_SIZES_ACC.charCodeAt(tab) ?? CHR_BASE) - CHR_BASE;
+		ecLength += (RS_SIZES_ACC.charCodeAt(tab) || CHR_BASE) - CHR_BASE;
 
 		const dataModules = countDataModules(++version) >> 3;
 		const shortBlocks = blocks - dataModules % blocks;
@@ -219,7 +219,7 @@ const makeSegment = (type, text) => {
 
 	return {
 		t: type,
-		d: out.subarray(0, bytePos + 1),
+		d: out.subarray(0, bitPos === 7 ? bytePos : bytePos + 1),
 		l: length,
 		p: (bitPos+1) & 7
 	};
@@ -706,7 +706,7 @@ export const renderQRCodeToASCII = (data, options = {}) => {
 	const { modules, size } = generateQRCode(data, options);
 	const border = options.border ?? 1;
 	const total = size + border * 2;
-	const invert = +(options.background !== 'white');
+	const invert = +(options.background === 'black');
 	const isDark = (x, y) => {
 		const mx = x - border, my = y - border;
 		return (mx >= 0 && mx < size && modules[my * size + mx]) ^ invert;
