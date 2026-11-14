@@ -233,9 +233,13 @@ function createPlugin(_, options) {
 					lazyImport("id/disposable", "$cleanup");
 					lazyImport("id/clone", "kloneNode");
 					lazyImport("id/dummyCallback", "AS_IS");
-					function lazyImport(id, functionName) {
+
+					lazyImport("id/$vforeach", "$vforeach", "unconscious/common/vforeach.js");
+					lazyImport("id/$vforElse", "$vforElse", "unconscious/common/vforeach.js");
+
+					function lazyImport(id, functionName, mod = modulePath) {
 						setContext(state, id, () => {
-							const ast = babelModuleImports.addNamed(path, functionName, modulePath, {
+							const ast = babelModuleImports.addNamed(path, functionName, mod, {
 								importedInterop: "uncompiled",
 								importPosition: "after"
 							});
@@ -397,6 +401,12 @@ function createPlugin(_, options) {
 			CallExpression(path, state) {
 				if (state.opts.micro) return;
 
+				const importedName = isUnconsciousFunction(path, ["$vforeach", "$vforElse"]);
+				if (importedName) {
+					path.node.callee = getContext(state, "id/"+importedName)();
+					return;
+				}
+
 				const args = path.node.arguments;
 
 				if (isUnconsciousFunction(path, "$computed")) {
@@ -480,7 +490,8 @@ function createPlugin(_, options) {
 /**
  * 判断该调用是不是对 unconscious 模块指定导出的直接调用（支持别名导入）
  * @param {import('@babel/traverse').NodePath} path CallExpression 路径
- * @param {string} name 导出名（如 "$computed"）
+ * @param {string | string[]} name 导出名（如 "$computed"）
+ * @return {string | false}
  */
 function isUnconsciousFunction(path, name) {
 	const callee = path.node.callee;
@@ -494,7 +505,7 @@ function isUnconsciousFunction(path, name) {
 
 	const imported = binding.path.node.imported;
 	const importedName = imported ? imported.name ?? imported.value : callee.name;
-	return importedName === name;
+	return (typeof name === 'string' ? importedName === name : name.includes(importedName)) && importedName;
 }
 
 const isNullOrUndefinedLiteral = node =>

@@ -1,6 +1,6 @@
 {
 	"name": "@roj234/util-inspect",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"description": "Inspect values as JSON5-like JavaScript literals.",
 	"type": "module",
 	"author": "Roj234",
@@ -13,5 +13,8 @@
 	},
 	"dependencies": {
 		"@roj234/shared": "^1.0.0"
+	},
+	"scripts": {
+		"test": "node --test \"test/*.test.js\""
 	}
 }

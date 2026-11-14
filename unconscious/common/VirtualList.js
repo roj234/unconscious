@@ -1,6 +1,7 @@
 import {debugSymbol} from "../shared.js";
 
 import "./VirtualList.css";
+import {ONCE_EVENT} from "@roj234/shared";
 
 /**
  * 项目渲染出元素的索引
@@ -41,6 +42,7 @@ export class VirtualList {
 
 	#map;
 	#itemAsKey;
+	#scrolling = 0;
 
 	/**
 	 * 返回 scrollTop 所在的第一个可见项目索引。
@@ -51,7 +53,7 @@ export class VirtualList {
 	 *
 	 * 注意：不能直接使用 _start，因为 _start 可能包含 overscan 区域。
 	 */
-	_getScrollAnchorIndex(scrollTop) {
+	#getScrollAnchorIndex(scrollTop) {
 		let i;
 		let top;
 
@@ -82,9 +84,9 @@ export class VirtualList {
 	/**
 	 * @type {ResizeObserverCallback}
 	 * @param {{target: HTMLElement}[]} entries
-	 * @private
+	 * @param {number} [preservedViewTop]
 	 */
-	_onResize = (entries, preservedViewTop) => {
+	#onResize = (entries, preservedViewTop) => {
 		const wrapper = this._wrapper;
 		if (!wrapper) return;
 
@@ -114,7 +116,7 @@ export class VirtualList {
 
 			if (Math.abs(measuredHeight - expectedHeight) > 0.5) {
 				// 必须在写入新高度之前确定锚点，保证它基于本次批量变化前的布局。
-				if (scrollAnchorIndex < 0) scrollAnchorIndex = this._getScrollAnchorIndex(viewTop);
+				if (scrollAnchorIndex < 0) scrollAnchorIndex = this.#getScrollAnchorIndex(viewTop);
 
 				const delta = measuredHeight - expectedHeight;
 				item[ITEM_HEIGHT] = measuredHeight;
@@ -128,6 +130,8 @@ export class VirtualList {
 
 		if (this._height)
 			this._height = Math.max(0, this._height + heightChanged);
+
+		if (this.#scrolling) return;
 
 		// 把第一个可见项钉回原来的屏幕位置
 		const newTop = Math.max(0, viewTop + aboveAnchorHeightChanged);
@@ -144,7 +148,7 @@ export class VirtualList {
 		}
 	}
 
-	#ro = new ResizeObserver(this._onResize);
+	#ro = new ResizeObserver(this.#onResize);
 	#io = new IntersectionObserver(entries => {
 		if ((this._visible = entries.at(-1).isIntersecting) && this._dirty !== false) {
 			this._height = 0;
@@ -233,10 +237,20 @@ export class VirtualList {
 		for (let i = 0; i < itemOrIndex; i++) {
 			targetScrollTop += this._h(i);
 		}
+
+		if (targetScrollTop === this._wrapper.scrollTop) return;
+
 		this._wrapper.scrollTo({
 			top: targetScrollTop,
 			...options
-		})
+		});
+
+		if (options?.behavior === 'smooth') {
+			this.#scrolling ++;
+			this._wrapper.addEventListener('scrollend', ev => {
+				this.#scrolling --;
+			}, ONCE_EVENT);
+		}
 	}
 
 	/**
@@ -478,6 +492,6 @@ export class VirtualList {
 		this._start = startIndex;
 		this._end = endIndex;
 
-		return viewStart != null && newElements.length && this._onResize(newElements, viewStart);
+		return viewStart != null && newElements.length && this.#onResize(newElements, viewStart);
 	}
 }

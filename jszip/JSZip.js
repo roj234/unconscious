@@ -4,6 +4,8 @@ import {ZipReader, ZipWriter} from './zip-io.js';
 import {UTF8_TEXT_DECODER, UTF8_TEXT_ENCODER} from '@roj234/shared';
 import {base64DecodeToUint8Array} from "@roj234/shared/base64";
 
+const isNode = !import.meta.env?.MODE;
+
 /**
  *
  * @param {string} type
@@ -150,14 +152,12 @@ class JSZip {
 
 		if (createFolders) {
 			const dirs = key.split('/').filter(Boolean);
-			for (let i = 1; i < dirs.length - 1; i++) {
+			for (let i = 1; i < dirs.length; i++) {
 				const dirKey = dirs.slice(0, i).join('/')+'/';
-				if (!this.files[dirKey]) {
-					this.files[key] = new ZipObject(key, {
-						date,
-						dir: true,
-					});
-				}
+				this.files[dirKey] ??= new ZipObject(dirKey, {
+					date,
+					dir: true,
+				});
 			}
 		}
 
@@ -220,10 +220,10 @@ class JSZip {
 	} = {}, onUpdate) {
 		const writer = ZipWriter();
 
-		let i = 0;
 		const entries = Object.entries(this.files);
 		let size = entries.length;
-		for (const [name, entry] of entries) {
+		for (let i = 0; i < entries.length; i++){
+			const [name, entry] = entries[i];
 			if (entry.dir) continue;
 
 			let data = entry._data;
@@ -240,7 +240,7 @@ class JSZip {
 				});
 			}
 
-			onUpdate?.(++i / size * 100, name);
+			onUpdate?.((i+1) / size * 100, name);
 		}
 
 		const blob = writer.finish(mimeType);
@@ -262,7 +262,10 @@ class JSZip {
 		const files = this.files;
 		for (const fullPath in files) {
 			if (!fullPath.startsWith(prefix)) continue;
-			callback(fullPath.slice(prefixLen), files[fullPath]);
+			const relativePath = fullPath.slice(prefixLen);
+			// 前缀本身（folder('dir').forEach 里的 'dir/'）不算内容，跳过
+			if (!relativePath) continue;
+			callback(relativePath, files[fullPath]);
 		}
 	}
 
@@ -302,9 +305,9 @@ class JSZip {
 		// Coerce to Blob for ZipReader
 		let blob;
 		if (data instanceof Blob) {
-			blob = data;
+			blob = isNode ? Buffer.from(await data.arrayBuffer()) : data;
 		} else if (data instanceof Uint8Array || data instanceof ArrayBuffer) {
-			blob = new Blob([data]);
+			blob = isNode ? Buffer.from(data) : new Blob([data]);
 		} else {
 			throw new Error('JSZip.loadAsync: expected Blob, Uint8Array, or ArrayBuffer');
 		}

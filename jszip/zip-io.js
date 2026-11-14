@@ -417,7 +417,7 @@ export async function ZipReader(blob, {verify} = {}) {
 		 * @return {Promise<Uint8Array | Buffer>}
 		 */
 		async get(name) {
-			const entry = entries.get(name);
+			const entry = typeof name === 'string' ? entries.get(name) : name;
 			if (!entry) return null;
 
 			const rawData = await this.getRaw(entry);

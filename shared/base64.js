@@ -30,6 +30,7 @@ export const createBase64Encoder = (urlSafe, bufferCapacity = 1024) => {
 	 */
 	function *encode(input) {
 		const inputLen = input.length;
+		const globalEnd = inputLen - 3;
 		let inputPtr = 0;
 		let outputPtr = 0;
 
@@ -43,9 +44,13 @@ export const createBase64Encoder = (urlSafe, bufferCapacity = 1024) => {
 			buf[outputPtr++] = tab[((a & 0x03) << 4) | (b >> 4)];
 			buf[outputPtr++] = tab[((b & 0x0f) << 2) | (c >> 6)];
 			buf[outputPtr++] = tab[c & 0x3f];
+
+			if (inputPtr >= globalEnd) {
+				yield buf.subarray(0, outputPtr);
+				outputPtr = 0;
+			}
 		}
 
-		const globalEnd = inputLen - 3;
 		const chunkSize = ((bufferCapacity >> 2) - 1) * 3;
 
 		while (inputPtr < globalEnd) {
@@ -117,17 +122,25 @@ export const createBase64Decoder = (bufferCapacity = 1024) => {
 	 */
 	function *decode(input) {
 		const inputLen = input.length;
+		const globalEnd = inputLen - 4;
+
 		let inputPtr = 0;
 		let outputPtr = 0;
 
 		if (tail) {
 			while (tail < 4 && inputPtr < inputLen) buf[tail++] = input.charCodeAt(inputPtr++);
 			if (tail < 4) return;
+			if (inputPtr >= inputLen) return;
+
 			emit4();
 			outputPtr = 3;
+
+			if (inputPtr >= globalEnd) {
+				yield buf.subarray(0, outputPtr);
+				outputPtr = 0;
+			}
 		}
 
-		const globalEnd = inputLen - 4;
 		const chunkSize = (bufferCapacity / 3) | 0;
 
 		while (inputPtr < globalEnd) {

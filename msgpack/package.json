@@ -1,6 +1,6 @@
 {
 	"name": "@roj234/msgpack",
-	"version": "2.0.0",
+	"version": "2.0.1",
 	"description": "Msgpack encoder/decoder with schema functionality.",
 	"type": "module",
 	"license": "BSD-3-Clause",
@@ -13,5 +13,8 @@
 	},
 	"dependencies": {
 		"@roj234/shared": "^1.0.0"
+	},
+	"scripts": {
+		"test": "node --test \"test/*.test.js\""
 	}
 }

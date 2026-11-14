@@ -1,3 +1,6 @@
+
+type Descents<K, V> = Map<K, { v: V, c: null | Descents<K, V> }>;
+
 export class NestedMap<K = any, V = any> {
     /**
      * @param entries 可选的初始 [键, 值] 对迭代器。
@@ -25,7 +28,7 @@ export class NestedMap<K = any, V = any> {
      * @param keys 复合键路径数组
      * @returns 子树 Map，不存在则返回 undefined
      */
-    getChildren(keys: K[]): Map<K, any> | undefined;
+    getChildren(keys: K[]): Descents<K, V> | undefined;
 
     /**
      * 判断键是否存在。

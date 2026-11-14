@@ -18,5 +18,8 @@
 	},
 	"dependencies": {
 		"@roj234/shared": "^1.2.0"
+	},
+	"scripts": {
+		"test": "node --test \"test/*.test.js\""
 	}
 }

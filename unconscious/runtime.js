@@ -1574,7 +1574,7 @@ export const $forElseAsyncState = (state, renderItem, emptyElement, loadingEleme
 };
 //endregion
 
-export {$vforeach, $vforElse} from "./common/vforeach.js";
+export const $vforeach = null, $vforElse = null;
 
 //region 动画管理 $animate
 const $ANIM_CANCEL = debugSymbol("AnimationCancel");

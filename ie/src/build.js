@@ -500,7 +500,8 @@ export async function build(options = {}) {
 
 	const bundleObject = Object.fromEntries(files);
 	for (const plugin of config.plugins) {
-		if (!plugin.generateBundle) continue;
+		let generateBundle = plugin.generateBundle;
+		if (!generateBundle) continue;
 
 		const hookThis = {
 			info: m => log.info(`[plugin ${plugin.name}] ${m}`),
@@ -514,7 +515,12 @@ export async function build(options = {}) {
 			getFileName: name => name,
 		};
 
-		await plugin.generateBundle.call({...hookThis, ...plugin}, outputOptions, bundleObject, false);
+		if (typeof generateBundle === 'object') {
+			if (generateBundle.order !== 'post') continue;
+			generateBundle = generateBundle.handler;
+		}
+
+		await generateBundle.call({...hookThis, ...plugin}, outputOptions, bundleObject, false);
 	}
 
 	await Promise.all(tasks);

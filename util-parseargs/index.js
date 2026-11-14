@@ -1,4 +1,3 @@
-
 export class ParseArgsError extends Error {
 	constructor(message) {
 		super(message);
@@ -10,9 +9,19 @@ const BOOLEAN = 'boolean';
 const STRING = 'string';
 
 /**
- * @param {ParseArgsOptions} options
+ * @param {string} name
+ * @param {string} raw
  */
-function parseOptions(options) {
+const parseBoolean = (name, raw) => {
+	if (/^(?:yes|true)$/i.test(raw)) return true;
+	if (/^(?:no|false)$/i.test(raw)) return false;
+	throw new ParseArgsError(`选项 '--${name}' 只接受布尔值`);
+};
+
+/**
+ * @param {ParseArgsOptions} [options]
+ */
+function parseOptions(options = {}) {
 	const longs = new Map();
 	const shorts = new Map();
 	const list = [];
@@ -41,7 +50,7 @@ function parseOptions(options) {
 
 /**
  * @param {string[]} [args]
- * @param {ParseArgsOptions} options
+ * @param {ParseArgsOptions} [options]
  * @return {{positionals: string[], values: Record<string, boolean | string | string[]>}}
  */
 export const parseArgs = ({ args = process.argv.slice(2), options } = {}) => {
@@ -61,69 +70,87 @@ export const parseArgs = ({ args = process.argv.slice(2), options } = {}) => {
 		}
 	};
 
-	const setOpt = (name, value, negate) => {
-		let opt = longs.get(name);
+	/**
+	 * raw 为 undefined 表示「没给值」，空串表示「给了空值」，两者不能混为一谈。
+	 * @param {string} name
+	 * @param {string | undefined} raw
+	 */
+	const setOpt = (name, raw) => {
+		const opt = longs.get(name);
 
 		if (opt.type === BOOLEAN) {
-			if (!value) {
-				setValue(opt, !negate);
-			} else {
-				if (/(yes|true)/i.test(value)) setValue(opt, true);
-				else if (/(no|false)/i.test(value)) setValue(opt, false);
-				else throw new ParseArgsError(`选项 '--${name}' 只接受布尔值'`);
-			}
-		} else {
-			if (!value) throw new ParseArgsError(`选项 '${name}' 缺少值`,);
-			setValue(opt, value);
+			setValue(opt, raw === undefined ? true : parseBoolean(name, raw));
+			return;
 		}
+
+		if (raw === undefined) throw new ParseArgsError(`选项 '--${name}' 缺少值`);
+		setValue(opt, raw);
 	};
 
 	while (i < args.length) {
 		const arg = args[i];
 
-		if (arg[0] === '-') {
-			const ch = arg[1];
-			if (ch !== '-') {
-				if (arg.length > 1) {
-					const name = shorts.get(ch);
-					if (!name) throw new ParseArgsError(`未知选项 '-${ch}'`);
-					let rest = arg.slice(1);
-					if (!rest) {
-						if (longs.get(name).type !== BOOLEAN) {
-							rest = args[++i];
-						}
-					} else {
-						if (rest[0] === '=') rest = rest.slice(1);
-					}
-					setOpt(name, rest, false);
-					continue;
-				}
-			} else if (arg.length > 2) {
-				const body = arg.slice(2);
-				const eq = body.indexOf('=');
-				let name = eq === -1 ? body : body.slice(0, eq);
-
-				let negate;
-				if (!longs.has(name) && name.startsWith('no-')) {
-					name = name.slice(3);
-					negate = true;
-				}
-
-				let opt = longs.get(name);
-				if (!opt || (negate && opt.type !== BOOLEAN)) throw new ParseArgsError(`未知选项 '--${name}'`);
-
-				let value = eq === -1 && opt.type !== BOOLEAN ? args[++i] : body.slice(eq + 1);
-				if (negate && value) throw new ParseArgsError(`反转布尔选项 '--no-${name}' 不接受值`);
-
-				setOpt(name, value, negate);
-				continue;
-			} else {
-				positionals.push(...args.slice(i + 1));
-				break;
-			}
+		if (arg === '--') {
+			positionals.push(...args.slice(i + 1));
+			break;
 		}
 
-		positionals.push(arg);
+		// 单独的 '-' 也算位置参数（常见的 stdin 占位）
+		if (typeof arg !== 'string' || arg.length < 2 || arg[0] !== '-') {
+			positionals.push(arg);
+			i++;
+			continue;
+		}
+
+		if (arg[1] !== '-') {
+			// 短选项：`-v` / `-v=yes` / `-o out` / `-oout`
+			const ch = arg[1];
+			const name = shorts.get(ch);
+			if (!name) throw new ParseArgsError(`未知选项 '-${ch}'`);
+
+			const opt = longs.get(name);
+			let raw = arg.slice(2);
+			if (raw !== '') {
+				if (raw[0] === '=') raw = raw.slice(1);
+			} else if (opt.type !== BOOLEAN) {
+				raw = args[++i];
+			} else {
+				raw = undefined;
+			}
+
+			setOpt(name, raw);
+			i++;
+			continue;
+		}
+
+		// 长选项：`--flag` / `--flag=yes` / `--opt value` / `--no-flag`
+		const body = arg.slice(2);
+		const eq = body.indexOf('=');
+		let name = eq === -1 ? body : body.slice(0, eq);
+
+		let negate = false;
+		if (!longs.has(name) && name.startsWith('no-')) {
+			name = name.slice(3);
+			negate = true;
+		}
+
+		const opt = longs.get(name);
+		if (!opt || (negate && opt.type !== BOOLEAN)) {
+			throw new ParseArgsError(`未知选项 '--${negate ? `no-${name}` : name}'`);
+		}
+
+		// eq === -1 时不能再 slice(eq + 1)，那会切出整个 body 当成值
+		let raw;
+		if (eq !== -1) raw = body.slice(eq + 1);
+		else if (opt.type !== BOOLEAN) raw = args[++i];
+
+		if (negate) {
+			if (raw !== undefined) throw new ParseArgsError(`反转布尔选项 '--no-${name}' 不接受值`);
+			setValue(opt, false);
+		} else {
+			setOpt(name, raw);
+		}
+
 		i++;
 	}
 

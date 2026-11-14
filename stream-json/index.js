@@ -288,6 +288,7 @@ export function createJsonParser(onValue, {emitDelta, json5, jsonl, yaml, unesca
 					const inTrait = CHAR_TRAITS[input.charCodeAt(i)];
 					if (inTrait & YAML_KEY_END) {
 						pushValue(buf.trim().replace(/  +/g, ' '));
+						if (inTrait & WHITESPACE) continue;
 					} else {
 						if (!(inTrait & CHAR_TRAITS[buf.charCodeAt(buf.length-1)] & WHITESPACE)) {
 							buf += ch;

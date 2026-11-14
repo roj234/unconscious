@@ -12,7 +12,7 @@ import {
 	createBase64Decoder,
 	createBase64Encoder
 } from "@roj234/shared/base64";
-import {inspect} from "@roj234/util-inspect";
+import {inspect, INSPECT_ALL} from "@roj234/util-inspect";
 import {immutableObjectMap} from "@roj234/shared/objects";
 import {setSecrets, setupNetworkGuard} from "./net-guard.js";
 
@@ -109,6 +109,8 @@ const init = ([permissions, hm, prefix]) => {
 
 		const pathModule = immutableObjectMap({ ...emulatedPath, default: emulatedPath });
 
+		const util = immutableObjectMap({ inspect: (arg1) => inspect(arg1, INSPECT_ALL) });
+
 		Object.freeze(Buffer);
 		Object.freeze(emulatedFs)
 		Object.freeze(emulatedPath);
@@ -136,13 +138,14 @@ const init = ([permissions, hm, prefix]) => {
 				return new URL("file://"+emulatedPath.resolve(path1));
 			}
 		}));
-		nodeModules.set('util', immutableObjectMap({ inspect }));
+		nodeModules.set('util', util);
 
 		Object.assign(global, {
 			fs: emulatedFs,
 			path: emulatedPath,
-			Buffer: Buffer,
-			process: process
+			Buffer,
+			process,
+			util
 		});
 	}
 	if (permissions.includes('wasm')) global.WebAssembly = WebAssembly;

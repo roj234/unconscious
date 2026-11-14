@@ -21,7 +21,7 @@ export interface StreamBase64EncoderInstance {
      * 结束编码，处理剩余的尾部字节并补齐填充。
      * 调用后编码器状态重置，可继续用于新的编码流程。
      *
-     * @returns 尾部编码结果（含 padding），可能为空 `Uint8Array`
+     * @returns 尾部编码结果（含 padding），可能为空
      */
     finish(): Uint8Array;
 }
@@ -40,7 +40,7 @@ export interface StreamBase64DecoderInstance {
      * `Uint8Array` 视图（共享内部缓冲区），包含本次解码所产出的完整字节。
      * 解码过程中遇到的不完整组或尾部填充会被保留，等待下一次 `decode()` 或 `finish()` 处理。
      *
-     * @param input - Base64 编码的字符串（可以包含换行等空白字符，内部会自动忽略）
+     * @param input - Base64 编码的字符串
      * @yields 解码后的原始字节
      */
     decode(input: string): Generator<Uint8Array, void>;
@@ -49,7 +49,7 @@ export interface StreamBase64DecoderInstance {
      * 结束解码，处理剩余的残留字节。
      * 调用后解码器状态重置，可继续用于新的解码流程。
      *
-     * @returns 尾部解码结果，可能为空 `Uint8Array`
+     * @returns 尾部解码结果，可能为空
      */
     finish(): Uint8Array;
 }
@@ -57,10 +57,12 @@ export interface StreamBase64DecoderInstance {
 /**
  * 创建一个流式 Base64 编码器。
  *
- * @param urlSafe 是否使用urlSafe字符集
- * @param bufferCapacity - 内部缓冲区容量（字节），默认 `1024`。
- *                         编码器产出片段的大小大约为 `bufferCapacity` 向下取整到 4 的倍数。
- *                         调大可以减少 `yield` 频次，调小可降低内存占用。
+ * - 注意：yield的是共享切片
+ *
+ * @param [urlSafe=false]
+ * @param [bufferCapacity=1024] - 内部缓冲区容量
+ *        解码器每次 `yield` 的字节片段大小大约为该值向下取整到 3 的倍数。
+ *        调大可以减少 `yield` 频次，调小可降低内存占用。
  * @returns 编码器实例，包含 `encode()` 生成器和 `finish()` 方法。
  *
  * @example
@@ -75,17 +77,18 @@ export interface StreamBase64DecoderInstance {
  * ```
  */
 export function createBase64Encoder(
-    urlSafe?: boolean = false,
-    bufferCapacity?: number = 1024,
+    urlSafe?: boolean,
+    bufferCapacity?: number,
 ): StreamBase64EncoderInstance;
 
 /**
  * 创建一个流式 Base64 解码器。
  *
- * @param bufferCapacity - 内部缓冲区容量（字节），默认 `1024`。
- *                         解码器每次 `yield` 的字节片段大小大约为该值向下取整到 3 的倍数。
- *                         调大可以减少 `yield` 频次，调小可降低内存占用。
- * @returns 解码器实例，包含 `decode()` 生成器和 `finish()` 方法。
+ * - 注意：yield的是共享切片
+ *
+ * @param [bufferCapacity=1024] - 内部缓冲区容量
+ *        解码器每次 `yield` 的字节片段大小大约为该值向下取整到 3 的倍数。
+ *        调大可以减少 `yield` 频次，调小可降低内存占用。
  *
  * @example
  * ```typescript
@@ -99,16 +102,15 @@ export function createBase64Encoder(
  * ```
  */
 export function createBase64Decoder(
-    bufferCapacity?: number = 1024,
+    bufferCapacity?: number,
 ): StreamBase64DecoderInstance;
 
 /**
  * 将输入数据编码为 Base64 字符串。
  *
  * @param input - 要编码的原始数据，可以是字符串（UTF-8 编码）或 Uint8Array
- * @param urlSafe - 是否使用 URL 安全的 Base64 字符集（将 +/ 替换为 -_，并省略末尾的 `=` 填充），默认为 `false`
- * @param bufferCapacity - 编码缓冲区容量（字节），默认 1024。适当调大可能提高性能。
- * @returns 编码后的 Base64 字符串，不含换行符
+ * @param [urlSafe=false] - 使用 URL 安全的 Base64 字符集（将 +/ 替换为 -_，并省略末尾的 `=` 填充）
+ * @param [bufferCapacity=1024] - 编码缓冲区容量，适当调大可能提高性能。
  *
  * @example
  * ```typescript
@@ -119,18 +121,15 @@ export function createBase64Decoder(
  */
 export function base64Encode(
     input: string | Uint8Array,
-    urlSafe?: boolean = false,
-    bufferCapacity?: number = 1024
+    urlSafe?: boolean,
+    bufferCapacity?: number
 ): string;
 
 /**
  * 将 Base64 字符串或二进制数据解码为 Uint8Array。
  *
- * @param input - Base64 编码的字符串，或原始 Base64 字符的 Uint8Array（ASCII 字节）
- * @param bufferCapacity - 解码缓冲区容量（字节），默认 4096。适当调大可能提高性能。
- * @returns 解码后的原始二进制数据
- *
- * @throws {Error} 如果输入包含非法 Base64 字符
+ * @param input
+ * @param [bufferCapacity=4096] - 解码缓冲区容量。适当调大可能提高性能。
  *
  * @example
  * ```typescript
@@ -139,18 +138,15 @@ export function base64Encode(
  */
 export function base64DecodeToUint8Array(
     input: string | Uint8Array,
-    bufferCapacity?: number = 4096
+    bufferCapacity?: number
 ): Uint8Array;
 
 /**
  * 将 Base64 数据解码为指定字符集的字符串。
  *
- * @param input - Base64 编码的字符串，或原始 Base64 字符的 Uint8Array（ASCII 字节）
- * @param charset - 解码后字符串的字符编码，默认为 `'utf-8'`
- * @param bufferCapacity - 解码缓冲区容量（字节），默认 4096。适当调大可能提高性能。
- * @returns 解码后的字符串
- *
- * @throws {Error} 如果输入包含非法 Base64 字符或指定的字符集不支持
+ * @param input
+ * @param [charset="utf-8"] - 输出字符串的编码。
+ * @param [bufferCapacity=4096] - 解码缓冲区容量。适当调大可能提高性能。
  *
  * @example
  * ```typescript
@@ -160,6 +156,6 @@ export function base64DecodeToUint8Array(
  */
 export function base64DecodeToString(
     input: string | Uint8Array,
-    charset?: string = 'utf-8',
-    bufferCapacity?: number = 4096
+    charset?: string,
+    bufferCapacity?: number
 ): string;
