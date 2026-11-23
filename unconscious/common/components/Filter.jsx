@@ -1,4 +1,4 @@
-import {AS_IS, preserveState, unconscious} from "unconscious";
+import {$state, AS_IS, preserveState, unconscious} from "unconscious";
 import './filter.css';
 
 const DEFAULT_REQUIRE_FUNC = (name, item) => {
@@ -454,7 +454,7 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 				/** @type {string[]} */
 				let values = [];
 
-				const list = <div className='strlist-col list-items' />;
+				const list = <div className={'strlist -list'+(item.half?' -half':'')} />;
 
 				const setWarning = (wrapper, text) => {
 					wrapper.firstElementChild.classList.toggle('invalid', !!text);
@@ -478,8 +478,6 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 					values = [];
 					let firstError;
 					for (let wrapper of list.children) {
-						wrapper = wrapper.firstElementChild;
-
 						const input = wrapper.firstElementChild;
 						let value = input.value;
 						const result = (value || item.required) && validate(value);
@@ -520,19 +518,18 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 						placeholder={item.placeholder} value={value}
 						onInput={() => syncState(false)} onChange={() => syncState(true)} />;
 
-					return <div>
-						<div className="strlist-col">{input}</div>
-						<button className='remove' type='button' title='删除' aria-label='删除'
+					return <div className="strlist -item">{input}
+						<button className='del' type='button' title='删除' aria-label='删除'
 								onClick={({target}) => {
-									target.closest('.remove').parentElement.remove();
+									target.closest('.del').parentElement.remove();
 									syncState(true);
 								}}>
 							<i className='ri-delete-bin-line'></i>
 						</button>
-					</div>;
+					</div>
 				};
 
-				row = <div className='strlist-col'>
+				row = <div className='strlist'>
 					{list}
 					<button className='chip' type='button' onClick={() => {
 						const newRow = makeRow('');
@@ -547,19 +544,46 @@ export function Filter({config, choices, onChange, fillPlaceholder = true}) {
 				addRefreshHandler(id, undo);
 			}
 			break;
+			case "file": {
+				const blob = $state();
+
+				const setValue = (newValue) => {
+					emit(id, newValue);
+					state[id] = newValue;
+					blob.value = newValue;
+				}
+
+				row = <div className="choice-scroll radio row">
+					<label className="btn chip" class:active={blob}>
+						{() => unconscious(blob) ? "更换" : "上传"}
+						<input type="file" accept={item.accept} style="display:none" onChange={({target}) => {
+							const file = target.files[0];
+							setValue(file);
+						}}/>
+					</label>
+					<button className="btn danger" disabled={() => !unconscious(blob)} style="border-radius:0" onClick={() => {
+						setValue();
+					}}>清除
+					</button>
+					<span style="margin-left:8px">{() => blob.name}</span>
+				</div>;
+
+				addRefreshHandler(id, () => {blob.value = state[id];});
+			}
+			break;
 		}
 
 		const isString = typeof id === "string";
 		return (<div className="filter-row" data-id={isString ? id : undefined} _key={id}>
 			{name && (<>
-					<div className="filter-label">{name}</div>
-					{typeof title === "string" && <div className="filter-label secondary">{title}</div>}
-				</>)}
+				<div className="filter-label">{name}</div>
+				{typeof title === "string" && <div className="filter-label secondary">{title}</div>}
+			</>)}
 			{row}
 		</div>);
 	};
 
-	const div = <div className="filter" />;
+	const div = <div className="filter"/>;
 	config.forEach((item, i) => {
 		const el = itemRenderer(item);
 		if (item.inline) {

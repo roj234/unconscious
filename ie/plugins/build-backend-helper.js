@@ -2,6 +2,8 @@ import path from 'node:path';
 import {readdir, readFile, stat} from 'node:fs/promises';
 import {ZipWriter} from "@roj234/jszip/io";
 import {packageResolve} from "../utils/packageResolve.js";
+import {safeStat} from "../utils/serveFile.js";
+import os from "node:os";
 
 /**
  * 删除JS代码中的注释
@@ -118,12 +120,15 @@ export let reload = _reload;
 export function nodeResolve({removeComment = true, basePath} = {}) {
 	return {
 		name: 'node-resolve',
-		resolveId(id, importer) {
+		async resolveId(id, importer) {
 			// node 自带模块
 			if (id.startsWith('node:')) return { id, external: true };
 			// 导入的
 			if (id.startsWith('.')) return;
-			if (id[0] === '/') return { id: path.join(basePath, id) };
+			if (id[0] === '/') {
+				const f = path.join(basePath, id);
+				if (os.platform() === 'win32' || (await safeStat(f)).isFile()) return { id: f };
+			}
 			if (path.isAbsolute(id)) return { id };
 			return packageResolve(id);
 		},

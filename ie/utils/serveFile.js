@@ -97,6 +97,7 @@ export const serveFile = async (ctx, info, filePath) => {
 	if (name) headers['Content-Disposition'] = `attachment; filename="${encodeURIComponent(name)}"`;
 
 	ctx.res.writeHead(200, headers);
+	if (ctx.req.method === 'HEAD') return;
 
 	return pipeline(createReadStream(filePath), ctx.res);
 }

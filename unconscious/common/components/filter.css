@@ -236,7 +236,7 @@ textarea.text-input {
 }
 
 /* 字符串列表 */
-.strlist-col {
+.strlist {
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -246,42 +246,50 @@ textarea.text-input {
         color: var(--muted);
     }
 
-    .remove {
-        width: 34px;
-        height: 34px;
-        border: 1px solid transparent;
-        border-radius: 8px;
-        background: var(--chip-bg);
-        transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    &.-list {
+        max-height: 260px;
+        overflow-y: auto;
+        scrollbar-gutter: stable;
+        padding: 0 2px 1px 0;
 
-        &:hover {
-            background: var(--chip-hover);
-            border-color: var(--error);
-            color: var(--error);
+        &.-half {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
         }
-        &:focus-visible {
-            outline: none;
-            border-color: var(--error);
-            box-shadow: 0 0 0 2px var(--error-bg);
+
+        &:empty {
+            display: none;
         }
     }
-}
 
-.list-items {
-    max-height: 260px;
-    overflow-y: auto;
-    scrollbar-gutter: stable;
-    padding-right: 2px;
+    .-item {
+        position: relative;
 
-    &:empty {
-        display: none;
-    }
+        &:focus-within, &:hover {
+            .del {
+                display: block;
+            }
+        }
 
-    & > div {
-        display: flex;
-        align-items: center;
-        gap: 8px;
+        .del {
+            display: none;
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            width: 27px;
+            height: 27px;
+            border-radius: 8px;
+            transition: background 0.15s ease, outline 0.15s ease, color 0.15s ease;
 
-        & > div { flex: 1; }
+            &:hover, &:focus-visible {
+                background: var(--chip-hover);
+                color: var(--error);
+            }
+
+            &:focus-visible {
+                outline: 1px solid var(--error);
+                box-shadow: 0 0 0 2px var(--error-bg);
+            }
+        }
     }
 }

@@ -927,19 +927,24 @@ function parser_write(p, chunk) {
 				};
 
 				if (char === '`' || (match = fuckRegexp())) {
-					// `[^`], 但是如果空格再多考虑一个字符
-					if (p.pending && char !== '`') {
-						const right = match[1];
-						p.text += match[0].trimEnd();
-						p.pending = "";
+					if (p.pending !== '\\') {
+						// `[^`], 但是如果空格再多考虑一个字符
+						if (p.pending && char !== '`') {
+							const right = match[1];
+							p.text += match[0].trimEnd();
+							p.pending = "";
 
-						flush_text(p);
-						end_token(p);
-						p.fence_start = 0;
+							flush_text(p);
+							end_token(p);
+							p.fence_start = 0;
 
-						parser_write(p, right+char);
+							parser_write(p, right+char);
+						} else {
+							p.pending = pending_with_char;
+						}
 					} else {
-						p.pending = pending_with_char;
+						p.pending = '';
+						p.text += char;
 					}
 
 					continue
@@ -954,6 +959,7 @@ function parser_write(p, chunk) {
 						flush_text(p)
 						continue
 					/* Trim space before ` */
+					case '\\':
 					case ' ':
 						p.text += p.pending
 						p.pending = char
