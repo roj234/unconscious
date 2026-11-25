@@ -15,6 +15,7 @@ import {
 import {inspect, INSPECT_ALL} from "@roj234/util-inspect";
 import {immutableObjectMap} from "@roj234/shared/objects";
 import {setSecrets, setupNetworkGuard} from "./net-guard.js";
+import {parseArgs} from "@roj234/util-parseargs";
 
 // ===== Helper functions =====
 
@@ -109,14 +110,13 @@ const init = ([permissions, hm, prefix]) => {
 
 		const pathModule = immutableObjectMap({ ...emulatedPath, default: emulatedPath });
 
-		const util = immutableObjectMap({ inspect: (arg1) => inspect(arg1, INSPECT_ALL) });
+		const util = immutableObjectMap({ inspect: (arg1) => inspect(arg1, INSPECT_ALL), parseArgs });
 
 		Object.freeze(Buffer);
 		Object.freeze(emulatedFs)
 		Object.freeze(emulatedPath);
 
-		// buffer polyfill 依赖它，所以我就不独立打包了
-		nodeModules.set('base64', immutableObjectMap({
+		nodeModules.set('@roj234/shared/base64', immutableObjectMap({
 			createBase64Encoder,
 			createBase64Decoder,
 			base64Encode,

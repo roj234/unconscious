@@ -10,9 +10,9 @@ DEC[B64_URL_TAB[62]] = 62;
 DEC[B64_URL_TAB[63]] = 63;
 DEC[EQ] = 0;
 
-export const createBase64Encoder = (urlSafe, bufferCapacity = 1024) => {
+export const createBase64Encoder = (urlSafe, bufferCapacity = 1024, buf) => {
 	if (bufferCapacity < 8) bufferCapacity = 8;
-	const buf = new Uint8Array(bufferCapacity);
+	buf ??= new Uint8Array(bufferCapacity);
 	let tab, pad;
 	if (typeof urlSafe !== 'number') {
 		tab = urlSafe ? B64_URL_TAB : B64_TAB;

@@ -267,6 +267,11 @@ class WS2 extends EventEmitter {
 		clearInterval(this.#heartbeatTimer);
 	}
 
+	_emitError(e) {
+		if (this.listenerCount('error')) this.emit('error', e);
+		else console.error(e);
+	}
+
 	/** @private 绑定 socket 并挂接事件 (服务端/客户端共用) */
 	_attach(socket, head) {
 		this.readyState = OPEN;
@@ -282,7 +287,7 @@ class WS2 extends EventEmitter {
 
 		socket.on('error', (e) => {
 			if (this.readyState >= CLOSING) return;
-			this.emit('error', e);
+			this._emitError(e);
 		});
 		socket.on('end', () => {
 			if (this.readyState === OPEN) {
@@ -618,7 +623,7 @@ class WS2 extends EventEmitter {
 			inflate = this.#inflater = createInflateRaw({ windowBits: this.inflateWindowBits });
 			inflate.on('error', (e) => {
 				this.#socket.resume();
-				this.emit('error', e);
+				this._emitError(e);
 				this.close(ERR_INVALID_DATA, 'inflate failed');
 			})
 		}
@@ -1217,12 +1222,12 @@ export function WebSocket(url, options = {}) {
 
 	const onError = (err) => {
 		socket?.destroy();
-		ws.emit('error', err);
+		ws._emitError(err);
 		ws._onClosed();
 	};
 	const onPreClose = () => {
 		if (ws.readyState === CONNECTING) {
-			ws.emit('error', new Error('WebSocket was closed before the connection was established'));
+			ws._emitError(new Error('WebSocket was closed before the connection was established'));
 			ws._onClosed();
 		}
 	};

@@ -270,14 +270,14 @@ export async function createServer(options = {}) {
 	}
 
 	// ---------- 模块管线 ----------
-	function definePrelude() {
+	function definePrelude(needEnv) {
 		const env = {
 			DEV: config.mode === 'development',
 			PROD: config.mode !== 'development',
 			MODE: config.mode,
 			BASE_URL: config.base || '/'
 		};
-		const parts = [`import.meta.env = ${JSON.stringify(env)};`];
+		const parts = needEnv ? [`import.meta.env = ${JSON.stringify(env)};`] : [];
 		for (const [key, value] of Object.entries(config.define || {})) {
 			if (/^[A-Za-z_$][\w$]*$/.test(key)) parts.push(`const ${key} = (${value});`);
 		}
@@ -313,8 +313,13 @@ export async function createServer(options = {}) {
 				else if (ext && !U.isJsFile(resolved.id) && ext !== '.css') url += '?url';
 			}
 
-			const mtimeMs = fs.statSync(resolved.id).mtimeMs;
-			if (mtimeMs > pageOpenTime) url = U.withQuery(url, 't', mtimeMs);
+			try {
+				const mtimeMs = fs.statSync(resolved.id).mtimeMs;
+				if (mtimeMs > pageOpenTime) url = U.withQuery(url, 't', mtimeMs);
+			} catch (e) {
+				log.warn(`无法解析 "${raw}" (来自 ${where})`);
+				continue;
+			}
 
 			if (url !== raw) {
 				const edit = rewriteSource(node, url);
@@ -355,7 +360,8 @@ export async function createServer(options = {}) {
 		}
 		mod.accepted = code.includes('import.meta.hot.accept(');
 
-		if (code.includes('import.meta.env') || Object.keys(config.define || {}).length) code = definePrelude() + code;
+		const needEnv = code.includes('import.meta.env');
+		if (needEnv || Object.keys(config.define || {}).length) code = definePrelude(needEnv) + code;
 		code = rewriteImports(code, fileId, params);
 
 		if (code.includes('import.meta.hot')) {

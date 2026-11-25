@@ -389,7 +389,7 @@ const deepProxyCache = /* #__PURE__ */ new WeakMap();
  * 依赖捕获
  * @type {Set<Reactive>}
  */
-let dependCapture;
+export let dependCapture;
 
 export const __createState = (value) => {
 	return {
@@ -1441,10 +1441,14 @@ export const $foreach = (list, renderItem, keyFunc = AS_IS, {
 	currentKeys = new Map,
 	onReuse = AS_IS
 } = {}) => {
+	const canRemove = dependCapture && !dependCapture.has(list);
+
 	if (!isReactive(list)) {
 		//if (import.meta.env.DEV) _devError("不应对非响应式数组使用$foreach; 以Array.prototype.map代替");
 		return list && list.map(renderItem);
 	}
+
+	if (canRemove) dependCapture.delete(list);
 
 	/**
 	 * @type {HTMLElement}
@@ -1804,12 +1808,16 @@ export const $asyncState = (fetcher, value, initialValue) => {
 	};
 	const proxy = new Proxy(state, ShallowProxy);
 
-	const success = data => {
+	let version = 0;
+
+	const success = (data, v) => {
+		if (v && v !== version) return;
 		state.loading = false;
 		state.value = data;
 		$update(proxy);
 	};
-	const failure = error => {
+	const failure = (error, v) => {
+		if (v && v !== version) return;
 		state.loading = false;
 		state.error = error || true;
 		$update(proxy);
@@ -1821,11 +1829,13 @@ export const $asyncState = (fetcher, value, initialValue) => {
 		// 直接触发更新不修改proxy.value
 		// 这保证了加载新数据时, 旧数据依然可用, 从而不会给用户展示很多次Loading
 		$update(proxy);
+		const v = ++version;
 
 		try {
 			const data = fetcher(unconscious(value));
 			if (data instanceof Promise) {
-				data.then(success).catch(failure);
+				state.promise = data;
+				data.then((r) => success(r, v)).catch(r => failure(r, v));
 			} else {
 				success(data);
 			}
@@ -1834,7 +1844,10 @@ export const $asyncState = (fetcher, value, initialValue) => {
 		}
 	};
 
-	if (isReactive(value)) $watch(value, callback, initialValue === undefined);
+	if (isReactive(value)) {
+		$watch(value, callback, initialValue === undefined);
+		state[$DISPOSABLE] = [[value], callback];
+	}
 	// 类似初始化的场景
 	else callback();
 

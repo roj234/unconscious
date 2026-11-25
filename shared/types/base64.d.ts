@@ -63,6 +63,7 @@ export interface StreamBase64DecoderInstance {
  * @param [bufferCapacity=1024] - 内部缓冲区容量
  *        解码器每次 `yield` 的字节片段大小大约为该值向下取整到 3 的倍数。
  *        调大可以减少 `yield` 频次，调小可降低内存占用。
+ * @param [buffer] - 外部传入可复用的缓冲区
  * @returns 编码器实例，包含 `encode()` 生成器和 `finish()` 方法。
  *
  * @example
@@ -79,6 +80,7 @@ export interface StreamBase64DecoderInstance {
 export function createBase64Encoder(
     urlSafe?: boolean,
     bufferCapacity?: number,
+    buffer?: Uint8Array
 ): StreamBase64EncoderInstance;
 
 /**

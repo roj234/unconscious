@@ -35,7 +35,9 @@ export const serveFile = async (ctx, info, filePath) => {
 
 	const fileSize = info.size;
 	const fileType = info.type || "application/octet-stream";
-	const cacheControl = info.volatile ? 'public, no-cache, max-age=3600' : 'public, max-age=31536000, immutable';
+	const cacheControl = info.volatile ? 'public, no-cache' : 'public, max-age=31536000, immutable';
+
+	ctx.res.setHeader("Access-Control-Expose-Headers", "content-range, accept-ranges");
 
 	// 检查并解析 Range 头
 	let range = ctx.req.headers['range'];
@@ -81,6 +83,7 @@ export const serveFile = async (ctx, info, filePath) => {
 			'Accept-Ranges': 'bytes'
 		});
 
+		if (ctx.req.method === 'HEAD') return ctx.res.end();
 		// 管道部分内容
 		return pipeline(createReadStream(filePath, { start, end }), ctx.res);
 	}
@@ -97,7 +100,6 @@ export const serveFile = async (ctx, info, filePath) => {
 	if (name) headers['Content-Disposition'] = `attachment; filename="${encodeURIComponent(name)}"`;
 
 	ctx.res.writeHead(200, headers);
-	if (ctx.req.method === 'HEAD') return;
-
+	if (ctx.req.method === 'HEAD') return ctx.res.end();
 	return pipeline(createReadStream(filePath), ctx.res);
 }

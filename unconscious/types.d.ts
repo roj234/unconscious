@@ -126,15 +126,6 @@ export function $vforeach<T, K, E extends Renderable>(
         onReuse?: (node: E, item: T, index: number) => void;
     }
 ): AppendObserver;
-export function $vforElse<T, K, E extends Renderable>(
-    list: T[] | Reactive<T[]>,
-    renderItem: (item: T, index: number) => E,
-    keyFunc?: (item: T, index: number) => K,
-    emptyElement?: Renderable,
-    options?: {
-        onReuse?: (node: E, item: T, index: number) => void;
-    }
-): AppendObserver;
 
 export class AppendObserver extends HTMLElement {
     constructor(callback: (self: AppendObserver) => void);
@@ -224,6 +215,7 @@ export function $store<T>(
 export type ReactivePromise<T> = Reactive<T> & {
     loading: boolean;
     error: false | Error;
+    promise?: Promise<T>;
 }
 
 /**
